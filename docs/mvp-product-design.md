@@ -5,7 +5,7 @@
 | **Document** | Product Design / System Design — MVP |
 | **Author** | TBD |
 | **Date** | 2026-07-20 |
-| **Status** | Draft (rev 2.2 — BLE transport spike added; WiFi pull provisional) |
+| **Status** | Draft (rev 2.3 — PR0 + PR1a + PR1b done; BLE transport spike next) |
 | **Scope** | Read-only agent status on LilyGo T5-ePaper |
 | **Repo** | `agent-control-deck` (this monorepo) |
 
@@ -15,7 +15,7 @@
 
 **Agent Control Deck** is a desk- and room-portable **e-paper status display** for AI coding agents. Despite the product name, the MVP is a **status deck only**: a **read-only** glanceable view of agent state (name, task summary, running/idle/error, progress, last update) so a developer can leave their phone in their pocket while agents run on a host machine. **Control features (kill, approve, inject prompt, or any intervention) are a future product generation, not a hidden MVP toggle.**
 
-Today the monorepo contains only a PlatformIO firmware hello-world that draws static text on a **LilyGo T5-ePaper** (classic ESP32-WROVER, 960×540, 4-bit grayscale). There is no networking, no host software, and no agent integration. This document defines the product problem, the end-to-end architecture (device firmware + host status bridge + transport + data model), and an ordered PR plan that grows from the current `deck/src/main.cpp` hello-world into a working read-only status product.
+Today the monorepo is under git with a **flashable firmware demo**: `display_*` helpers plus a compile-time `DeckView` multi-session status layout (header + 3 rows + footer, ASCII tokens) on a **LilyGo T5-ePaper** (classic ESP32-WROVER, 960×540, 4-bit grayscale). There is still no networking, no host software, and no agent integration. This document defines the product problem, the end-to-end architecture (device firmware + host status bridge + transport + data model), and an ordered PR plan that grows from that demo into a working read-only status product.
 
 **Transport is under active re-decision (rev 2.2):** host machines may be **firewalled against inbound TCP** (no bridge listen port), SoftAP on the deck is **not viable** (host must keep its own Wi‑Fi for agents/internet), and shipping status via a third machine is a **compliance risk** for agent/task text. A **BLE host-push spike** is the next validation step before committing to LAN reverse-push (Option B) or any host-as-server design. USB serial remains the desk/debug exclusive-mode path. Control/intervention is **explicitly out of scope**.
 
@@ -27,13 +27,19 @@ Today the monorepo contains only a PlatformIO firmware hello-world that draws st
 
 | Path | What exists |
 |------|-------------|
-| [`README.md`](../README.md) | Monorepo stub; only `deck/` listed |
+| [`.gitignore`](../.gitignore) | Root hygiene: `.pio/`, secrets, venvs, `.env*`, OS/IDE junk (**PR0**) |
+| [`README.md`](../README.md) | Monorepo map; points at `deck/README.md` |
 | [`deck/`](../deck/) | PlatformIO firmware project |
 | [`deck/platformio.ini`](../deck/platformio.ini) | Env `T5-ePaper`, `espressif32@6.12.0`, Arduino, `BOARD_HAS_PSRAM`, lib_deps → `file://../../LilyGo-EPD47` only |
 | [`deck/boards/T5-ePaper.json`](../deck/boards/T5-ePaper.json) | Board def: ESP32, 16MB flash, WiFi+BT, max RAM 327680 (+ external PSRAM); sets `ARDUINO_USB_MODE=1` (board-family template; classic T5 uses external USB-UART as deck README states) |
-| [`deck/src/main.cpp`](../deck/src/main.cpp) | PSRAM framebuffer, `epd_init` / clear / FiraSans text / `epd_draw_grayscale_image` / `epd_poweroff`; `loop()` is `delay(10000)` only |
+| [`deck/src/display.h`](../deck/src/display.h) / [`display.cpp`](../deck/src/display.cpp) | `display_init` / framebuffer / `display_present` (**PR1a**) |
+| [`deck/src/status_model.h`](../deck/src/status_model.h) | C-only `DeckView` / session row structs (**PR1b**) |
+| [`deck/src/ui_layout.h`](../deck/src/ui_layout.h) / [`ui_layout.cpp`](../deck/src/ui_layout.cpp) | Header + ≤3 rows + footer; ASCII tokens; geometric progress bars; SCHEMA/STALE/empty frames (**PR1b**) |
+| [`deck/src/main.cpp`](../deck/src/main.cpp) | Compile-time demo `DeckView` → `ui_draw_status` → `display_present`; static `loop()` delay |
 
-**What does not exist yet:** host bridge, status schema, WiFi/USB protocol, config storage, refresh scheduler, agent adapters, monorepo packages beyond `deck/`.
+**Done so far:** **PR0** (git + baseline), **PR1a** (display module), **PR1b** (hardcoded multi-session status layout demo).
+
+**What does not exist yet:** host bridge, status schema package, BLE/USB/WiFi transport, config storage, refresh scheduler, agent adapters, monorepo packages beyond `deck/` + `docs/`.
 
 ### Hardware facts (honest)
 
@@ -944,16 +950,16 @@ PR5 acceptance includes a soak checklist (30 min minimum in PR; 8 h success metr
 
 ## Rollout Plan
 
-Repo is **not yet git**. First step: `git init`, baseline commit, then PRs.
+Git baseline and layout demo are **done** (PR0 + PR1*). Next: BLE spike and schema/bridge in parallel where independent.
 
-| Stage | Mode | Audience |
-|-------|------|----------|
-| 0 | Hello-world (current) | Hardware validation |
-| 1 | UI demo with hardcoded `DeckView` | Layout without radio |
-| 2 | **BLE spike S1–S4** | Decide portable transport |
-| 3 | Mock/file bridge + chosen radio path | End-to-end product pipe |
-| 4 | File + loopback POST hooks | Supported integration |
-| 5 | Option B only if BLE insufficient | LAN reverse-push fallback |
+| Stage | Mode | Status | Audience |
+|-------|------|--------|----------|
+| 0 | Hello-world → git baseline (PR0) | **Done** | Hardware + VCS validation |
+| 1 | UI demo with hardcoded `DeckView` (PR1a + PR1b) | **Done** | Layout without radio |
+| 2 | **BLE spike S1–S4** | Next | Decide portable transport |
+| 3 | Mock/file bridge + chosen radio path | Pending | End-to-end product pipe |
+| 4 | File + loopback POST hooks | Pending | Supported integration |
+| 5 | Option B only if BLE insufficient | Conditional | LAN reverse-push fallback |
 
 **Compile-time flags (spike / provisional):**
 
@@ -1050,32 +1056,35 @@ Repo is **not yet git**. First step: `git init`, baseline commit, then PRs.
 
 ## PR Plan
 
-Repo is not yet under git. **PR0** establishes version control; subsequent PRs assume stacked merges. Each PR leaves the tree buildable.
+Each PR leaves the tree buildable. Stacked branches under `execute-plan/` (or merge to `main` as preferred).
 
-**Critical path (rev 2.2):** complete the **BLE spike (PR-S1…PR-S4)** and apply the [decision matrix](#ble-transport-spike) **before** investing in Option B LAN reverse-push or any host-listen WiFi pull path. Layout/schema/bridge model work (PR1*, PR2, PR3 core) can proceed in parallel because `StatusSnapshot` is transport-agnostic.
+**Progress (rev 2.3):** **PR0**, **PR1a**, and **PR1b** are **done**. Remaining critical path: complete the **BLE spike (PR-S1…PR-S4)** and apply the [decision matrix](#ble-transport-spike) **before** investing in Option B LAN reverse-push or any host-listen WiFi pull path. Schema/bridge model work (PR2, PR3 core) can proceed in parallel with the spike because `StatusSnapshot` is transport-agnostic.
 
-### PR0 — Initialize repository and baseline monorepo hygiene
+### PR0 — Initialize repository and baseline monorepo hygiene ✅ Done
 
 | | |
 |--|--|
+| **Status** | **Done** (2026-07-20) |
 | **Title** | `chore: git init, root gitignore, baseline commit of hello-world deck` |
 | **Files/components** | `.gitignore` (root), light `README.md`, existing `deck/**` |
 | **Depends on** | — |
 | **Description** | Create git repo; ignore `.pio/`, `secrets.h`, Python venvs, `.DS_Store`. Capture hello-world as known-good flashable baseline. |
 
-### PR1a — Firmware: display module extraction
+### PR1a — Firmware: display module extraction ✅ Done
 
 | | |
 |--|--|
+| **Status** | **Done** (2026-07-20) |
 | **Title** | `refactor(deck): extract display power/present helpers from hello-world` |
 | **Files/components** | `deck/src/main.cpp`, `deck/src/display.cpp` / `.h` |
 | **Depends on** | PR0 |
 | **Description** | Move `epd_init` / framebuffer alloc / poweron-clear-draw-poweroff into `display_*` without changing visual output (still hello-world strings). Small, reviewable. |
 
-### PR1b — Firmware: status layout + hardcoded demo DeckView
+### PR1b — Firmware: status layout + hardcoded demo DeckView ✅ Done
 
 | | |
 |--|--|
+| **Status** | **Done** (2026-07-20) |
 | **Title** | `feat(deck): multi-session status layout with ASCII demo fixture` |
 | **Files/components** | `deck/src/ui_layout.cpp`, `deck/src/status_model.h` (C structs only), `main.cpp`, `deck/README.md` |
 | **Depends on** | PR1a |
@@ -1203,7 +1212,7 @@ Repo is not yet under git. **PR0** establishes version control; subsequent PRs a
 
 ```mermaid
 flowchart TD
-  PR0 --> PR1a --> PR1b
+  PR0[PR0 ✅] --> PR1a[PR1a ✅] --> PR1b[PR1b ✅]
   PR0 --> PR2
   PR0 --> PRS1[PR-S1 BLE link]
   PRS1 --> PRS2[PR-S2 chunks]
@@ -1222,10 +1231,10 @@ flowchart TD
   PR3 --> PR10
 ```
 
-**Near-term “spike done” definition:** PR0 + PR-S1…PR-S4 complete and decision matrix recorded in `docs/ble-spike.md` (or this PD).
+**Near-term “spike done” definition:** PR0 ✅ already landed; finish PR-S1…PR-S4 and record the decision matrix in `docs/ble-spike.md` (or this PD).
 
-**MVP “done” definition (post-decision):** Layout + schema + bridge model + **winning transport** showing mock/file sessions on glass with STALE behavior + quickstart. USB desk path and file/POST hooks as supported integration. Scrapers not required.
+**MVP “done” definition (post-decision):** Layout ✅ + schema + bridge model + **winning transport** showing mock/file sessions on glass with STALE behavior + quickstart. USB desk path and file/POST hooks as supported integration. Scrapers not required.
 
 ---
 
-*End of design document (rev 2.2).*
+*End of design document (rev 2.3).*
