@@ -1,0 +1,14 @@
+[
+  {
+    "id": "file:docs",
+    "agent": "other",
+    "title": "docs",
+    "summary": "File-adapter example session",
+    "state": "idle",
+    "progress": null,
+    "detail": null,
+    "started_at": null,
+    "updated_at": "2026-07-20T17:00:00Z",
+    "error": null
+  }
+]
