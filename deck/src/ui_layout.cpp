@@ -17,9 +17,11 @@ static const int32_t kMarginX = 22;
 static const int32_t kMarginY = 18;
 static const int32_t kHeaderH = 48;
 static const int32_t kFooterH = 36;
+static const int32_t kStaleBannerH = 36;
 static const int32_t kLineAdvance = 42; /* FiraSans advance_y is 50; tighter for rows */
 static const int32_t kColorBlack = 0;
 static const int32_t kColorWhite = 0xFF;
+static const int32_t kMaxRowH = 130;
 
 static const char *state_token(DeckSessionState s)
 {
@@ -59,6 +61,21 @@ static const char *state_label(DeckSessionState s)
     }
 }
 
+/** Clamp progress to [0, 1]; non-finite values become 0. */
+static float clamp_progress01(float p)
+{
+    if (p != p) { /* NaN */
+        return 0.0f;
+    }
+    if (p < 0.0f) {
+        return 0.0f;
+    }
+    if (p > 1.0f) {
+        return 1.0f;
+    }
+    return p;
+}
+
 /** Coarse relative age: "0s", "12s", "3m", "2h". */
 static void format_age(uint32_t age_ms, char *out, size_t out_len)
 {
@@ -96,12 +113,8 @@ static void draw_progress_bar(uint8_t *fb, int32_t x, int32_t y, int32_t w, int3
     if (w < 4 || h < 4) {
         return;
     }
-    if (progress < 0.0f) {
-        progress = 0.0f;
-    }
-    if (progress > 1.0f) {
-        progress = 1.0f;
-    }
+    /* Caller should pass already-clamped progress; clamp again defensively. */
+    progress = clamp_progress01(progress);
 
     epd_draw_rect(x, y, w, h, kColorBlack, fb);
 
@@ -153,7 +166,7 @@ static void draw_header(uint8_t *fb, const DeckView *view)
     /* e.g. "demo *  12s  bat --%" — transport label stands in for WiFi in demo */
     snprintf(right, sizeof(right), "%s %s  %s  bat --%%", transport, link_tok, age_buf);
 
-    /* Right-align approximately: ~11 px/char for FiraSans uppercase-ish. */
+    /* Right-align approximately: ~14 px/char for FiraSans. */
     int32_t approx_w = (int32_t)strlen(right) * 14;
     int32_t rx = EPD_WIDTH - kMarginX - approx_w;
     if (rx < EPD_WIDTH / 2) {
@@ -162,6 +175,24 @@ static void draw_header(uint8_t *fb, const DeckView *view)
     draw_text(fb, rx, base_y, right);
 
     draw_hline(fb, kMarginY + kHeaderH);
+}
+
+/**
+ * Thin STALE banner under the header when we still have cached session rows.
+ * Returns vertical offset consumed below the header line.
+ */
+static int32_t draw_stale_banner(uint8_t *fb, const DeckView *view)
+{
+    char age_buf[12];
+    format_age(view->age_ms, age_buf, sizeof(age_buf));
+
+    char line[80];
+    snprintf(line, sizeof(line), "STALE · last ok %s ago · showing cached sessions", age_buf);
+
+    const int32_t y = kMarginY + kHeaderH + 28;
+    draw_text(fb, kMarginX + 10, y, line);
+    draw_hline(fb, kMarginY + kHeaderH + kStaleBannerH);
+    return kStaleBannerH;
 }
 
 static void draw_footer(uint8_t *fb, const DeckView *view)
@@ -194,7 +225,19 @@ static void draw_footer(uint8_t *fb, const DeckView *view)
 
 static void draw_empty_body(uint8_t *fb, const DeckView *view)
 {
-    (void)view;
+    if (view->stale || view->link_state == DECK_LINK_DOWN) {
+        char age_buf[12];
+        format_age(view->age_ms, age_buf, sizeof(age_buf));
+        char line2[64];
+        snprintf(line2, sizeof(line2), "Last ok %s ago", age_buf);
+        draw_centered_block(fb, "NO LINK", line2, "No cached sessions");
+        return;
+    }
+    if (view->link_state == DECK_LINK_DEGRADED) {
+        draw_centered_block(fb, "No agent sessions", "Link degraded · waiting for adapters",
+                            NULL);
+        return;
+    }
     draw_centered_block(fb, "No agent sessions", "Bridge OK · waiting for adapters", NULL);
 }
 
@@ -209,7 +252,8 @@ static void draw_schema_frame(uint8_t *fb, const DeckView *view)
     draw_footer(fb, view);
 }
 
-static void draw_stale_frame(uint8_t *fb, const DeckView *view)
+/** Full-screen NO LINK when stale and nothing cached. */
+static void draw_stale_empty_frame(uint8_t *fb, const DeckView *view)
 {
     char age_buf[12];
     format_age(view->age_ms, age_buf, sizeof(age_buf));
@@ -218,12 +262,12 @@ static void draw_stale_frame(uint8_t *fb, const DeckView *view)
     snprintf(line2, sizeof(line2), "Last ok %s ago", age_buf);
 
     draw_header(fb, view);
-    draw_centered_block(fb, "NO LINK", line2, "Showing cached snapshot (STALE)");
+    draw_centered_block(fb, "NO LINK", line2, "No cached sessions");
     draw_footer(fb, view);
 }
 
 static void draw_session_row(uint8_t *fb, const DeckSessionRow *row, int32_t row_top,
-                             int32_t row_h)
+                             int32_t row_h, bool draw_separator)
 {
     const int32_t pad = 10;
     const int32_t text_x = kMarginX + pad;
@@ -249,12 +293,14 @@ static void draw_session_row(uint8_t *fb, const DeckSessionRow *row, int32_t row
     /* Line 3: optional progress bar + detail */
     y += kLineAdvance - 4;
     if (row->has_progress) {
+        const float p01 = clamp_progress01(row->progress);
         const int32_t bar_w = 220;
         const int32_t bar_h = 18;
-        draw_progress_bar(fb, text_x, y - 14, bar_w, bar_h, row->progress);
+        draw_progress_bar(fb, text_x, y - 14, bar_w, bar_h, p01);
 
-        char pct[48];
-        int p = (int)(row->progress * 100.0f + 0.5f);
+        /* Sized for "100%   " + full detail (DECK_STR_DETAIL includes NUL). */
+        char pct[16 + DECK_STR_DETAIL];
+        int p = (int)(p01 * 100.0f + 0.5f);
         if (row->detail[0]) {
             snprintf(pct, sizeof(pct), "%d%%   %s", p, row->detail);
         } else {
@@ -265,16 +311,24 @@ static void draw_session_row(uint8_t *fb, const DeckSessionRow *row, int32_t row
         draw_text(fb, text_x, y, row->detail);
     }
 
-    /* Row separator */
-    draw_hline(fb, row_top + row_h);
+    if (draw_separator) {
+        draw_hline(fb, row_top + row_h);
+    }
 }
 
 static void draw_normal(uint8_t *fb, const DeckView *view)
 {
     draw_header(fb, view);
 
-    const int32_t body_top = kMarginY + kHeaderH;
+    int32_t body_top = kMarginY + kHeaderH;
     const int32_t body_bottom = EPD_HEIGHT - kMarginY - kFooterH;
+
+    /* STALE with cached rows: banner under header, then rows (design doc). */
+    const bool stale_with_rows = view->stale && view->row_count > 0;
+    if (stale_with_rows) {
+        body_top += draw_stale_banner(fb, view);
+    }
+
     const int32_t body_h = body_bottom - body_top;
 
     uint8_t n = view->row_count;
@@ -286,17 +340,19 @@ static void draw_normal(uint8_t *fb, const DeckView *view)
         draw_empty_body(fb, view);
     } else {
         int32_t row_h = body_h / (int32_t)n;
-        /* Cap row height so 1–2 rows don't look absurdly tall. */
-        if (row_h > 130) {
-            row_h = 130;
+        if (row_h > kMaxRowH) {
+            row_h = kMaxRowH;
         }
+        const int32_t used_h = (int32_t)n * row_h;
         for (uint8_t i = 0; i < n; i++) {
-            draw_session_row(fb, &view->rows[i], body_top + (int32_t)i * row_h, row_h);
+            /* Per-row separators for all but last; close the block once below. */
+            const bool is_last = (i + 1 == n);
+            const bool need_mid_sep = !is_last;
+            draw_session_row(fb, &view->rows[i], body_top + (int32_t)i * row_h, row_h,
+                             need_mid_sep);
         }
-        /* Ensure bottom separator before footer when row height was capped. */
-        if ((int32_t)n * row_h < body_h) {
-            draw_hline(fb, body_top + (int32_t)n * row_h);
-        }
+        /* Single bottom separator for the row block (also separates from footer). */
+        draw_hline(fb, body_top + used_h);
     }
 
     draw_footer(fb, view);
@@ -310,17 +366,14 @@ void ui_draw_status(uint8_t *framebuffer, const DeckView *view)
 
     memset(framebuffer, kColorWhite, (size_t)EPD_WIDTH * (size_t)EPD_HEIGHT / 2);
 
+    /* Frame priority (highest wins): SCHEMA > STALE empty > normal (+ STALE banner). */
     if (view->fault == DECK_FAULT_SCHEMA) {
         draw_schema_frame(framebuffer, view);
         return;
     }
 
-    /* Full-screen STALE only when no rows to show (cached empty). Normal
-     * layout still draws when we have cached sessions; header link token
-     * reflects degraded/down. */
-    if (view->stale && view->row_count == 0 &&
-        (view->link_state == DECK_LINK_DOWN || view->link_state == DECK_LINK_DEGRADED)) {
-        draw_stale_frame(framebuffer, view);
+    if (view->stale && view->row_count == 0) {
+        draw_stale_empty_frame(framebuffer, view);
         return;
     }
 

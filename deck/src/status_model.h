@@ -58,8 +58,9 @@ typedef struct {
 /**
  * Full-screen view model. Frame priority (highest wins):
  *   1. fault == SCHEMA → schema fault frame
- *   2. stale / link down with no usable rows → NO LINK / empty
- *   3. normal header + 0–3 rows + footer (empty body if row_count == 0)
+ *   2. stale && row_count == 0 → full-screen NO LINK (no cached sessions)
+ *   3. normal header + optional STALE banner (if stale && rows) + 0–3 rows + footer
+ *      Empty body (row_count == 0, not stale) varies by link_state.
  */
 typedef struct {
     DeckLinkState link_state;
