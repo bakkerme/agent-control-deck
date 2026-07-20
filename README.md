@@ -1,6 +1,6 @@
 # agent-control-deck
 
-Monorepo for the Agent Control Deck — firmware and docs for a LilyGo T5 4.7" e-paper control surface.
+Monorepo for the Agent Control Deck — firmware and docs for a LilyGo T5 4.7" e-paper status surface (MVP: read-only agent status).
 
 | Path | Role |
 |------|------|

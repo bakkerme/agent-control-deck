@@ -7,7 +7,7 @@
 | **Date** | 2026-07-20 |
 | **Status** | Draft (rev 2.2 — BLE transport spike added; WiFi pull provisional) |
 | **Scope** | Read-only agent status on LilyGo T5-ePaper |
-| **Repo** | `/Users/brandon/sources/agent-control-deck` (not yet a git repository) |
+| **Repo** | `agent-control-deck` (this monorepo) |
 
 ---
 
@@ -27,11 +27,11 @@ Today the monorepo contains only a PlatformIO firmware hello-world that draws st
 
 | Path | What exists |
 |------|-------------|
-| [`README.md`](file:///Users/brandon/sources/agent-control-deck/README.md) | Monorepo stub; only `deck/` listed |
-| [`deck/`](file:///Users/brandon/sources/agent-control-deck/deck/) | PlatformIO firmware project |
-| [`deck/platformio.ini`](file:///Users/brandon/sources/agent-control-deck/deck/platformio.ini) | Env `T5-ePaper`, `espressif32@6.12.0`, Arduino, `BOARD_HAS_PSRAM`, lib_deps → `file://../../LilyGo-EPD47` only |
-| [`deck/boards/T5-ePaper.json`](file:///Users/brandon/sources/agent-control-deck/deck/boards/T5-ePaper.json) | Board def: ESP32, 16MB flash, WiFi+BT, max RAM 327680 (+ external PSRAM); sets `ARDUINO_USB_MODE=1` (board-family template; classic T5 uses external USB-UART as deck README states) |
-| [`deck/src/main.cpp`](file:///Users/brandon/sources/agent-control-deck/deck/src/main.cpp) | PSRAM framebuffer, `epd_init` / clear / FiraSans text / `epd_draw_grayscale_image` / `epd_poweroff`; `loop()` is `delay(10000)` only |
+| [`README.md`](../README.md) | Monorepo stub; only `deck/` listed |
+| [`deck/`](../deck/) | PlatformIO firmware project |
+| [`deck/platformio.ini`](../deck/platformio.ini) | Env `T5-ePaper`, `espressif32@6.12.0`, Arduino, `BOARD_HAS_PSRAM`, lib_deps → `file://../../LilyGo-EPD47` only |
+| [`deck/boards/T5-ePaper.json`](../deck/boards/T5-ePaper.json) | Board def: ESP32, 16MB flash, WiFi+BT, max RAM 327680 (+ external PSRAM); sets `ARDUINO_USB_MODE=1` (board-family template; classic T5 uses external USB-UART as deck README states) |
+| [`deck/src/main.cpp`](../deck/src/main.cpp) | PSRAM framebuffer, `epd_init` / clear / FiraSans text / `epd_draw_grayscale_image` / `epd_poweroff`; `loop()` is `delay(10000)` only |
 
 **What does not exist yet:** host bridge, status schema, WiFi/USB protocol, config storage, refresh scheduler, agent adapters, monorepo packages beyond `deck/`.
 
@@ -44,7 +44,7 @@ Today the monorepo contains only a PlatformIO firmware hello-world that draws st
 | Framebuffer | `EPD_WIDTH * EPD_HEIGHT / 2` = **259,200 bytes** in PSRAM (`ps_calloc`) |
 | Display API | LilyGo-EPD47 / epdiy: `epd_init`, `epd_poweron/off`, `epd_clear`, `epd_clear_area`, `epd_draw_grayscale_image`, `epd_fill_rect`, `writeln` + FiraSans |
 | Connectivity | WiFi + Bluetooth (board JSON); USB for flash/serial (~460800 upload, 115200 monitor on UART0) |
-| Buttons (classic ESP32) | `BUTTON_1=34`, `BUTTON_2=35`, `BUTTON_3=39` ([`utilities.h`](file:///Users/brandon/sources/LilyGo-EPD47/src/utilities.h)) |
+| Buttons (classic ESP32) | `BUTTON_1=34`, `BUTTON_2=35`, `BUTTON_3=39` ([`utilities.h`](https://github.com/Xinyuan-LilyGO/LilyGo-EPD47/blob/master/src/utilities.h) in sibling LilyGo-EPD47) |
 | Battery sense | `BATT_PIN=36` (ADC). LilyGo `demo.ino`: **must `epd_poweron()` (POWER_EN) before `analogRead(BATT_PIN)`**. Treat battery UI as **off by default** until validated on the physical revision |
 | Full refresh | Multi-second flash class (~1–3 s typical; **measure on hardware**); design for infrequent full updates |
 | Deep sleep | Supported (LilyGo `examples/sleep`); `epd_poweroff_all` + timer wake |
