@@ -15,9 +15,9 @@
 #include "epd_driver.h"
 #include "firasans.h"
 
-static uint8_t *framebuffer = nullptr;
+#include "display.h"
 
-static void draw_hello()
+static void draw_hello(uint8_t *framebuffer)
 {
     // White background in the off-screen buffer (0xFF = white for this panel).
     memset(framebuffer, 0xFF, EPD_WIDTH * EPD_HEIGHT / 2);
@@ -49,21 +49,15 @@ void setup()
     Serial.println();
     Serial.println("agent-control-deck/deck: hello world");
 
-    framebuffer = (uint8_t *)ps_calloc(EPD_WIDTH * EPD_HEIGHT / 2, sizeof(uint8_t));
-    if (!framebuffer) {
+    if (!display_init()) {
         Serial.println("PSRAM framebuffer alloc failed");
         while (true) {
             delay(1000);
         }
     }
 
-    epd_init();
-
-    epd_poweron();
-    epd_clear();
-    draw_hello();
-    epd_draw_grayscale_image(epd_full_screen(), framebuffer);
-    epd_poweroff();
+    draw_hello(display_framebuffer());
+    display_present(/*full_clear=*/true);
 
     Serial.println("Hello world drawn to e-paper.");
 }
