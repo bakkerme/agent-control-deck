@@ -1,0 +1,22 @@
+# PlatformIO build artifacts
+.pio/
+**/.pio/
+
+# Secrets / credentials (never commit)
+secrets.h
+**/secrets.h
+.env
+*.pem
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# OS
+.DS_Store
+
+# IDE
+.idea/
