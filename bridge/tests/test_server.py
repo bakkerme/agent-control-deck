@@ -89,22 +89,27 @@ def test_put_replace_post():
     assert r.json()["count"] == 0
 
 
-def test_grok_hook_endpoint():
+def test_grok_hook_endpoint(caplog):
+    import logging
+
     c = _client()
-    r = c.post(
-        "/v1/hooks/grok",
-        json={
-            "hookEventName": "session_start",
-            "sessionId": "g-1",
-            "cwd": "/Users/me/my-project",
-            "source": "startup",
-        },
-    )
+    with caplog.at_level(logging.INFO, logger="agent_control_deck_bridge.server"):
+        r = c.post(
+            "/v1/hooks/grok",
+            json={
+                "hookEventName": "session_start",
+                "sessionId": "g-1",
+                "cwd": "/Users/me/my-project",
+                "source": "startup",
+            },
+        )
     assert r.status_code == 200
     body = r.json()
     assert body["action"] == "upsert"
     assert body["session"]["id"] == "post:grok:g-1"
     assert body["session"]["title"] == "my-project"
+    assert any("hook recv agent=grok" in rec.message for rec in caplog.records)
+    assert any("session_start" in rec.message or "g-1" in rec.message for rec in caplog.records)
 
 
 def test_claude_hook_session_end():

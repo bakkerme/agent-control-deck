@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from contextlib import asynccontextmanager
 from typing import Any
@@ -19,6 +20,19 @@ log = logging.getLogger(__name__)
 
 LOOPBACK = {"127.0.0.1", "::1", "localhost", "testclient"}
 
+# Cap hook body log size (tool results can be large).
+_HOOK_LOG_MAX_CHARS = 16_384
+
+
+def _format_payload_for_log(payload: dict[str, Any], *, max_chars: int = _HOOK_LOG_MAX_CHARS) -> str:
+    try:
+        text = json.dumps(payload, ensure_ascii=False, default=str, indent=2)
+    except Exception:
+        text = repr(payload)
+    if len(text) > max_chars:
+        return text[:max_chars] + f"\n… [truncated {len(text) - max_chars} chars]"
+    return text
+
 
 class AppState:
     def __init__(
@@ -28,11 +42,13 @@ class AppState:
         *,
         host_name: str | None = None,
         display_limit: int = 3,
+        log_hooks: bool = True,
     ) -> None:
         self.store = store
         self.adapters = adapters
         self.host_name = host_name
         self.display_limit = display_limit
+        self.log_hooks = log_hooks
 
     def refresh_adapters(self) -> None:
         for adapter in self.adapters:
@@ -96,10 +112,17 @@ def create_app(
     host_name: str | None = None,
     display_limit: int = 3,
     enforce_loopback: bool = True,
+    log_hooks: bool = True,
 ) -> FastAPI:
     store = store or SessionStore()
     adapters = list(adapters or [])
-    state = AppState(store, adapters, host_name=host_name, display_limit=display_limit)
+    state = AppState(
+        store,
+        adapters,
+        host_name=host_name,
+        display_limit=display_limit,
+        log_hooks=log_hooks,
+    )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -162,7 +185,42 @@ def create_app(
         return {"ok": True, "deleted": session_id}
 
     def _handle_vendor_hook(agent: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """Shared receive path for Grok + Claude (+ any agent using the same mapper).
+
+        Only the ``agent`` label differs between /v1/hooks/grok and /v1/hooks/claude.
+        Event field names (camelCase vs snake_case) are normalized in map_hook_event.
+        """
         result = map_hook_event(payload, agent=agent)
+
+        if state.log_hooks:
+            event = (
+                payload.get("hookEventName")
+                or payload.get("hook_event_name")
+                or payload.get("event")
+                or "?"
+            )
+            log.info(
+                "hook recv agent=%s event=%s action=%s\n%s",
+                agent,
+                event,
+                result.action,
+                _format_payload_for_log(payload),
+            )
+            if result.action == "upsert" and result.session is not None:
+                s = result.session
+                log.info(
+                    "hook mapped agent=%s id=%s state=%s title=%r summary=%r detail=%r error=%r",
+                    s.agent,
+                    s.id,
+                    s.state.value,
+                    s.title,
+                    s.summary,
+                    s.detail,
+                    s.error,
+                )
+            elif result.action == "delete":
+                log.info("hook mapped delete session_id=%s", result.session_id)
+
         if result.action == "ignore":
             return {"ok": True, "action": "ignore"}
         if result.action == "delete":
@@ -181,29 +239,26 @@ def create_app(
             "session": result.session.model_dump(mode="json"),
         }
 
-    @app.post("/v1/hooks/grok")
-    async def hook_grok(request: Request) -> dict[str, Any]:
-        """Accept Grok Build HTTP hook envelopes (type: http)."""
-        guard(request)
+    async def _read_hook_json(request: Request) -> dict[str, Any]:
         try:
             payload = await request.json()
         except Exception as e:
             raise HTTPException(status_code=400, detail="invalid JSON") from e
         if not isinstance(payload, dict):
             raise HTTPException(status_code=400, detail="JSON object required")
-        return _handle_vendor_hook("grok", payload)
+        return payload
+
+    @app.post("/v1/hooks/grok")
+    async def hook_grok(request: Request) -> dict[str, Any]:
+        """Grok Build envelope → same mapper as Claude (agent label = grok)."""
+        guard(request)
+        return _handle_vendor_hook("grok", await _read_hook_json(request))
 
     @app.post("/v1/hooks/claude")
     async def hook_claude(request: Request) -> dict[str, Any]:
-        """Accept Claude Code HTTP hook envelopes (type: http)."""
+        """Claude Code envelope → same mapper as Grok (agent label = claude-code)."""
         guard(request)
-        try:
-            payload = await request.json()
-        except Exception as e:
-            raise HTTPException(status_code=400, detail="invalid JSON") from e
-        if not isinstance(payload, dict):
-            raise HTTPException(status_code=400, detail="JSON object required")
-        return _handle_vendor_hook("claude-code", payload)
+        return _handle_vendor_hook("claude-code", await _read_hook_json(request))
 
     @app.exception_handler(HTTPException)
     async def http_exc_handler(request: Request, exc: HTTPException) -> JSONResponse:

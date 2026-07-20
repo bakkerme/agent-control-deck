@@ -58,6 +58,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Disable client loopback check (debug only; still prefer bind 127.0.0.1)",
     )
+    serve.add_argument(
+        "--log-hooks",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Log full vendor hook JSON + mapped session (default: on). Use --no-log-hooks to quiet.",
+    )
     return p
 
 
@@ -95,6 +101,7 @@ def main(argv: list[str] | None = None) -> int:
         host_name=args.host_name,
         display_limit=args.display_limit,
         enforce_loopback=not args.allow_non_loopback,
+        log_hooks=args.log_hooks,
     )
 
     print(

@@ -1,11 +1,12 @@
 {
+  "_comment": "Grok type:http only allows https:// URLs. Loopback bridge is plain HTTP, so use type:command + curl. Fail-open if bridge is down.",
   "hooks": {
     "SessionStart": [
       {
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:8787/v1/hooks/grok",
+            "type": "command",
+            "command": "curl -sS -m 4 -X POST http://127.0.0.1:8787/v1/hooks/grok -H 'Content-Type: application/json' --data-binary @- -o /dev/null || true",
             "timeout": 5
           }
         ]
@@ -15,8 +16,8 @@
       {
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:8787/v1/hooks/grok",
+            "type": "command",
+            "command": "curl -sS -m 4 -X POST http://127.0.0.1:8787/v1/hooks/grok -H 'Content-Type: application/json' --data-binary @- -o /dev/null || true",
             "timeout": 5
           }
         ]
@@ -26,8 +27,8 @@
       {
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:8787/v1/hooks/grok",
+            "type": "command",
+            "command": "curl -sS -m 4 -X POST http://127.0.0.1:8787/v1/hooks/grok -H 'Content-Type: application/json' --data-binary @- -o /dev/null || true",
             "timeout": 5
           }
         ]
@@ -37,8 +38,8 @@
       {
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:8787/v1/hooks/grok",
+            "type": "command",
+            "command": "curl -sS -m 4 -X POST http://127.0.0.1:8787/v1/hooks/grok -H 'Content-Type: application/json' --data-binary @- -o /dev/null || true",
             "timeout": 5
           }
         ]
@@ -48,8 +49,8 @@
       {
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:8787/v1/hooks/grok",
+            "type": "command",
+            "command": "curl -sS -m 4 -X POST http://127.0.0.1:8787/v1/hooks/grok -H 'Content-Type: application/json' --data-binary @- -o /dev/null || true",
             "timeout": 5
           }
         ]
@@ -59,8 +60,8 @@
       {
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:8787/v1/hooks/grok",
+            "type": "command",
+            "command": "curl -sS -m 4 -X POST http://127.0.0.1:8787/v1/hooks/grok -H 'Content-Type: application/json' --data-binary @- -o /dev/null || true",
             "timeout": 5
           }
         ]
