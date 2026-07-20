@@ -5,7 +5,7 @@
 | **Document** | Product Design / System Design — MVP |
 | **Author** | TBD |
 | **Date** | 2026-07-20 |
-| **Status** | Draft (rev 2.4 — PR0 + PR1a + PR1b + PR-S1 done; BLE spike S2–S4 next) |
+| **Status** | Draft (rev 2.5 — PR0 + PR1* + PR-S1…PR-S4 implemented; lab decision matrix pending) |
 | **Scope** | Read-only agent status on LilyGo T5-ePaper |
 | **Repo** | `agent-control-deck` (this monorepo) |
 
@@ -15,9 +15,9 @@
 
 **Agent Control Deck** is a desk- and room-portable **e-paper status display** for AI coding agents. Despite the product name, the MVP is a **status deck only**: a **read-only** glanceable view of agent state (name, task summary, running/idle/error, progress, last update) so a developer can leave their phone in their pocket while agents run on a host machine. **Control features (kill, approve, inject prompt, or any intervention) are a future product generation, not a hidden MVP toggle.**
 
-Today the monorepo is under git with a **flashable firmware stack**: `display_*` helpers, a compile-time `DeckView` multi-session status layout (header + 3 rows + footer, ASCII tokens), and a **NimBLE peripheral link** (advertise `ACD-*`, one central, HEARTBEAT notify) on a **LilyGo T5-ePaper** (classic ESP32-WROVER, 960×540, 4-bit grayscale). Host side has a minimal **`bleak` soak script** (`tools/ble_link/`). There is still no chunked status payload path, no schema package, no full bridge, and no agent adapters. This document defines the product problem, the end-to-end architecture (device firmware + host status bridge + transport + data model), and an ordered PR plan that grows from that baseline into a working read-only status product.
+Today the monorepo is under git with a **flashable BLE status spike**: `display_*` helpers, `DeckView` multi-session layout, **NimBLE peripheral** (advertise `ACD-*`, chunked ≤8 KiB StatusSnapshot reassembly + CRC, HEARTBEAT/STATE notify), ArduinoJson parse → on-glass redraw, and **STALE after 30 s** without a successful push — on a **LilyGo T5-ePaper** (classic ESP32-WROVER, 960×540, 4-bit grayscale). Host tools live under **`tools/ble_link/`** (`connect_soak`, `push_xfer`, `mock_bridge`). There is still no formal schema package (PR2), no production bridge package, and no agent adapters. This document defines the product problem, the end-to-end architecture, and an ordered PR plan.
 
-**Transport is under active re-decision (rev 2.2+):** host machines may be **firewalled against inbound TCP** (no bridge listen port), SoftAP on the deck is **not viable** (host must keep its own Wi‑Fi for agents/internet), and shipping status via a third machine is a **compliance risk** for agent/task text. **PR-S1 (BLE link) is done**; remaining spike work is **S2–S4** (bulk transfer → on-glass → bridge-shaped STALE + decision matrix) before committing to LAN reverse-push (Option B) or any host-as-server design. USB serial remains the desk/debug exclusive-mode path. Control/intervention is **explicitly out of scope**.
+**Transport decision (rev 2.2+):** host machines may be **firewalled against inbound TCP**; SoftAP is **not viable**; third-host status is a **compliance risk**. **PR-S1…PR-S4 code is landed** — fill the [decision matrix](#ble-transport-spike) / [`docs/ble-spike.md`](ble-spike.md) from lab soaks before Option B or host-as-server work. USB serial remains the desk/debug exclusive-mode path. Control/intervention is **explicitly out of scope**.
 
 ---
 
@@ -30,19 +30,20 @@ Today the monorepo is under git with a **flashable firmware stack**: `display_*`
 | [`.gitignore`](../.gitignore) | Root hygiene: `.pio/`, secrets, venvs, `.env*`, OS/IDE junk (**PR0**) |
 | [`README.md`](../README.md) | Monorepo map; points at `deck/`, `docs/ble-spike.md`, `tools/ble_link/` |
 | [`deck/`](../deck/) | PlatformIO firmware project |
-| [`deck/platformio.ini`](../deck/platformio.ini) | Env `T5-ePaper`, `espressif32@6.12.0`, Arduino, `BOARD_HAS_PSRAM`; lib_deps → LilyGo-EPD47 + **`h2zero/NimBLE-Arduino@^2.2.0`**; single-connection NimBLE flags (**PR-S1**) |
+| [`deck/platformio.ini`](../deck/platformio.ini) | Env `T5-ePaper`, `espressif32@6.12.0`, Arduino, `BOARD_HAS_PSRAM`; LilyGo-EPD47 + **NimBLE** + **ArduinoJson ^7** |
 | [`deck/boards/T5-ePaper.json`](../deck/boards/T5-ePaper.json) | Board def: ESP32, 16MB flash, WiFi+BT, max RAM 327680 (+ external PSRAM); sets `ARDUINO_USB_MODE=1` (board-family template; classic T5 uses external USB-UART as deck README states) |
 | [`deck/src/display.h`](../deck/src/display.h) / [`display.cpp`](../deck/src/display.cpp) | `display_init` / framebuffer / `display_present` (**PR1a**) |
 | [`deck/src/status_model.h`](../deck/src/status_model.h) | C-only `DeckView` / session row structs (**PR1b**) |
+| [`deck/src/status_parse.h`](../deck/src/status_parse.h) / [`status_parse.cpp`](../deck/src/status_parse.cpp) | StatusSnapshot JSON → `DeckView` content (**PR-S3**) |
 | [`deck/src/ui_layout.h`](../deck/src/ui_layout.h) / [`ui_layout.cpp`](../deck/src/ui_layout.cpp) | Header + ≤3 rows + footer; ASCII tokens; geometric progress bars; SCHEMA/STALE/empty frames (**PR1b**) |
-| [`deck/src/ble_gatt.h`](../deck/src/ble_gatt.h) / [`ble_gatt.cpp`](../deck/src/ble_gatt.cpp) | NimBLE peripheral: advertise `ACD-*`, one central, HEARTBEAT notify + INFO read; heap/MTU Serial logs; Wi‑Fi off is caller-owned (**PR-S1**) |
-| [`deck/src/main.cpp`](../deck/src/main.cpp) | `WiFi.mode(WIFI_OFF)` → demo `DeckView` draw once → `ble_gatt_begin` / `ble_gatt_poll` (**PR-S1**) |
-| [`tools/ble_link/`](../tools/ble_link/) | Host `bleak` connect/soak script (`connect_soak.py`) + requirements (**PR-S1**) |
-| [`docs/ble-spike.md`](ble-spike.md) | Spike UUIDs, host setup, S1–S4 checklist / decision matrix log (**PR-S1**) |
+| [`deck/src/ble_gatt.h`](../deck/src/ble_gatt.h) / [`ble_gatt.cpp`](../deck/src/ble_gatt.cpp) | NimBLE: `ACD-*` adv, HEARTBEAT/INFO, CTRL/DATA reassembly + CRC, STATE notify (**PR-S1/S2**) |
+| [`deck/src/main.cpp`](../deck/src/main.cpp) | Wi‑Fi off → poll → parse → present; fail_count + **30 s STALE grace** (**PR-S3/S4**) |
+| [`tools/ble_link/`](../tools/ble_link/) | `connect_soak.py` (S1), `push_xfer.py` (S2), `mock_bridge.py` (S3/S4), `protocol.py`, sample payloads |
+| [`docs/ble-spike.md`](ble-spike.md) | UUIDs, wire format, phase checklist, decision matrix log |
 
-**Done so far:** **PR0** (git + baseline), **PR1a** (display module), **PR1b** (hardcoded multi-session status layout demo), **PR-S1** (NimBLE link + host soak script; lab-validated).
+**Done so far:** **PR0**, **PR1a**, **PR1b**, **PR-S1** (lab link), **PR-S2…PR-S4** (code landed — complete phase checklists in `docs/ble-spike.md`).
 
-**What does not exist yet:** chunked StatusSnapshot over BLE (S2), on-glass BLE-driven redraw (S3), bridge-shaped push + STALE (S4), status schema package, full host bridge, USB/WiFi product paths, config storage, agent adapters.
+**What does not exist yet:** formal schema package (PR2), production `bridge/` package, USB product path, Option B WiFi, config storage, agent adapters, filled decision matrix.
 
 ### Hardware facts (honest)
 
@@ -252,12 +253,12 @@ Base: `a0cd****-acd0-4c00-9c00-00805f9b34fb`. Device name: `ACD-` + last 4 hex o
 
 | Char | UUID suffix | Properties | Purpose | Status |
 |------|-------------|------------|---------|--------|
-| Service | `0001` | — | Status service | **S1** |
-| `HEARTBEAT` | `0002` | read + notify | Link liveness (~5 s when subscribed) | **S1** |
-| `INFO` | `0003` | read | FW version, max payload, preferred MTU, name | **S1** |
-| `STATUS_CTRL` | `0010` | write | `begin` / `abort` / `commit` with `schema_version`, `total_len` | S2 (reserved) |
-| `STATUS_DATA` | `0011` | write / write-without-response | Chunk bytes (`seq`, payload slice) | S2 (reserved) |
-| `STATUS_STATE` | `0012` | notify | Deck ack: `ok` \| `schema` \| `overflow` \| `busy` \| `bad_crc` | S2 (reserved) |
+| Service | `0001` | — | Status service | **Done** |
+| `HEARTBEAT` | `0002` | read + notify | Link liveness (~5 s when subscribed) | **Done** |
+| `INFO` | `0003` | read | FW version, max payload, preferred MTU, name | **Done** |
+| `STATUS_CTRL` | `0010` | write | binary BEGIN/ABORT/COMMIT + len/CRC | **Done** (S2) |
+| `STATUS_DATA` | `0011` | write / write-without-response | `seq u16 LE` + payload slice | **Done** (S2) |
+| `STATUS_STATE` | `0012` | notify | Deck ack: `ok` \| `schema` \| `overflow` \| `busy` \| `bad_crc` \| … | **Done** (S2) |
 
 **Host push flow**
 
@@ -280,10 +281,10 @@ Base: `a0cd****-acd0-4c00-9c00-00805f9b34fb`. Device name: `ACD-` + last 4 hex o
 
 | Phase | Work | Pass criteria | Status |
 |-------|------|----------------|--------|
-| **S1 — Link** | NimBLE peripheral on deck; advertise; accept one connection; notify heartbeat | Host `bleak` script stays connected **≥ 30 min**; reconnect after host BT toggle works | **Done** (PR-S1) |
-| **S2 — Bulk transfer** | Chunked 2–8 KiB write + reassembly + CRC/len check | **100 consecutive** full transfers with zero corruption; log negotiated MTU + duration | Next |
-| **S3 — On glass** | Reassembled snapshot → parse → e-paper status layout (hardcoded or minimal `DeckView`) | Mock **3 sessions** visible; change on host → screen updates within one heartbeat + draw | Pending |
-| **S4 — Bridge-shaped** | Tiny bridge: mock or file → bleak push; STALE when pusher killed | Kill pusher → STALE within grace; restart → recovery redraw; free heap stable across 30 min | Pending |
+| **S1 — Link** | NimBLE peripheral on deck; advertise; accept one connection; notify heartbeat | Host `bleak` script stays connected **≥ 30 min**; reconnect after host BT toggle works | **Done** (PR-S1, lab) |
+| **S2 — Bulk transfer** | Chunked 2–8 KiB write + reassembly + CRC/len check | **100 consecutive** full transfers with zero corruption; log negotiated MTU + duration | **Code done** — run `push_xfer.py --count 100` |
+| **S3 — On glass** | Reassembled snapshot → parse → e-paper status layout | Mock **3 sessions** visible; change on host → screen updates within one heartbeat + draw | **Code done** — run `mock_bridge.py` |
+| **S4 — Bridge-shaped** | Tiny bridge: mock → bleak push; STALE when pusher killed | Kill pusher → STALE within grace (30 s); restart → recovery redraw; free heap stable across 30 min | **Code done** — fill decision matrix |
 
 **S4 is the product gate**, not S1. A stable phone nRF Connect session is necessary but not sufficient.
 
@@ -960,13 +961,13 @@ PR5 acceptance includes a soak checklist (30 min minimum in PR; 8 h success metr
 
 ## Rollout Plan
 
-Git baseline, layout demo, and **BLE link (S1)** are **done** (PR0 + PR1* + PR-S1). Next: **S2–S4** bulk transfer through decision matrix; schema/bridge model (PR2, PR3) can still run in parallel.
+Git baseline, layout demo, and **BLE spike code (S1–S4)** are **landed** (PR0 + PR1* + PR-S1…PR-S4). Next: **lab acceptance + decision matrix**, then schema/bridge productization (PR2, PR3).
 
 | Stage | Mode | Status | Audience |
 |-------|------|--------|----------|
 | 0 | Hello-world → git baseline (PR0) | **Done** | Hardware + VCS validation |
 | 1 | UI demo with hardcoded `DeckView` (PR1a + PR1b) | **Done** | Layout without radio |
-| 2 | **BLE spike S1–S4** | **In progress** (S1 ✅; S2 next) | Decide portable transport |
+| 2 | **BLE spike S1–S4** | **Code done** — lab checklists + matrix | Decide portable transport |
 | 3 | Mock/file bridge + chosen radio path | Pending | End-to-end product pipe |
 | 4 | File + loopback POST hooks | Pending | Supported integration |
 | 5 | Option B only if BLE insufficient | Conditional | LAN reverse-push fallback |
@@ -1068,7 +1069,7 @@ Git baseline, layout demo, and **BLE link (S1)** are **done** (PR0 + PR1* + PR-S
 
 Each PR leaves the tree buildable. Stacked branches under `execute-plan/` (or merge to `main` as preferred).
 
-**Progress (rev 2.4):** **PR0**, **PR1a**, **PR1b**, and **PR-S1** are **done**. Remaining critical path: complete **BLE spike PR-S2…PR-S4** and apply the [decision matrix](#ble-transport-spike) **before** investing in Option B LAN reverse-push or any host-listen WiFi pull path. Schema/bridge model work (PR2, PR3 core) can proceed in parallel with the spike because `StatusSnapshot` is transport-agnostic.
+**Progress (rev 2.5):** **PR0**, **PR1a**, **PR1b**, and **PR-S1…PR-S4** are **implemented**. Remaining critical path: complete lab checklists in [`docs/ble-spike.md`](ble-spike.md) and apply the [decision matrix](#ble-transport-spike) **before** investing in Option B LAN reverse-push or any host-listen WiFi pull path. Schema/bridge model work (PR2, PR3 core) can proceed because `StatusSnapshot` is transport-agnostic.
 
 ### PR0 — Initialize repository and baseline monorepo hygiene ✅ Done
 
@@ -1120,34 +1121,37 @@ Each PR leaves the tree buildable. Stacked branches under `execute-plan/` (or me
 | **Description** | Deck advertises `ACD-*`; accepts one central; HEARTBEAT notify + INFO read. **Wi‑Fi off.** Host: minimal `bleak` connect/soak script. Fixed service UUIDs for S2 reuse. |
 | **Acceptance** | Connected **≥ 30 min**; reconnect after host BT toggle; heap logged; no WDT. **Met in lab.** |
 
-### PR-S2 — Spike: chunked bulk transfer
+### PR-S2 — Spike: chunked bulk transfer ✅ Code done
 
 | | |
 |--|--|
+| **Status** | **Code done** (2026-07-20) — branch `spike/pr-s2-s4-ble-end-to-end`; lab 100/100 still required |
 | **Title** | `spike: chunked 8KiB StatusSnapshot transfer over BLE` |
-| **Files/components** | deck reassembly + CRC/len; host `bleak` chunk pusher; test payloads |
+| **Files/components** | `deck/src/ble_gatt.*` CTRL/DATA/STATE + CRC; `tools/ble_link/push_xfer.py`, `protocol.py`, payloads |
 | **Depends on** | PR-S1 |
-| **Description** | Implement CTRL/DATA/STATE sketch; cap 8 KiB; no e-paper required (Serial OK). |
+| **Description** | Binary BEGIN/DATA/COMMIT; 8 KiB PSRAM reassembly; STATE notify; host chunk pusher. |
 | **Acceptance** | **100/100** clean transfers; record MTU and duration. |
 
-### PR-S3 — Spike: on-glass mock status
+### PR-S3 — Spike: on-glass mock status ✅ Code done
 
 | | |
 |--|--|
+| **Status** | **Code done** (2026-07-20) — lab on-glass check required |
 | **Title** | `spike(deck): BLE snapshot → e-paper status layout` |
-| **Files/components** | parse path (ArduinoJson), UI layout (may depend on PR1b), main loop |
-| **Depends on** | PR-S2; ideally PR1b + PR2 |
+| **Files/components** | `deck/src/status_parse.*`, `main.cpp`, ArduinoJson; host `mock_bridge.py` |
+| **Depends on** | PR-S2; PR1b |
 | **Description** | Reassembled JSON → `DeckView` → draw. SCHEMA fault path for bad version. |
 | **Acceptance** | Mock 3 sessions on glass; host payload change → redraw within heartbeat + draw budget. |
 
-### PR-S4 — Spike: bridge-shaped push + STALE
+### PR-S4 — Spike: bridge-shaped push + STALE ✅ Code done
 
 | | |
 |--|--|
+| **Status** | **Code done** (2026-07-20) — lab soak + decision matrix required |
 | **Title** | `spike(bridge): mock/file → bleak push; STALE on disconnect` |
-| **Files/components** | thin `bridge/` or `tools/ble_push/`; deck fail_count/STALE |
+| **Files/components** | `tools/ble_link/mock_bridge.py`; deck fail_count + 30 s STALE grace in `main.cpp` |
 | **Depends on** | PR-S3 |
-| **Description** | Product-shaped loop: update sessions → push; kill pusher → STALE; restart → recovery. Range walk-test notes in `docs/ble-spike.md`. |
+| **Description** | Product-shaped loop: update sessions → push; kill pusher → STALE; restart → recovery. |
 | **Acceptance** | 30 min soak; STALE on kill within grace; recovery redraw; decision matrix filled (BLE primary / Option B / USB-desk). |
 
 ### PR3 — Bridge core: model, store, mock (localhost tools only)
@@ -1226,13 +1230,13 @@ flowchart TD
   PR0[PR0 ✅] --> PR1a[PR1a ✅] --> PR1b[PR1b ✅]
   PR0 --> PR2
   PR0 --> PRS1[PR-S1 BLE link ✅]
-  PRS1 --> PRS2[PR-S2 chunks]
+  PRS1 --> PRS2[PR-S2 chunks ✅]
   PR1b --> PR4
   PR2 --> PR4
   PR2 --> PR3
-  PRS2 --> PRS3[PR-S3 on glass]
+  PRS2 --> PRS3[PR-S3 on glass ✅]
   PR4 --> PRS3
-  PRS3 --> PRS4[PR-S4 bridge push + decision]
+  PRS3 --> PRS4[PR-S4 bridge push + decision ✅ code]
   PRS4 --> PR5[PR5 transport polish or Option B]
   PR3 --> PR6
   PR3 --> PR7
@@ -1242,10 +1246,10 @@ flowchart TD
   PR3 --> PR10
 ```
 
-**Near-term “spike done” definition:** PR0 + PR1* + **PR-S1** ✅ already landed; finish **PR-S2…PR-S4** and record the decision matrix in `docs/ble-spike.md` (or this PD).
+**Near-term “spike done” definition:** PR0 + PR1* + **PR-S1…PR-S4 code** ✅; record lab results + **decision matrix** in `docs/ble-spike.md` (or this PD).
 
 **MVP “done” definition (post-decision):** Layout ✅ + schema + bridge model + **winning transport** showing mock/file sessions on glass with STALE behavior + quickstart. USB desk path and file/POST hooks as supported integration. Scrapers not required.
 
 ---
 
-*End of design document (rev 2.4).*
+*End of design document (rev 2.5).*

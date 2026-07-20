@@ -1,13 +1,14 @@
 /**
- * NimBLE peripheral — PR-S1 link spike.
+ * NimBLE peripheral — link (S1) + chunked transfer (S2).
  *
- * Logs connect state, MTU, heap — never summary body text (none yet).
+ * Logs connect state, MTU, bytes, heap — never summary body text.
  */
 
 #include "ble_gatt.h"
 
 #include <Arduino.h>
 #include <NimBLEDevice.h>
+#include <esp_crc.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -16,9 +17,13 @@ namespace {
 NimBLEServer *g_server = nullptr;
 NimBLECharacteristic *g_heartbeat = nullptr;
 NimBLECharacteristic *g_info = nullptr;
+NimBLECharacteristic *g_ctrl = nullptr;
+NimBLECharacteristic *g_data = nullptr;
+NimBLECharacteristic *g_state = nullptr;
 
 bool g_started = false;
 bool g_heartbeat_subscribed = false;
+bool g_state_subscribed = false;
 uint16_t g_mtu = 0;
 uint32_t g_connect_events = 0;
 uint32_t g_disconnect_events = 0;
@@ -26,12 +31,24 @@ uint32_t g_hb_seq = 0;
 uint32_t g_last_hb_ms = 0;
 uint32_t g_last_heap_log_ms = 0;
 
+/* Transfer reassembly (S2). Buffer in PSRAM when available. */
+uint8_t *g_rx = nullptr;
+size_t g_rx_cap = 0;
+size_t g_rx_len = 0;
+uint16_t g_expect_seq = 0;
+uint16_t g_total_len = 0;
+uint32_t g_expect_crc = 0;
+uint8_t g_begin_schema = 0;
+bool g_xfer_active = false;
+bool g_committed_ready = false;
+uint32_t g_xfer_ok_count = 0;
+uint32_t g_xfer_fail_count = 0;
+
 char g_device_name[16] = BLE_DEVICE_NAME_PREFIX "????";
 
 void build_device_name(void)
 {
     uint8_t mac[6] = {0};
-    /* Public address used for identity; last 2 bytes → 4 hex chars. */
     if (esp_read_mac(mac, ESP_MAC_BT) != ESP_OK) {
         if (esp_read_mac(mac, ESP_MAC_WIFI_STA) != ESP_OK) {
             snprintf(g_device_name, sizeof(g_device_name), "%s0000", BLE_DEVICE_NAME_PREFIX);
@@ -53,11 +70,183 @@ void update_info_value(void)
     if (!g_info) {
         return;
     }
-    /* Compact ASCII, no secrets. max_payload matches StatusSnapshot budget. */
     char buf[96];
     snprintf(buf, sizeof(buf), "fw=%s max_payload=%u preferred_mtu=247 name=%s", BLE_FW_VERSION,
              (unsigned)BLE_MAX_PAYLOAD_BYTES, g_device_name);
     g_info->setValue((uint8_t *)buf, strlen(buf));
+}
+
+void notify_state(const char *msg)
+{
+    if (!g_state || !msg) {
+        return;
+    }
+    g_state->setValue(msg);
+    if (g_state_subscribed && g_server && g_server->getConnectedCount() > 0) {
+        g_state->notify();
+    }
+    Serial.printf("[ble] STATE %s\n", msg);
+}
+
+void reset_transfer(void)
+{
+    g_xfer_active = false;
+    g_rx_len = 0;
+    g_expect_seq = 0;
+    g_total_len = 0;
+    g_expect_crc = 0;
+    g_begin_schema = 0;
+}
+
+void abort_transfer(const char *reason)
+{
+    if (g_xfer_active || reason) {
+        reset_transfer();
+        notify_state(reason ? reason : "abort");
+    }
+}
+
+uint16_t rd_u16_le(const uint8_t *p)
+{
+    return (uint16_t)p[0] | ((uint16_t)p[1] << 8);
+}
+
+uint32_t rd_u32_le(const uint8_t *p)
+{
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) |
+           ((uint32_t)p[3] << 24);
+}
+
+void handle_ctrl(const uint8_t *data, size_t len)
+{
+    if (!data || len < 1) {
+        return;
+    }
+    const uint8_t op = data[0];
+
+    if (op == BLE_CTRL_ABORT) {
+        if (g_xfer_active) {
+            g_xfer_fail_count++;
+            abort_transfer("abort");
+        }
+        return;
+    }
+
+    if (op == BLE_CTRL_BEGIN) {
+        if (len < BLE_CTRL_BEGIN_LEN) {
+            notify_state("bad_len");
+            g_xfer_fail_count++;
+            return;
+        }
+        if (g_xfer_active) {
+            notify_state("busy");
+            g_xfer_fail_count++;
+            return;
+        }
+        if (g_committed_ready) {
+            /* Host must wait until app consumed previous commit — treat as busy. */
+            notify_state("busy");
+            g_xfer_fail_count++;
+            return;
+        }
+        if (!g_rx) {
+            notify_state("overflow");
+            g_xfer_fail_count++;
+            return;
+        }
+
+        g_begin_schema = data[1];
+        g_total_len = rd_u16_le(data + 2);
+        g_expect_crc = rd_u32_le(data + 4);
+
+        if (g_total_len == 0 || g_total_len > g_rx_cap) {
+            notify_state("overflow");
+            g_xfer_fail_count++;
+            return;
+        }
+        /* Early schema gate from BEGIN (JSON still required on COMMIT for S3). */
+        if (g_begin_schema != 1) {
+            /* Accept bytes so host can complete flow; reject on COMMIT with schema. */
+        }
+
+        g_xfer_active = true;
+        g_rx_len = 0;
+        g_expect_seq = 0;
+        Serial.printf("[ble] BEGIN schema=%u total_len=%u crc=0x%08x\n", (unsigned)g_begin_schema,
+                      (unsigned)g_total_len, (unsigned)g_expect_crc);
+        return;
+    }
+
+    if (op == BLE_CTRL_COMMIT) {
+        if (!g_xfer_active) {
+            notify_state("incomplete");
+            g_xfer_fail_count++;
+            return;
+        }
+        if (g_begin_schema != 1) {
+            reset_transfer();
+            notify_state("schema");
+            g_xfer_fail_count++;
+            return;
+        }
+        if (g_rx_len != g_total_len) {
+            Serial.printf("[ble] COMMIT len mismatch got=%u expect=%u\n", (unsigned)g_rx_len,
+                          (unsigned)g_total_len);
+            reset_transfer();
+            notify_state("incomplete");
+            g_xfer_fail_count++;
+            return;
+        }
+        const uint32_t crc = esp_crc32_le(0, g_rx, g_rx_len);
+        if (crc != g_expect_crc) {
+            Serial.printf("[ble] COMMIT bad_crc got=0x%08x expect=0x%08x\n", (unsigned)crc,
+                          (unsigned)g_expect_crc);
+            reset_transfer();
+            notify_state("bad_crc");
+            g_xfer_fail_count++;
+            return;
+        }
+
+        g_xfer_active = false;
+        g_committed_ready = true;
+        g_xfer_ok_count++;
+        Serial.printf("[ble] COMMIT ok bytes=%u ok_n=%u fail_n=%u heap=%u\n", (unsigned)g_rx_len,
+                      (unsigned)g_xfer_ok_count, (unsigned)g_xfer_fail_count,
+                      (unsigned)ESP.getFreeHeap());
+        notify_state("ok");
+        return;
+    }
+
+    notify_state("bad_len");
+    g_xfer_fail_count++;
+}
+
+void handle_data(const uint8_t *data, size_t len)
+{
+    if (!g_xfer_active || !g_rx) {
+        return;
+    }
+    if (len < 2) {
+        abort_transfer("bad_len");
+        g_xfer_fail_count++;
+        return;
+    }
+    const uint16_t seq = rd_u16_le(data);
+    if (seq != g_expect_seq) {
+        Serial.printf("[ble] DATA seq got=%u expect=%u\n", (unsigned)seq, (unsigned)g_expect_seq);
+        abort_transfer("incomplete");
+        g_xfer_fail_count++;
+        return;
+    }
+    const size_t chunk = len - 2;
+    if (g_rx_len + chunk > g_total_len || g_rx_len + chunk > g_rx_cap) {
+        abort_transfer("overflow");
+        g_xfer_fail_count++;
+        return;
+    }
+    memcpy(g_rx + g_rx_len, data + 2, chunk);
+    g_rx_len += chunk;
+    g_expect_seq++;
 }
 
 class ServerCallbacks : public NimBLEServerCallbacks {
@@ -70,7 +259,6 @@ class ServerCallbacks : public NimBLEServerCallbacks {
                       connInfo.getConnHandle(), connInfo.getAddress().toString().c_str(),
                       (unsigned)g_mtu, (unsigned)g_connect_events);
         log_heap("on_connect");
-        /* Prefer slightly longer intervals for e-paper idle link stability. */
         if (g_server) {
             g_server->updateConnParams(connInfo.getConnHandle(), 24, 48, 0, 400);
         }
@@ -81,7 +269,12 @@ class ServerCallbacks : public NimBLEServerCallbacks {
         (void)server;
         g_disconnect_events++;
         g_heartbeat_subscribed = false;
+        g_state_subscribed = false;
         g_mtu = 0;
+        if (g_xfer_active) {
+            reset_transfer();
+            g_xfer_fail_count++;
+        }
         Serial.printf("[ble] disconnect handle=%u reason=%d events_d=%u — restart adv\n",
                       connInfo.getConnHandle(), reason, (unsigned)g_disconnect_events);
         log_heap("on_disconnect");
@@ -107,6 +300,35 @@ class HeartbeatCallbacks : public NimBLECharacteristicCallbacks {
     }
 } g_heartbeat_callbacks;
 
+class StateCallbacks : public NimBLECharacteristicCallbacks {
+    void onSubscribe(NimBLECharacteristic *characteristic, NimBLEConnInfo &connInfo,
+                     uint16_t subValue) override
+    {
+        (void)characteristic;
+        g_state_subscribed = (subValue & 0x1) != 0;
+        Serial.printf("[ble] state subscribe=%u handle=%u\n", (unsigned)subValue,
+                      connInfo.getConnHandle());
+    }
+} g_state_callbacks;
+
+class CtrlCallbacks : public NimBLECharacteristicCallbacks {
+    void onWrite(NimBLECharacteristic *characteristic, NimBLEConnInfo &connInfo) override
+    {
+        (void)connInfo;
+        std::string v = characteristic->getValue();
+        handle_ctrl(reinterpret_cast<const uint8_t *>(v.data()), v.size());
+    }
+} g_ctrl_callbacks;
+
+class DataCallbacks : public NimBLECharacteristicCallbacks {
+    void onWrite(NimBLECharacteristic *characteristic, NimBLEConnInfo &connInfo) override
+    {
+        (void)connInfo;
+        std::string v = characteristic->getValue();
+        handle_data(reinterpret_cast<const uint8_t *>(v.data()), v.size());
+    }
+} g_data_callbacks;
+
 } // namespace
 
 bool ble_gatt_begin(void)
@@ -115,12 +337,22 @@ bool ble_gatt_begin(void)
         return true;
     }
 
+    g_rx_cap = BLE_MAX_PAYLOAD_BYTES;
+    g_rx = (uint8_t *)ps_malloc(g_rx_cap);
+    if (!g_rx) {
+        g_rx = (uint8_t *)malloc(g_rx_cap);
+    }
+    if (!g_rx) {
+        Serial.println("[ble] rx buffer alloc failed");
+        return false;
+    }
+    Serial.printf("[ble] rx buffer %u bytes at %p\n", (unsigned)g_rx_cap, (void *)g_rx);
+
     build_device_name();
     Serial.printf("[ble] init name=%s service=%s\n", g_device_name, BLE_UUID_STATUS_SERVICE);
     log_heap("pre_nimble");
 
     NimBLEDevice::init(g_device_name);
-    /* Spike: open lab link — no bonding / MITM (S4+ may tighten). */
     NimBLEDevice::setSecurityAuth(false, false, false);
     NimBLEDevice::setPower(ESP_PWR_LVL_P9);
 
@@ -137,10 +369,9 @@ bool ble_gatt_begin(void)
         return false;
     }
 
-    g_heartbeat = svc->createCharacteristic(BLE_UUID_HEARTBEAT, NIMBLE_PROPERTY::READ |
-                                                                    NIMBLE_PROPERTY::NOTIFY);
+    g_heartbeat = svc->createCharacteristic(BLE_UUID_HEARTBEAT,
+                                            NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
     if (!g_heartbeat) {
-        Serial.println("[ble] create HEARTBEAT failed");
         return false;
     }
     g_heartbeat->setCallbacks(&g_heartbeat_callbacks);
@@ -148,11 +379,30 @@ bool ble_gatt_begin(void)
 
     g_info = svc->createCharacteristic(BLE_UUID_INFO, NIMBLE_PROPERTY::READ);
     if (!g_info) {
-        Serial.println("[ble] create INFO failed");
         return false;
     }
     update_info_value();
-    /* NimBLE 2.x starts services when advertising/server starts. */
+
+    g_ctrl = svc->createCharacteristic(BLE_UUID_STATUS_CTRL, NIMBLE_PROPERTY::WRITE);
+    if (!g_ctrl) {
+        return false;
+    }
+    g_ctrl->setCallbacks(&g_ctrl_callbacks);
+
+    g_data = svc->createCharacteristic(
+        BLE_UUID_STATUS_DATA, NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR);
+    if (!g_data) {
+        return false;
+    }
+    g_data->setCallbacks(&g_data_callbacks);
+
+    g_state = svc->createCharacteristic(BLE_UUID_STATUS_STATE,
+                                        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
+    if (!g_state) {
+        return false;
+    }
+    g_state->setCallbacks(&g_state_callbacks);
+    g_state->setValue("idle");
 
     NimBLEAdvertising *adv = NimBLEDevice::getAdvertising();
     adv->setName(g_device_name);
@@ -196,6 +446,22 @@ uint32_t ble_gatt_disconnect_events(void)
     return g_disconnect_events;
 }
 
+bool ble_gatt_take_committed(const uint8_t **data, size_t *len)
+{
+    if (!g_committed_ready || !g_rx || !data || !len) {
+        return false;
+    }
+    *data = g_rx;
+    *len = g_rx_len;
+    g_committed_ready = false;
+    return true;
+}
+
+bool ble_gatt_transfer_active(void)
+{
+    return g_xfer_active;
+}
+
 void ble_gatt_poll(void)
 {
     if (!g_started) {
@@ -208,20 +474,23 @@ void ble_gatt_poll(void)
         if ((uint32_t)(now - g_last_hb_ms) >= BLE_HEARTBEAT_INTERVAL_MS) {
             g_last_hb_ms = now;
             g_hb_seq++;
-            char buf[64];
-            snprintf(buf, sizeof(buf), "hb=%u up_ms=%u heap=%u mtu=%u", (unsigned)g_hb_seq,
-                     (unsigned)now, (unsigned)ESP.getFreeHeap(), (unsigned)g_mtu);
+            char buf[80];
+            snprintf(buf, sizeof(buf), "hb=%u up_ms=%u heap=%u mtu=%u ok=%u fail=%u",
+                     (unsigned)g_hb_seq, (unsigned)now, (unsigned)ESP.getFreeHeap(),
+                     (unsigned)g_mtu, (unsigned)g_xfer_ok_count, (unsigned)g_xfer_fail_count);
             g_heartbeat->setValue((uint8_t *)buf, strlen(buf));
             g_heartbeat->notify();
+            /* Heartbeat text is diagnostic, not body content. */
             Serial.printf("[ble] notify %s\n", buf);
         }
     }
 
     if ((uint32_t)(now - g_last_heap_log_ms) >= BLE_HEAP_LOG_INTERVAL_MS) {
         g_last_heap_log_ms = now;
-        Serial.printf("[ble] soak connected=%u mtu=%u c=%u d=%u ",
+        Serial.printf("[ble] soak connected=%u mtu=%u c=%u d=%u xfer_ok=%u xfer_fail=%u ",
                       (unsigned)ble_gatt_connected_count(), (unsigned)g_mtu,
-                      (unsigned)g_connect_events, (unsigned)g_disconnect_events);
+                      (unsigned)g_connect_events, (unsigned)g_disconnect_events,
+                      (unsigned)g_xfer_ok_count, (unsigned)g_xfer_fail_count);
         log_heap("periodic");
     }
 }

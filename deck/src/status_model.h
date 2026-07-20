@@ -1,8 +1,8 @@
 /**
  * Device-local view model for the e-paper status layout.
  *
- * C structs only — no ArduinoJson / parse path here (see later PRs).
- * Firmware maps a StatusSnapshot (or a compile-time fixture) into DeckView.
+ * C structs only — JSON parse lives in status_parse.* (ArduinoJson).
+ * Firmware maps a StatusSnapshot (or a fixture) into DeckView.
  */
 
 #pragma once

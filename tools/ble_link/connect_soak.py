@@ -18,16 +18,12 @@ import sys
 import time
 from datetime import datetime, timezone
 
-from bleak import BleakClient, BleakScanner
+from bleak import BleakClient
 from bleak.backends.characteristic import BleakGATTCharacteristic
 from bleak.exc import BleakError
 
-# Must match deck/src/ble_gatt.h
-UUID_STATUS_SERVICE = "a0cd0001-acd0-4c00-9c00-00805f9b34fb"
-UUID_HEARTBEAT = "a0cd0002-acd0-4c00-9c00-00805f9b34fb"
-UUID_INFO = "a0cd0003-acd0-4c00-9c00-00805f9b34fb"
-
-NAME_PREFIX = "ACD-"
+from device import find_device as scan_device
+from protocol import UUID_HEARTBEAT, UUID_INFO, NAME_PREFIX
 
 
 def utc_now() -> str:
@@ -44,33 +40,16 @@ async def find_device(timeout: float, name: str | None, address: str | None):
         return address
 
     log(f"scanning for {name or (NAME_PREFIX + '*')} (timeout={timeout}s)...")
-    devices = await BleakScanner.discover(timeout=timeout)
-    matches = []
-    for d in devices:
-        dname = d.name or ""
-        if name and dname == name:
-            matches.append(d)
-        elif not name and dname.startswith(NAME_PREFIX):
-            matches.append(d)
-
-    if not matches:
-        # Some stacks put the local name only in advertisement data
-        for d in devices:
-            ad = getattr(d, "metadata", {}) or {}
-            uuids = [u.lower() for u in (ad.get("uuids") or [])]
-            if UUID_STATUS_SERVICE.lower() in uuids:
-                matches.append(d)
-
-    if not matches:
+    found, devices = await scan_device(timeout, name, address)
+    if found is None:
         log("no matching device found. Visible names:")
-        for d in sorted(devices, key=lambda x: (x.name or "")):
+        for d in sorted(devices or [], key=lambda x: (x.name or "")):
             if d.name:
                 log(f"  {d.address}  {d.name!r}")
         return None
 
-    chosen = matches[0]
-    log(f"found {chosen.name!r} address={chosen.address}")
-    return chosen
+    log(f"found {getattr(found, 'name', None)!r} address={getattr(found, 'address', found)}")
+    return found
 
 
 async def session(

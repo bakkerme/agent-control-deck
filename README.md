@@ -4,9 +4,9 @@ Monorepo for the Agent Control Deck — firmware and docs for a LilyGo T5 4.7" e
 
 | Path | Role |
 |------|------|
-| [`deck/`](deck/) | PlatformIO firmware (e-paper + NimBLE peripheral spike) |
+| [`deck/`](deck/) | PlatformIO firmware (e-paper + NimBLE push + parse spike) |
 | [`docs/`](docs/) | Product / design docs + [`ble-spike.md`](docs/ble-spike.md) log |
-| [`tools/ble_link/`](tools/ble_link/) | Host `bleak` connect/soak script (PR-S1) |
+| [`tools/ble_link/`](tools/ble_link/) | Host `bleak` soak (S1), `push_xfer` (S2), `mock_bridge` (S3/S4) |
 
 ## Hygiene
 
