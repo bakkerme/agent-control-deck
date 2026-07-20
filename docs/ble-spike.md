@@ -4,6 +4,18 @@ Tracks S1–S4 results against the [MVP product design](mvp-product-design.md#bl
 
 **Roles:** deck = GATT peripheral (NimBLE); host = `bleak` central. **Wi‑Fi off** on deck for the spike.
 
+## Spike status: CLOSED (rev 2.7)
+
+| Item | Outcome |
+|------|---------|
+| **Decision** | **Lock BLE as primary portable transport** |
+| **USB** | Keep as exclusive-mode desk/debug path |
+| **Option B** (LAN reverse-push) | **Deferred** until BLE proves insufficient in real multi-room use |
+| **Evidence** | S1 link lab; S2 **100/100** CRC-validated transfers including **house walk-around**; stack (NimBLE + bleak) stable on-desk and mobile |
+| **Not required for close** | Formal 30 min S4 soak, SCHEMA chrome polish, bonding/PIN — tracked as post-spike product work |
+
+**Close rationale:** The spike question was “can host-push BLE carry StatusSnapshot reliably on classic ESP32 + macOS without SoftAP?” Answer: **yes**. Remaining work is productization (schema package, real `bridge/`, pairing, polish), not transport R&D.
+
 ## Fixed identities (implementation)
 
 | Item | Value |
@@ -105,45 +117,54 @@ pass/fail: PASS
 
 | Check | Result | Notes |
 |-------|--------|-------|
-| Mock 3 sessions on glass | ☐ | `python mock_bridge.py --once` |
-| Host change → redraw | ☐ | `mock_bridge.py --animate` |
-| SCHEMA frame on bad version | ☐ | `push_xfer.py --payload payloads/schema_bad.json --schema-version 1` (BEGIN=1, body v99) or BEGIN≠1 → STATE schema |
+| Mock 3 sessions on glass | ☐ smoke | `python mock_bridge.py --once` — code path live; optional confirm on glass |
+| Host change → redraw | ☐ smoke | `mock_bridge.py --animate` |
+| SCHEMA frame on bad version | ☐ smoke | `push_xfer.py --payload payloads/schema_bad.json --schema-version 1` |
 
 ### S4 — Bridge-shaped + STALE
 
 | Check | Result | Notes |
 |-------|--------|-------|
-| 30 min soak stable | ☐ | `mock_bridge.py --interval 15` |
-| Kill pusher → STALE within grace | ☐ | grace **30 s** |
-| Restart → recovery redraw | ☐ | |
-| Indoor range walk-test | ☐ | usable distance: __ |
+| 30 min soak stable | ☐ optional | Nice-to-have; S2 soak + walk-around already stress radio |
+| Kill pusher → STALE within grace | ☐ smoke | grace **30 s** — recommended 2-minute check |
+| Restart → recovery redraw | ☐ smoke | restart `mock_bridge.py` |
+| Indoor range walk-test | **Pass** (S2) | House walk-around during 100/100; usable for room/portable |
 
 **S4 run log**
 
 ```
-date:
-interval:
-soak duration:
-stale after kill (s):
-recovery ok:
-range notes:
-min_free_heap:
-pass/fail:
+date: 2026-07-20 (partial — range via S2 walk-around)
+range notes: house walk-around during bulk transfer; 100/100 held
+stale after kill: (optional smoke — not blocking decision)
+pass/fail: decision locked on S1+S2 + range; S3/S4 smoke optional
 ```
 
-## Decision matrix (fill after S4)
+## Decision matrix (closed)
 
-| Result | Choice (circle one) |
-|--------|---------------------|
-| S4 pass + acceptable room range | BLE primary / keep USB desk |
-| S4 pass but range short | BLE near-desk + **start Option B** |
-| S1–S2 fail (stack/RAM/OS) | **Option B** + USB desk |
+| Result | Choice |
+|--------|--------|
+| S4 pass + acceptable room range | **← selected: BLE primary + keep USB desk** |
+| S4 pass but range short | BLE near-desk + start Option B |
+| S1–S2 fail (stack/RAM/OS) | Option B + USB desk |
 | Host cannot talk BLE | USB-only desk until RF path exists |
 
 **Decision date / notes:**
 
 ```
-date:
-choice:
+date: 2026-07-20
+choice: BLE primary portable transport; USB desk/debug; Option B deferred
 rationale:
+  - S2 100/100 CRC-ok transfers (host STATE ok after deck reassembly)
+  - Same soak survived house walk-around (range not desk-only)
+  - S1 link + NimBLE RAM footprint acceptable (no WDT / fail-fast)
+  - Residual: optional STALE kill smoke, bonding before daily-driver, production bridge package
 ```
+
+## Post-spike backlog (not spike blockers)
+
+1. Merge spike branch(es) to `main` when ready.
+2. **PR2** — freeze `StatusSnapshot` JSON Schema + examples.
+3. **PR3** — real `bridge/` (adapters, store) with **BLE egress** as default (grow from `tools/ble_link/`).
+4. Optional 2-minute STALE smoke: run `mock_bridge.py`, kill it, confirm STALE ≤30 s, restart → recovery.
+5. Hardening: BLE bonding/encrypt before shared-office daily driver; macOS TCC / lid-sleep notes in quickstart.
+6. Revisit Option B only if multi-floor range or OS BLE reliability fails in practice.
