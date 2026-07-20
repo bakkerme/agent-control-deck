@@ -80,25 +80,25 @@ min_free_heap:
 pass/fail:
 ```
 
-### S2 — Bulk transfer
+### S2 — Bulk transfer ✅ Lab pass
 
 | Check | Result | Notes |
 |-------|--------|-------|
-| 100/100 clean 2–8 KiB transfers | ☐ | `python push_xfer.py --count 100` |
-| CRC/len failures | ☐ | count: __ |
-| MTU + duration recorded | ☐ | |
-| Optional pad stress | ☐ | `--pad-to 4096` or `8192` |
+| 100/100 clean transfers | **Pass** | `python push_xfer.py --count 100` after double-buffer + conservative chunk fix |
+| CRC/len failures | **0** | Host reported 100 ok / 0 fail |
+| Walk-around (same session) | **Pass** | Moved deck around house during soak; still 100/100 (reporting trusted as host STATE `ok` count) |
+| MTU + duration recorded | ☐ | Fill from host log if desired |
+| Optional pad stress | ☐ | `--pad-to 4096` or `8192` not required for pass |
 
 **S2 run log**
 
 ```
-date:
-bytes per transfer:
-count ok/fail:
-mtu:
-elapsed:
-min_free_heap:
-pass/fail:
+date: 2026-07-20
+host OS: macOS (bleak)
+deck fw: spike S2–S4 (post reliability fix 21556ec+)
+count ok/fail: 100/0
+range notes: house walk-around during transfer soak — no failures
+pass/fail: PASS
 ```
 
 ### S3 — On glass

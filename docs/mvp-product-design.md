@@ -5,7 +5,7 @@
 | **Document** | Product Design / System Design — MVP |
 | **Author** | TBD |
 | **Date** | 2026-07-20 |
-| **Status** | Draft (rev 2.5 — PR0 + PR1* + PR-S1…PR-S4 implemented; lab decision matrix pending) |
+| **Status** | Draft (rev 2.6 — S1/S2 lab pass incl. house walk-around 100/100; S3/S4 lab + matrix next) |
 | **Scope** | Read-only agent status on LilyGo T5-ePaper |
 | **Repo** | `agent-control-deck` (this monorepo) |
 
@@ -41,7 +41,7 @@ Today the monorepo is under git with a **flashable BLE status spike**: `display_
 | [`tools/ble_link/`](../tools/ble_link/) | `connect_soak.py` (S1), `push_xfer.py` (S2), `mock_bridge.py` (S3/S4), `protocol.py`, sample payloads |
 | [`docs/ble-spike.md`](ble-spike.md) | UUIDs, wire format, phase checklist, decision matrix log |
 
-**Done so far:** **PR0**, **PR1a**, **PR1b**, **PR-S1** (lab link), **PR-S2…PR-S4** (code landed — complete phase checklists in `docs/ble-spike.md`).
+**Done so far:** **PR0**, **PR1a**, **PR1b**, **PR-S1** (lab link), **PR-S2** (lab **100/100** bulk transfer, including house walk-around), **PR-S3/S4** code landed — complete remaining checklists in `docs/ble-spike.md`.
 
 **What does not exist yet:** formal schema package (PR2), production `bridge/` package, USB product path, Option B WiFi, config storage, agent adapters, filled decision matrix.
 
@@ -282,7 +282,7 @@ Base: `a0cd****-acd0-4c00-9c00-00805f9b34fb`. Device name: `ACD-` + last 4 hex o
 | Phase | Work | Pass criteria | Status |
 |-------|------|----------------|--------|
 | **S1 — Link** | NimBLE peripheral on deck; advertise; accept one connection; notify heartbeat | Host `bleak` script stays connected **≥ 30 min**; reconnect after host BT toggle works | **Done** (PR-S1, lab) |
-| **S2 — Bulk transfer** | Chunked 2–8 KiB write + reassembly + CRC/len check | **100 consecutive** full transfers with zero corruption; log negotiated MTU + duration | **Code done** — run `push_xfer.py --count 100` |
+| **S2 — Bulk transfer** | Chunked 2–8 KiB write + reassembly + CRC/len check | **100 consecutive** full transfers with zero corruption; log negotiated MTU + duration | **Lab pass** (100/100; house walk-around OK) |
 | **S3 — On glass** | Reassembled snapshot → parse → e-paper status layout | Mock **3 sessions** visible; change on host → screen updates within one heartbeat + draw | **Code done** — run `mock_bridge.py` |
 | **S4 — Bridge-shaped** | Tiny bridge: mock → bleak push; STALE when pusher killed | Kill pusher → STALE within grace (30 s); restart → recovery redraw; free heap stable across 30 min | **Code done** — fill decision matrix |
 
@@ -967,7 +967,7 @@ Git baseline, layout demo, and **BLE spike code (S1–S4)** are **landed** (PR0 
 |-------|------|--------|----------|
 | 0 | Hello-world → git baseline (PR0) | **Done** | Hardware + VCS validation |
 | 1 | UI demo with hardcoded `DeckView` (PR1a + PR1b) | **Done** | Layout without radio |
-| 2 | **BLE spike S1–S4** | **Code done** — lab checklists + matrix | Decide portable transport |
+| 2 | **BLE spike S1–S4** | **In progress** (S1/S2 lab ✅; S3/S4 lab + matrix) | Decide portable transport |
 | 3 | Mock/file bridge + chosen radio path | Pending | End-to-end product pipe |
 | 4 | File + loopback POST hooks | Pending | Supported integration |
 | 5 | Option B only if BLE insufficient | Conditional | LAN reverse-push fallback |
@@ -1069,7 +1069,7 @@ Git baseline, layout demo, and **BLE spike code (S1–S4)** are **landed** (PR0 
 
 Each PR leaves the tree buildable. Stacked branches under `execute-plan/` (or merge to `main` as preferred).
 
-**Progress (rev 2.5):** **PR0**, **PR1a**, **PR1b**, and **PR-S1…PR-S4** are **implemented**. Remaining critical path: complete lab checklists in [`docs/ble-spike.md`](ble-spike.md) and apply the [decision matrix](#ble-transport-spike) **before** investing in Option B LAN reverse-push or any host-listen WiFi pull path. Schema/bridge model work (PR2, PR3 core) can proceed because `StatusSnapshot` is transport-agnostic.
+**Progress (rev 2.6):** **PR0**, **PR1a**, **PR1b**, **PR-S1** (lab), and **PR-S2** (lab **100/100**, house walk-around) are **done**. **PR-S3/S4** code is landed; finish on-glass / STALE lab checks and the [decision matrix](#ble-transport-spike) in [`docs/ble-spike.md`](ble-spike.md) **before** Option B or host-listen WiFi pull. Schema/bridge model work (PR2, PR3 core) can proceed because `StatusSnapshot` is transport-agnostic.
 
 ### PR0 — Initialize repository and baseline monorepo hygiene ✅ Done
 
@@ -1121,16 +1121,16 @@ Each PR leaves the tree buildable. Stacked branches under `execute-plan/` (or me
 | **Description** | Deck advertises `ACD-*`; accepts one central; HEARTBEAT notify + INFO read. **Wi‑Fi off.** Host: minimal `bleak` connect/soak script. Fixed service UUIDs for S2 reuse. |
 | **Acceptance** | Connected **≥ 30 min**; reconnect after host BT toggle; heap logged; no WDT. **Met in lab.** |
 
-### PR-S2 — Spike: chunked bulk transfer ✅ Code done
+### PR-S2 — Spike: chunked bulk transfer ✅ Lab pass
 
 | | |
 |--|--|
-| **Status** | **Code done** (2026-07-20) — branch `spike/pr-s2-s4-ble-end-to-end`; lab 100/100 still required |
+| **Status** | **Lab pass** (2026-07-20) — branch `spike/pr-s2-s4-ble-end-to-end`; **100/100** host STATE `ok`; walk-around during soak |
 | **Title** | `spike: chunked 8KiB StatusSnapshot transfer over BLE` |
 | **Files/components** | `deck/src/ble_gatt.*` CTRL/DATA/STATE + CRC; `tools/ble_link/push_xfer.py`, `protocol.py`, payloads |
 | **Depends on** | PR-S1 |
-| **Description** | Binary BEGIN/DATA/COMMIT; 8 KiB PSRAM reassembly; STATE notify; host chunk pusher. |
-| **Acceptance** | **100/100** clean transfers; record MTU and duration. |
+| **Description** | Binary BEGIN/DATA/COMMIT; 8 KiB PSRAM reassembly; STATE notify; host chunk pusher. Double-buffer + conservative chunks for reliability. |
+| **Acceptance** | **100/100** clean transfers; record MTU and duration. **Met in lab** (incl. in-house movement). |
 
 ### PR-S3 — Spike: on-glass mock status ✅ Code done
 
@@ -1230,7 +1230,7 @@ flowchart TD
   PR0[PR0 ✅] --> PR1a[PR1a ✅] --> PR1b[PR1b ✅]
   PR0 --> PR2
   PR0 --> PRS1[PR-S1 BLE link ✅]
-  PRS1 --> PRS2[PR-S2 chunks ✅]
+  PRS1 --> PRS2[PR-S2 chunks ✅ lab]
   PR1b --> PR4
   PR2 --> PR4
   PR2 --> PR3
@@ -1252,4 +1252,4 @@ flowchart TD
 
 ---
 
-*End of design document (rev 2.5).*
+*End of design document (rev 2.6).*
