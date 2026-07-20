@@ -225,8 +225,6 @@ sequenceDiagram
   end
 ```
 
-Historical note: rev 2.1 described device-pull WiFi via LilyGo `ha_calendar` (`HTTPClient` GET). That remains a useful **engineering reference for JSON + EPD**, but **not** the product transport under current host firewall + SoftAP constraints.
-
 ### BLE transport spike
 
 **Goal:** Validate whether BLE can be the **primary portable** path before investing in Option B (LAN reverse-push). SoftAP is out of scope for this spike.
