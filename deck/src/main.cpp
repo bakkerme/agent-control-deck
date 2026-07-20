@@ -1,8 +1,10 @@
 /**
- * Agent Control Deck — multi-session status layout demo
+ * Agent Control Deck — PR-S1 BLE link spike + status layout demo
  *
  * Target: LilyGo T5-ePaper (ESP32-WROVER), 960x540, 4-bit grayscale.
- * PR1b: compile-time DeckView fixture only (no JSON / radio).
+ * - Draws compile-time DeckView fixture once (from PR1b).
+ * - NimBLE peripheral: advertise, one central, heartbeat notify.
+ * - Wi‑Fi forced off for the spike.
  */
 
 #ifndef BOARD_HAS_PSRAM
@@ -10,8 +12,10 @@
 #endif
 
 #include <Arduino.h>
+#include <WiFi.h>
 #include <string.h>
 
+#include "ble_gatt.h"
 #include "display.h"
 #include "status_model.h"
 #include "ui_layout.h"
@@ -25,7 +29,7 @@ static void build_demo_view(DeckView *view)
     view->stale = false;
     view->fault = DECK_FAULT_NONE;
     view->age_ms = 12000; /* 12s */
-    strncpy(view->transport, "demo", sizeof(view->transport) - 1);
+    strncpy(view->transport, "ble-s1", sizeof(view->transport) - 1);
     strncpy(view->host_name, "brandon-mbp", sizeof(view->host_name) - 1);
     strncpy(view->bridge_version, "0.1.0", sizeof(view->bridge_version) - 1);
     view->schema_version = 1;
@@ -68,7 +72,11 @@ void setup()
     Serial.begin(115200);
     delay(500);
     Serial.println();
-    Serial.println("agent-control-deck/deck: status layout demo (hardcoded DeckView)");
+    Serial.println("agent-control-deck/deck: PR-S1 BLE link spike");
+
+    /* Spike rule: Wi‑Fi off (no SoftAP, no STA, no Wi‑Fi+BLE coexistence). */
+    WiFi.mode(WIFI_OFF);
+    Serial.println("[wifi] mode=OFF");
 
     if (!display_init()) {
         Serial.println("PSRAM framebuffer alloc failed");
@@ -82,12 +90,20 @@ void setup()
 
     ui_draw_status(display_framebuffer(), &view);
     display_present(/*full_clear=*/true);
+    Serial.println("Demo status layout drawn to e-paper (static fixture).");
 
-    Serial.println("Demo status layout drawn to e-paper.");
+    if (!ble_gatt_begin()) {
+        Serial.println("[ble] init failed — halt");
+        while (true) {
+            delay(1000);
+        }
+    }
+
+    Serial.println("[ble] ready — use tools/ble_link/connect_soak.py on host");
 }
 
 void loop()
 {
-    /* Static demo fixture — nothing to refresh. */
-    delay(10000);
+    ble_gatt_poll();
+    delay(50);
 }
