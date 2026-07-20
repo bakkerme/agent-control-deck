@@ -5,7 +5,7 @@
 | **Document** | Product Design / System Design — MVP |
 | **Author** | TBD |
 | **Date** | 2026-07-20 |
-| **Status** | Draft (rev 2.7 — **BLE spike CLOSED**: BLE primary portable; USB desk; Option B deferred) |
+| **Status** | Draft (rev 2.8 — BLE closed; **bridge ingress spike** PR3a/PR6a landed; egress + schema still open) |
 | **Scope** | Read-only agent status on LilyGo T5-ePaper |
 | **Repo** | `agent-control-deck` (this monorepo) |
 
@@ -15,7 +15,7 @@
 
 **Agent Control Deck** is a desk- and room-portable **e-paper status display** for AI coding agents. Despite the product name, the MVP is a **status deck only**: a **read-only** glanceable view of agent state (name, task summary, running/idle/error, progress, last update) so a developer can leave their phone in their pocket while agents run on a host machine. **Control features (kill, approve, inject prompt, or any intervention) are a future product generation, not a hidden MVP toggle.**
 
-Today the monorepo is under git with a **flashable BLE status spike**: `display_*` helpers, `DeckView` multi-session layout, **NimBLE peripheral** (advertise `ACD-*`, chunked ≤8 KiB StatusSnapshot reassembly + CRC, HEARTBEAT/STATE notify), ArduinoJson parse → on-glass redraw, and **STALE after 30 s** without a successful push — on a **LilyGo T5-ePaper** (classic ESP32-WROVER, 960×540, 4-bit grayscale). Host tools live under **`tools/ble_link/`** (`connect_soak`, `push_xfer`, `mock_bridge`). There is still no formal schema package (PR2), no production bridge package, and no agent adapters. This document defines the product problem, the end-to-end architecture, and an ordered PR plan.
+Today the monorepo is under git with a **flashable BLE status path** on a **LilyGo T5-ePaper** (classic ESP32-WROVER, 960×540, 4-bit grayscale): `display_*`, `DeckView`, **NimBLE** peripheral (`ACD-*`, chunked ≤8 KiB StatusSnapshot + CRC), ArduinoJson → on-glass redraw, **STALE after 30 s**. Host BLE tools live under **`tools/ble_link/`**. A **bridge ingress spike** lives under **`bridge/`**: pydantic model/store, mock + file + post adapters, loopback FastAPI (`/v1/sessions`, vendor `/v1/hooks/*`), tests, and Grok/Claude hook examples — **no deck egress yet**. Still missing: formal schema package (**PR2**), bridge **BLE/USB push** (**PR3b**), USB product path, scrapers. This document defines the product problem, architecture, and PR plan.
 
 **Transport decision (rev 2.7 — locked):** host machines may be **firewalled against inbound TCP**; SoftAP is **not viable**; third-host status is a **compliance risk**. The BLE spike is **closed**: **BLE host-push is the primary portable path**; **USB serial remains desk/debug exclusive mode**; **Option B (LAN reverse-push) is deferred**. Evidence and residual notes live in [`docs/ble-spike.md`](ble-spike.md). Control/intervention is **explicitly out of scope**.
 
@@ -38,12 +38,13 @@ Today the monorepo is under git with a **flashable BLE status spike**: `display_
 | [`deck/src/ui_layout.h`](../deck/src/ui_layout.h) / [`ui_layout.cpp`](../deck/src/ui_layout.cpp) | Header + ≤3 rows + footer; ASCII tokens; geometric progress bars; SCHEMA/STALE/empty frames (**PR1b**) |
 | [`deck/src/ble_gatt.h`](../deck/src/ble_gatt.h) / [`ble_gatt.cpp`](../deck/src/ble_gatt.cpp) | NimBLE: `ACD-*` adv, HEARTBEAT/INFO, CTRL/DATA reassembly + CRC, STATE notify (**PR-S1/S2**) |
 | [`deck/src/main.cpp`](../deck/src/main.cpp) | Wi‑Fi off → poll → parse → present; fail_count + **30 s STALE grace** (**PR-S3/S4**) |
-| [`tools/ble_link/`](../tools/ble_link/) | `connect_soak.py` (S1), `push_xfer.py` (S2), `mock_bridge.py` (S3/S4), `protocol.py`, sample payloads |
+| [`tools/ble_link/`](../tools/ble_link/) | `connect_soak.py` (S1), `push_xfer.py` (S2), `mock_bridge.py` (S3/S4), `protocol.py`, sample payloads — **deck egress still here** until PR3b |
+| [`bridge/`](../bridge/) | Host **ingress spike** (**PR3a** + **PR6a**): model/store, mock/file/post, loopback FastAPI, Grok/Claude hook examples; see [`bridge/README.md`](../bridge/README.md) |
 | [`docs/ble-spike.md`](ble-spike.md) | UUIDs, wire format, phase checklist, decision matrix log |
 
-**Done so far:** **PR0**, **PR1a**, **PR1b**, **PR-S1** (lab link), **PR-S2** (lab **100/100** bulk transfer, including house walk-around), **PR-S3/S4** code landed — complete remaining checklists in `docs/ble-spike.md`.
+**Done so far:** **PR0**, **PR1a**, **PR1b**, **PR-S1…S4** (BLE primary locked), **PR3a** (bridge model/store/mock + localhost serve), **PR6a** (file adapter + loopback Session API + vendor hook mappers).
 
-**What does not exist yet:** formal schema package (PR2), production `bridge/` package, USB product path, Option B WiFi, config storage, agent adapters, filled decision matrix.
+**What does not exist yet / remaining:** formal schema package (**PR2**), bridge **BLE/USB egress** (**PR3b** — promote `tools/ble_link/`), USB exclusive product path (**PR7**), BLE polish/pairing (**PR5**), quickstart (**PR10**), config storage, named scrapers (**PR8** deferred). Option B deferred.
 
 ### Hardware facts (honest)
 
@@ -190,9 +191,9 @@ flowchart LR
 
 | Path | Role | Status |
 |------|------|--------|
-| **BLE host-push (preferred portable)** | Deck = GATT peripheral; host bridge = BLE central; chunked `StatusSnapshot` write | **Spike first** — see [BLE transport spike](#ble-transport-spike) |
-| **USB serial (desk/debug, exclusive mode)** | Host writes NDJSON snapshots; device reads UART0 | Planned secondary; not concurrent with radio modes |
-| **LAN reverse-push “Option B”** | Deck STA + listen; host **outbound** POST only | **Fallback** if BLE fails range/OS reliability; accepts LAN exposure of summaries |
+| **BLE host-push (primary portable)** | Deck = GATT peripheral; host bridge = BLE central; chunked `StatusSnapshot` write | **Locked** — spike closed; production egress still **PR3b** (promote `tools/ble_link/`) |
+| **USB serial (desk/debug, exclusive mode)** | Host writes NDJSON snapshots; device reads UART0 | Planned secondary (**PR7**); not concurrent with radio modes |
+| **LAN reverse-push “Option B”** | Deck STA + listen; host **outbound** POST only | **Deferred** unless BLE fails in the field |
 | SoftAP on deck | Host joins device AP | **Rejected** — host must keep normal Wi‑Fi |
 | Device-pull WiFi (`GET` host bridge) | Deck HTTP client → host listen port | **Rejected as product primary** — host inbound may be firewalled closed with no reopen |
 | Third-party network relay | Host → middlebox → deck | **Rejected** — compliance risk for agent/task text |
@@ -604,49 +605,69 @@ Classic T5 uses external USB-UART on **UART0** at **115200** (same as `monitor_s
 5. Flash/upload: stop host serial writer before `pio run -t upload`; port cannot be shared.
 6. Device does not require a hello message; optional `{"type":"hello",...}` lines are ignored (not starting a full StatusSnapshot with `schema_version`).
 
-### Host bridge architecture (`bridge/` — new package)
+### Host bridge architecture (`bridge/`)
 
 **Python 3.11+** for MVP. Primary job: **build snapshots and push** to the deck (BLE central via `bleak`, and/or USB). Optional **localhost HTTP** is only for local hooks/tools — not for serving a firewalled host’s LAN to the deck.
 
+**Landed (rev 2.8 — PR3a + PR6a ingress spike):** model, store, mock/file/post adapters, `acd-bridge serve` (loopback FastAPI), vendor hook mappers, tests, examples. See [`bridge/README.md`](../bridge/README.md) for endpoint expected uses.
+
+**Not landed yet (PR3b + later):** `ble_out.py` / CLI push loop (still use `tools/ble_link/mock_bridge.py` + fixed JSON), `serial_out.py`, formal JSON Schema package (PR2), production packaging polish.
+
 ```
-bridge/
+bridge/                          # PR3a/PR6a ✅ ingress; PR3b ❌ egress
   pyproject.toml
-  README.md
+  README.md                      # ingress paths + HTTP expected uses
   src/agent_control_deck_bridge/
     __init__.py
-    main.py              # CLI: push-ble, push-usb, mock, optional serve-localhost
-    model.py             # pydantic StatusSnapshot
-    store.py             # per-adapter session sets + lock
-    ble_out.py           # bleak central chunked push (spike / primary)
-    serial_out.py        # exclusive USB writer
-    server.py            # optional localhost HTTP for hooks only
+    main.py              # CLI: serve (loopback) — push-ble/push-usb TBD (PR3b/PR7)
+    model.py             # pydantic StatusSnapshot ✅
+    store.py             # per-adapter session sets + lock ✅
+    hooks.py             # Grok/Claude lifecycle → Session ✅
+    ble_out.py           # bleak central chunked push — NOT YET (PR3b)
+    serial_out.py        # exclusive USB writer — NOT YET (PR7)
+    server.py            # localhost HTTP for hooks ✅
     adapters/
       base.py
-      mock.py
-      file_adapter.py
+      mock.py            # ✅
+      file_adapter.py    # ✅
+      post_adapter.py    # ✅
+  examples/hooks/        # Grok command hooks, Claude fragment, forward script ✅
   tests/
 ```
 
+#### Caveats (ingress spike)
+
+| Caveat | Detail |
+|--------|--------|
+| **No deck egress** | `bridge/` does not push over BLE/USB. End-to-end glass still needs `tools/ble_link/` (or PR3b). |
+| **No formal PR2 schema** | Wire shape is pydantic + field dictionary in this doc; `schema/status.schema.json` / `docs/status-schema.md` still open. |
+| **Grok HTTP hooks** | Grok `type: "http"` allows **https:// only**. Examples use `type: "command"` + `curl` to loopback plain HTTP. |
+| **Hook logging** | Default `--log-hooks` logs full vendor JSON at info (spike debug). Product observability still says: do not log session bodies at info long-term — use `--no-log-hooks` or dial back in PR3b polish. |
+| **PR2 dependency** | Plan originally had PR3 after PR2; ingress spike proceeded with pydantic-only validation. PR2 should still freeze examples shared with firmware. |
+
 #### Egress (deck-facing)
 
-| Egress | Role | When |
-|--------|------|------|
-| **BLE push** | Central writes chunked snapshot to deck GATT | Preferred portable path after spike |
-| **USB NDJSON** | Write full snapshot lines to serial | Desk/debug exclusive mode |
-| **LAN outbound POST** | Host client → deck HTTP | Option B only, post-decision |
+| Egress | Role | When / status |
+|--------|------|----------------|
+| **BLE push** | Central writes chunked snapshot to deck GATT | **Primary** (locked) — implement in bridge as **PR3b** (promote `tools/ble_link/`) |
+| **USB NDJSON** | Write full snapshot lines to serial | Desk/debug exclusive mode — **PR7** |
+| **LAN outbound POST** | Host client → deck HTTP | Option B only — **deferred** |
 
 #### Optional localhost HTTP (hooks only)
 
 Default bind **`127.0.0.1` only**. This is **not** the “open a port for the deck” design.
 
-| Method | Path | Bind policy | Response |
-|--------|------|-------------|----------|
-| `GET` | `/healthz` | **loopback only** | `200 {"ok": true}` |
-| `GET` | `/v1/status` | **loopback only** | `200` StatusSnapshot JSON (debug) |
-| `POST` | `/v1/sessions` | **loopback only** | **Upsert by `id`** into the `post` adapter set |
-| `PUT` | `/v1/adapters/post` | **loopback only** | **Replace entire** `post` set |
-| `DELETE` | `/v1/sessions/{id}` | **loopback only** | Remove one id from the `post` set only |
+| Method | Path | Bind policy | Response | Expected use |
+|--------|------|-------------|----------|----------------|
+| `GET` | `/healthz` | **loopback only** | `200 {"ok": true}` | Liveness |
+| `GET` | `/v1/status` | **loopback only** | `200` StatusSnapshot JSON | Debug / future push source |
+| `POST` | `/v1/sessions` | **loopback only** | **Upsert by `id`** into the `post` set | Scripts/jobs that already have Session fields |
+| `PUT` | `/v1/adapters/post` | **loopback only** | **Replace entire** `post` set | Controller that rewrites all post sessions |
+| `DELETE` | `/v1/sessions/{id}` | **loopback only** | Remove one id from the `post` set only | Clear one job; does not touch file/mock |
+| `POST` | `/v1/hooks/grok` | **loopback only** | Map lifecycle JSON → post Session (`agent=grok`) | Grok command-hook forwarder |
+| `POST` | `/v1/hooks/claude` | **loopback only** | Same mapper (`agent=claude-code`) | Claude Code HTTP or command hooks |
 
+- **Two ingress shapes:** vendor lifecycle envelopes → `/v1/hooks/*`; schema Session objects → `/v1/sessions` (or file adapter). Not interchangeable.
 - File adapter uses host filesystem only (no network write surface).
 - If Option B is later selected, deck-facing HTTP lives **on the deck**, not as a LAN-exposed host GET server.
 
@@ -951,7 +972,8 @@ MVP starts **full-frame** for correctness; `epd_clear_area` later.
 
 - Structured logs: adapter replace counts, HTTP method/path/status/bytes, reject non-loopback writes.
 - `GET /healthz` for liveness.
-- Do not log full session summaries at info level.
+- Do not log full session summaries at info level **in production defaults**.
+- **Spike exception (PR3a/PR6a):** `acd-bridge serve` defaults to `--log-hooks` (full vendor hook JSON + mapped session at info, truncated). Prefer `--no-log-hooks` once egress is daily-driver; dial default back in PR3b polish if needed.
 
 ### Soak / WDT
 
@@ -961,16 +983,18 @@ PR5 acceptance includes a soak checklist (30 min minimum in PR; 8 h success metr
 
 ## Rollout Plan
 
-Git baseline, layout demo, and **BLE spike (closed)** are **done**. Next: **schema + production bridge** with BLE egress as default (PR2, PR3+).
+Git baseline, layout demo, **BLE spike (closed)**, and **bridge ingress spike (PR3a/PR6a)** are **done**. Next: **PR2 schema package** + **PR3b BLE egress** into `bridge/` (compose store → bleak push).
 
 | Stage | Mode | Status | Audience |
 |-------|------|--------|----------|
 | 0 | Hello-world → git baseline (PR0) | **Done** | Hardware + VCS validation |
 | 1 | UI demo with hardcoded `DeckView` (PR1a + PR1b) | **Done** | Layout without radio |
 | 2 | **BLE spike S1–S4** | **Closed** — BLE primary locked | Portable transport decided |
-| 3 | Mock/file bridge + **BLE** push path | **Next** | End-to-end product pipe |
-| 4 | File + loopback POST hooks | Pending | Supported integration |
-| 5 | Option B only if BLE insufficient | **Deferred** | LAN reverse-push fallback |
+| 3a | Bridge **ingress**: model/store/mock + localhost HTTP | **Done** (PR3a spike) | Hooks/tools → snapshot in process |
+| 3b | File + loopback Session API + vendor hook mappers | **Done** (PR6a spike) | Supported integration (no scrapers) |
+| 3c | Bridge **BLE egress** (promote `ble_link` → `ble_out`) | **Next** (PR3b) | End-to-end product pipe on glass |
+| 4 | Formal schema package + shared examples | Pending (PR2) | Freeze contract for firmware + bridge |
+| 5 | Option B only if BLE insufficient in the field | **Deferred** | LAN reverse-push fallback |
 
 **Compile-time flags (spike / provisional):**
 
@@ -1069,7 +1093,7 @@ Git baseline, layout demo, and **BLE spike (closed)** are **done**. Next: **sche
 
 Each PR leaves the tree buildable. Stacked branches under `execute-plan/` (or merge to `main` as preferred).
 
-**Progress (rev 2.7):** **PR0**, **PR1a**, **PR1b**, **PR-S1…PR-S4** (spike **closed**). **Decision: BLE primary portable transport; USB desk; Option B deferred.** Next critical path: **PR2** (schema) → **PR3** (bridge core with BLE egress from `tools/ble_link/` patterns). Do **not** invest in host-listen WiFi pull as product default.
+**Progress (rev 2.8):** **PR0**, **PR1a**, **PR1b**, **PR-S1…PR-S4** (BLE **closed**, primary locked). **PR3a** + **PR6a** (bridge **ingress** spike under `bridge/`). **Still open:** **PR2** (formal schema), **PR3b** (BLE egress into bridge — **next for product pipe**), PR5 polish, PR7 USB, PR10 quickstart. Do **not** invest in host-listen WiFi pull as product default.
 
 ### PR0 — Initialize repository and baseline monorepo hygiene ✅ Done
 
@@ -1101,14 +1125,15 @@ Each PR leaves the tree buildable. Stacked branches under `execute-plan/` (or me
 | **Depends on** | PR1a |
 | **Description** | Draw header + **3** rows + footer from a compile-time `DeckView`. ASCII tokens `* o ! v`; progress via `epd_fill_rect`. No JSON/radio. |
 
-### PR2 — Schema package: JSON Schema + shared examples
+### PR2 — Schema package: JSON Schema + shared examples ⏳ Pending
 
 | | |
 |--|--|
+| **Status** | **Pending** — bridge/firmware currently use pydantic + C parse + this doc’s field dictionary |
 | **Title** | `docs(schema): add StatusSnapshot v1 JSON Schema and examples` |
 | **Files/components** | `schema/status.schema.json`, `schema/examples/*.json`, `docs/status-schema.md`, root `README.md` |
-| **Depends on** | PR0 (parallel to PR1*) |
-| **Description** | Freeze field dictionary, sort order, **`display_limit=3`**, optional `sessions_total`, 8 KiB budget. Transport-agnostic examples. |
+| **Depends on** | PR0 (parallel); can land before or with PR3b |
+| **Description** | Freeze field dictionary, sort order, **`display_limit=3`**, optional `sessions_total`, 8 KiB budget. Transport-agnostic examples. Align with bridge pydantic models and deck `status_parse`. |
 
 ### PR-S1 — Spike: BLE link only ✅ Done
 
@@ -1154,14 +1179,27 @@ Each PR leaves the tree buildable. Stacked branches under `execute-plan/` (or me
 | **Description** | Product-shaped loop: update sessions → push; kill pusher → STALE; restart → recovery. |
 | **Acceptance** | Decision: **BLE primary**, USB desk, Option B deferred. Optional STALE kill smoke remains a nice check. |
 
-### PR3 — Bridge core: model, store, mock (localhost tools only)
+### PR3a — Bridge core ingress: model, store, mock, localhost API ✅ Spike landed
 
 | | |
 |--|--|
-| **Title** | `feat(bridge): Python status model, mock adapter, optional localhost API` |
-| **Files/components** | `bridge/**`, tests, `bridge/README.md` |
-| **Depends on** | PR2 |
-| **Description** | Pydantic model, per-adapter replace semantics, mock adapter, truncate to 3. **Localhost** HTTP optional for hooks — **not** the firewalled “serve the deck” path. BLE egress lands after spike pass (or in PR-S4 thin form). |
+| **Status** | **Done** (spike, 2026-07-20) — package under `bridge/`; **no deck egress** |
+| **Title** | `feat(bridge): Python status model, mock adapter, loopback serve` |
+| **Files/components** | `bridge/src/agent_control_deck_bridge/{model,store,server,main}.py`, `adapters/mock.py`, tests, `bridge/README.md` |
+| **Depends on** | Originally PR2; **spike proceeded without formal schema package** (pydantic only — see caveats) |
+| **Description** | Pydantic model, per-adapter replace semantics, mock adapter, truncate to 3 + `sessions_total`. **Localhost** HTTP for hooks/tools — **not** the firewalled “serve the deck” path. CLI: `acd-bridge serve`. |
+| **Caveats** | No `ble_out` / push loop; default `--log-hooks` logs bodies (spike); Grok uses command+curl not `type:http`. |
+
+### PR3b — Bridge BLE egress (promote ble_link) ⏳ Next
+
+| | |
+|--|--|
+| **Status** | **Pending** |
+| **Title** | `feat(bridge): bleak push of store snapshot to deck` |
+| **Files/components** | `ble_out.py` (or promote `tools/ble_link/{protocol,device,push}`), CLI `push-ble` / serve+push loop, docs |
+| **Depends on** | PR3a; deck BLE path (PR-S* closed); ideally PR2 |
+| **Description** | Build snapshot from store on interval → chunked GATT write (reuse S2 protocol). Kill pusher → deck STALE; restart → recovery. Retire or thin-wrap `tools/ble_link/mock_bridge.py` as the production path. Pairing/hardening may stay PR5. |
+| **Acceptance** | Mock and/or file/post sessions appear on glass via `acd-bridge` without hand-editing `mock_3sessions.json`. |
 
 ### PR4 — Firmware: ArduinoJson v7 parse path + embedded fixture
 
@@ -1180,14 +1218,25 @@ Each PR leaves the tree buildable. Stacked branches under `execute-plan/` (or me
 | **Depends on** | **PR-S4 decision matrix** |
 | **Description** | **Do not implement host-listen device-pull as product default.** If BLE wins: harden pairing, reconnect, docs. If BLE fails range: Option B (deck listen + host outbound POST). Host-listen pull only as explicit lab exception. |
 
-### PR6 — Bridge: file adapter + loopback-only POST hooks
+### PR6a — Bridge: file adapter + loopback Session API + vendor hooks ✅ Spike landed
 
 | | |
 |--|--|
-| **Title** | `feat(bridge): file adapter and loopback-only POST /v1/sessions` |
-| **Files/components** | `adapters/file_adapter.py`, peer checks, tests, README |
-| **Depends on** | PR3 |
-| **Description** | Supported integration into the bridge. Egress remains BLE/USB/(Option B). |
+| **Status** | **Done** (spike, 2026-07-20) — ingress only |
+| **Title** | `feat(bridge): file adapter, loopback POST sessions, Grok/Claude hook mappers` |
+| **Files/components** | `adapters/file_adapter.py`, `post_adapter.py`, `server.py` routes, `hooks.py`, `examples/hooks/*`, peer checks, tests, README |
+| **Depends on** | PR3a |
+| **Description** | Supported integration into the bridge **without scrapers**. File mtime reload; `POST /v1/sessions` upsert; `PUT /v1/adapters/post` replace; `DELETE /v1/sessions/{id}`. Vendor lifecycle → `POST /v1/hooks/{grok,claude}` (shared mapper). Documented expected uses in `bridge/README.md`. |
+| **Caveats** | Does not push to deck (PR3b). Grok cannot use plain-HTTP `type:http` hooks — examples use command hooks. Formal Session examples still belong in PR2 `schema/examples/`. |
+
+### PR6b — (optional) Hook / adapter polish
+
+| | |
+|--|--|
+| **Status** | **Optional / as needed** |
+| **Title** | `chore(bridge): production defaults for hook logging; more agent examples` |
+| **Depends on** | PR6a |
+| **Description** | Flip default `--log-hooks` off or redact; expand field coverage for real Grok/Claude payloads after lab soaks; any extra shell/file recipes. Not required for MVP-done if PR3b works with current mappers. |
 
 ### PR7 — Firmware + bridge: USB serial exclusive transport
 
@@ -1195,7 +1244,7 @@ Each PR leaves the tree buildable. Stacked branches under `execute-plan/` (or me
 |--|--|
 | **Title** | `feat: USB NDJSON status transport (exclusive mode)` |
 | **Files/components** | `deck/src/protocol_usb.cpp`, flags, `bridge/serial_out.py`, docs |
-| **Depends on** | PR4, PR3 |
+| **Depends on** | PR4, PR3a |
 | **Description** | Exclusive with radio modes. Ignore non-`{` lines; 8 KiB line cap; same fail_count policy. |
 
 ### PR8 — Bridge: experimental agent scraper
@@ -1220,38 +1269,44 @@ Each PR leaves the tree buildable. Stacked branches under `execute-plan/` (or me
 |--|--|
 | **Title** | `docs: MVP quickstart (flash deck + push mock status)` |
 | **Files/components** | root `README.md`, demo script, troubleshooting (BLE pair, STALE, USB) |
-| **Depends on** | Winning transport from PR-S4 + PR3 |
-| **Description** | 10-minute path for the **chosen** transport. States control is out of scope. |
+| **Depends on** | Winning transport from PR-S4 + **PR3b** (end-to-end bridge push) |
+| **Description** | 10-minute path for the **chosen** transport. States control is out of scope. Include hook install notes (Grok command hooks; Claude HTTP). |
 
 ### Suggested merge order
 
 ```mermaid
 flowchart TD
   PR0[PR0 ✅] --> PR1a[PR1a ✅] --> PR1b[PR1b ✅]
-  PR0 --> PR2
+  PR0 --> PR2[PR2 schema pending]
   PR0 --> PRS1[PR-S1 BLE link ✅]
   PRS1 --> PRS2[PR-S2 chunks ✅ lab]
   PR1b --> PR4
   PR2 --> PR4
-  PR2 --> PR3
   PRS2 --> PRS3[PR-S3 on glass ✅]
   PR4 --> PRS3
   PRS3 --> PRS4[PR-S4 decision ✅ BLE primary]
   PRS4 --> PR5[PR5 BLE polish not Option B]
-  PR3 --> PR6
-  PR3 --> PR7
+  PR0 --> PR3a[PR3a ingress ✅]
+  PR3a --> PR6a[PR6a file/POST/hooks ✅]
+  PR3a --> PR3b[PR3b BLE egress next]
+  PR6a --> PR3b
+  PR2 --> PR3b
+  PR3b --> PR7
   PR4 --> PR7
+  PR3b --> PR10
   PR5 --> PR9
   PR5 --> PR10
-  PR3 --> PR10
+  PR6a -.-> PR6b[PR6b optional polish]
 ```
 
-**Near-term “spike done” definition:** **Met** — PR-S1…S4 closed; decision in [`docs/ble-spike.md`](ble-spike.md).
+**Near-term “BLE spike done” definition:** **Met** — PR-S1…S4 closed; decision in [`docs/ble-spike.md`](ble-spike.md).
 
-**MVP “done” definition (post-decision):** Layout ✅ + schema + bridge model + **BLE push** showing mock/file sessions on glass with STALE behavior + quickstart. USB desk path and file/POST hooks as supported integration. Scrapers not required. Option B only if BLE fails in the field.
+**Near-term “bridge ingress spike done” definition:** **Met** — PR3a + PR6a under `bridge/` (store + loopback HTTP + file/hooks). **Not** full product pipe (no PR3b egress, no PR2 schema freeze).
 
-**After spike — suggested next PRs:** merge spike branch → **PR2** schema package → **PR3** `bridge/` with BLE egress (promote `tools/ble_link/`) → polish/pairing → quickstart.
+**MVP “done” definition (post-decision):** Layout ✅ + schema (PR2) + bridge model ✅ + **BLE push from bridge store** (PR3b) showing mock/file/hook sessions on glass with STALE behavior + quickstart. USB desk path as supported desk mode. Scrapers not required. Option B only if BLE fails in the field.
+
+**Suggested next PRs:** **PR3b** (store → bleak push) and/or **PR2** (schema package) in parallel → PR5 polish → PR10 quickstart → PR7 USB when needed.
 
 ---
 
-*End of design document (rev 2.7).*
+*End of design document (rev 2.8).*
