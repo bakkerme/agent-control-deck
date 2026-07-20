@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import struct
 import zlib
 from typing import Iterable
@@ -30,7 +31,14 @@ def crc32(data: bytes) -> int:
 def pack_begin(schema_version: int, total_len: int, crc: int) -> bytes:
     if total_len < 0 or total_len > 0xFFFF:
         raise ValueError("total_len out of u16 range")
-    return struct.pack("<BBHI", CTRL_BEGIN, schema_version & 0xFF, total_len & 0xFFFF, crc & 0xFFFFFFFF)
+    # Explicit little-endian, no padding (must be exactly 8 bytes).
+    return struct.pack(
+        "<BBHI",
+        CTRL_BEGIN,
+        schema_version & 0xFF,
+        total_len & 0xFFFF,
+        crc & 0xFFFFFFFF,
+    )
 
 
 def pack_abort() -> bytes:
@@ -57,13 +65,44 @@ def chunk_payload(data: bytes, chunk_payload_max: int) -> Iterable[bytes]:
         offset += len(piece)
 
 
-def chunk_size_for_mtu(mtu: int | None) -> int:
-    """ATT write payload budget: MTU - 3 (opcode+handle) - 2 (seq)."""
+def chunk_size_for_mtu(mtu: int | None, *, conservative: bool = True) -> int:
+    """
+    Bytes of JSON per DATA write (excludes 2-byte seq).
+
+    macOS / bleak often report an optimistic mtu_size; oversize writes fail or
+    truncate and show up as incomplete/bad_crc. Default is conservative.
+    """
     if not mtu or mtu < 23:
         mtu = 23
-    # Leave headroom for stacks that under-report usable write size.
-    usable = max(20, mtu - 3 - 2 - 4)
-    return min(usable, 512)
+    # ATT write value max ≈ MTU - 3; minus 2 for seq.
+    theoretical = max(1, mtu - 3 - 2)
+    if conservative:
+        # Stay well under reported MTU; 20B ATT default path is always safe.
+        return min(theoretical, 20)
+    return min(theoretical, 180)
+
+
+class StateWaiter:
+    """Persistent STATE notify subscription for a connection lifetime."""
+
+    def __init__(self) -> None:
+        self._event = asyncio.Event()
+        self._value: str | None = None
+
+    def handler(self, _char, data: bytearray) -> None:
+        self._value = data.decode("utf-8", errors="replace")
+        self._event.set()
+
+    def clear(self) -> None:
+        self._event.clear()
+        self._value = None
+
+    async def wait(self, timeout: float) -> str:
+        try:
+            await asyncio.wait_for(self._event.wait(), timeout=timeout)
+        except asyncio.TimeoutError:
+            return "timeout"
+        return self._value or "empty"
 
 
 async def push_snapshot(
@@ -71,35 +110,33 @@ async def push_snapshot(
     body: bytes,
     *,
     schema_version: int = 1,
-    state_timeout: float = 10.0,
+    state_timeout: float = 8.0,
     data_with_response: bool = True,
+    chunk_max: int | None = None,
+    state_waiter: StateWaiter | None = None,
+    conservative_mtu: bool = True,
 ) -> str:
     """
-    BEGIN → DATA* → COMMIT and return the STATUS_STATE notify string (e.g. 'ok').
+    BEGIN → DATA* → COMMIT and return the STATUS_STATE string (e.g. 'ok').
 
-    Default DATA writes use ATT Write Request (response=True) for reliability
-    on the 100/100 S2 soak; pass data_with_response=False for write-cmd throughput.
+    Prefer a long-lived StateWaiter (subscribe once per connection). Falls back
+    to reading STATE if notify is missed.
     """
-    import asyncio
-
     if len(body) > MAX_PAYLOAD:
         raise ValueError(f"payload {len(body)} > {MAX_PAYLOAD}")
 
     mtu = getattr(client, "mtu_size", None)
-    chunk_max = chunk_size_for_mtu(mtu)
+    if chunk_max is None:
+        chunk_max = chunk_size_for_mtu(mtu, conservative=conservative_mtu)
     csum = crc32(body)
 
-    state_holder: dict[str, str | None] = {"value": None}
-    event = asyncio.Event()
+    own_waiter = state_waiter is None
+    waiter = state_waiter or StateWaiter()
+    if own_waiter:
+        await client.start_notify(UUID_STATUS_STATE, waiter.handler)
 
-    def on_state(_char, data: bytearray) -> None:
-        state_holder["value"] = data.decode("utf-8", errors="replace")
-        event.set()
-
-    await client.start_notify(UUID_STATUS_STATE, on_state)
     try:
-        event.clear()
-        state_holder["value"] = None
+        waiter.clear()
         await client.write_gatt_char(
             UUID_STATUS_CTRL, pack_begin(schema_version, len(body), csum), response=True
         )
@@ -107,17 +144,22 @@ async def push_snapshot(
             await client.write_gatt_char(
                 UUID_STATUS_DATA, chunk, response=data_with_response
             )
-        event.clear()
-        state_holder["value"] = None
+
+        waiter.clear()
         await client.write_gatt_char(UUID_STATUS_CTRL, pack_commit(), response=True)
 
-        try:
-            await asyncio.wait_for(event.wait(), timeout=state_timeout)
-        except asyncio.TimeoutError:
-            return "timeout"
-        return state_holder["value"] or "empty"
+        state = await waiter.wait(state_timeout)
+        if state == "timeout":
+            # Fallback: characteristic value was set even if notify dropped.
+            try:
+                raw = await client.read_gatt_char(UUID_STATUS_STATE)
+                state = raw.decode("utf-8", errors="replace") or "timeout"
+            except Exception:
+                pass
+        return state
     finally:
-        try:
-            await client.stop_notify(UUID_STATUS_STATE)
-        except Exception:
-            pass
+        if own_waiter:
+            try:
+                await client.stop_notify(UUID_STATUS_STATE)
+            except Exception:
+                pass

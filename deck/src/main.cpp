@@ -4,6 +4,8 @@
  * - Wi‑Fi off; NimBLE peripheral (link + chunked push).
  * - Committed payload → parse StatusSnapshot → DeckView → e-paper.
  * - STALE when no successful v1 commit within grace (or fail_count ≥ 2).
+ * - Redraw only when content/fault/stale actually changes (S2 soak must not
+ *   full-refresh the panel 100 times).
  */
 
 #ifndef BOARD_HAS_PSRAM
@@ -12,6 +14,7 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
+#include <esp_crc.h>
 #include <string.h>
 
 #include "ble_gatt.h"
@@ -22,7 +25,7 @@
 
 /** No successful commit for this long → STALE (S4; ~2× 15 s bridge cadence). */
 static const uint32_t kStaleGraceMs = 30000;
-/** Full panel clear every N successful content redraws (ghosting mitigation). */
+/** Full panel clear every N content redraws (ghosting mitigation). */
 static const uint32_t kFullClearEvery = 12;
 
 static DeckView g_view;
@@ -33,6 +36,9 @@ static uint32_t g_refresh_count = 0;
 static uint32_t g_presents = 0;
 static bool g_need_redraw = false;
 static bool g_force_full_clear = true;
+/** CRC32 of last successfully applied payload body (for change detection). */
+static uint32_t g_last_body_crc = 0;
+static bool g_have_body_crc = false;
 
 static void build_boot_view(DeckView *view)
 {
@@ -74,9 +80,13 @@ static void present_view(void)
                   (unsigned)ESP.getFreeHeap());
 }
 
-/** Outcome A — valid v1 snapshot content already written into g_view by parser. */
-static void apply_outcome_a(void)
+/** Outcome A — valid v1; redraw only when body CRC changed or recovering from fault/stale. */
+static void apply_outcome_a(uint32_t body_crc)
 {
+    const bool was_bad = g_view.stale || g_view.fault != DECK_FAULT_NONE ||
+                         g_view.link_state != DECK_LINK_OK;
+    const bool content_changed = !g_have_body_crc || body_crc != g_last_body_crc;
+
     g_fail_count = 0;
     g_view.fault = DECK_FAULT_NONE;
     g_view.stale = false;
@@ -84,26 +94,38 @@ static void apply_outcome_a(void)
     g_last_ok_ms = millis();
     g_had_ok = true;
     g_refresh_count++;
-    g_need_redraw = true;
-    g_force_full_clear = true; /* recovery / content change: clean frame */
-    Serial.println("[status] outcome A — ok");
+    g_last_body_crc = body_crc;
+    g_have_body_crc = true;
+
+    if (content_changed || was_bad) {
+        g_need_redraw = true;
+        /* Full clear on recovery/fault clear; content-only updates can partial-present. */
+        g_force_full_clear = was_bad;
+        Serial.printf("[status] outcome A — ok redraw=1 crc=0x%08x\n", (unsigned)body_crc);
+    } else {
+        /* S2 soak: same payload again — accept, do not flash e-paper. */
+        Serial.printf("[status] outcome A — ok (no redraw, same crc=0x%08x)\n",
+                      (unsigned)body_crc);
+    }
 }
 
 /** Outcome B — unsupported schema_version. */
 static void apply_outcome_b(void)
 {
+    const bool already = g_view.fault == DECK_FAULT_SCHEMA;
     g_view.fault = DECK_FAULT_SCHEMA;
-    /* Do not increment fail_count; do not set stale for SCHEMA frame. */
-    g_need_redraw = true;
-    g_force_full_clear = true;
-    Serial.printf("[status] outcome B — schema last=%d\n", g_view.last_schema_version);
+    if (!already) {
+        g_need_redraw = true;
+        g_force_full_clear = true;
+    }
+    Serial.printf("[status] outcome B — schema last=%d redraw=%u\n", g_view.last_schema_version,
+                  (unsigned)g_need_redraw);
 }
 
 /** Outcome C — transport / parse failure. */
 static void apply_outcome_c(const char *why)
 {
     if (g_view.fault == DECK_FAULT_SCHEMA) {
-        /* Keep SCHEMA on glass until a good v1 arrives. */
         Serial.printf("[status] outcome C while SCHEMA (%s) — keep SCHEMA\n", why ? why : "?");
         return;
     }
@@ -116,21 +138,24 @@ static void apply_outcome_c(const char *why)
                       why ? why : "?");
         return;
     }
+    const bool already_stale = g_view.stale;
     g_view.link_state = DECK_LINK_DOWN;
     g_view.stale = true;
-    g_need_redraw = true;
-    Serial.printf("[status] outcome C fail_count=%u (%s) — STALE\n", (unsigned)g_fail_count,
-                  why ? why : "?");
+    if (!already_stale) {
+        g_need_redraw = true;
+    }
+    Serial.printf("[status] outcome C fail_count=%u (%s) — STALE redraw=%u\n",
+                  (unsigned)g_fail_count, why ? why : "?", (unsigned)g_need_redraw);
 }
 
 static void handle_committed_payload(const uint8_t *data, size_t len)
 {
-    Serial.printf("[status] committed bytes=%u heap=%u\n", (unsigned)len,
-                  (unsigned)ESP.getFreeHeap());
+    const uint32_t body_crc = esp_crc32_le(0, data, (uint32_t)len);
+    Serial.printf("[status] committed bytes=%u crc=0x%08x heap=%u\n", (unsigned)len,
+                  (unsigned)body_crc, (unsigned)ESP.getFreeHeap());
 
     DeckView parsed;
     memset(&parsed, 0, sizeof(parsed));
-    /* Preserve display policy fields; parser fills content. */
     parsed.link_state = g_view.link_state;
     parsed.stale = g_view.stale;
     parsed.fault = g_view.fault;
@@ -140,9 +165,8 @@ static void handle_committed_payload(const uint8_t *data, size_t len)
 
     const StatusParseResult pr = status_parse_snapshot(data, len, &parsed);
     if (pr == STATUS_PARSE_OK) {
-        /* Keep cached content replacement. */
         g_view = parsed;
-        apply_outcome_a();
+        apply_outcome_a(body_crc);
         return;
     }
     if (pr == STATUS_PARSE_SCHEMA) {
@@ -167,7 +191,6 @@ static void check_stale_grace(void)
     if ((uint32_t)(millis() - g_last_ok_ms) < kStaleGraceMs) {
         return;
     }
-    /* Grace exceeded without a successful commit — force STALE path. */
     if (g_fail_count < 2) {
         g_fail_count = 2;
     }
@@ -213,10 +236,13 @@ void loop()
 {
     ble_gatt_poll();
 
+    /* Drain all queued commits before blocking on e-paper. */
     const uint8_t *payload = nullptr;
     size_t plen = 0;
-    if (ble_gatt_take_committed(&payload, &plen)) {
+    while (ble_gatt_take_committed(&payload, &plen)) {
         handle_committed_payload(payload, plen);
+        payload = nullptr;
+        plen = 0;
     }
 
     check_stale_grace();
@@ -225,5 +251,5 @@ void loop()
         present_view();
     }
 
-    delay(20);
+    delay(5);
 }

@@ -26,7 +26,7 @@ from bleak import BleakClient
 from bleak.exc import BleakError
 
 from device import find_device
-from protocol import UUID_INFO, push_snapshot
+from protocol import UUID_INFO, UUID_STATUS_STATE, StateWaiter, push_snapshot
 
 HERE = Path(__file__).resolve().parent
 DEFAULT_PAYLOAD = HERE / "payloads" / "mock_3sessions.json"
@@ -83,21 +83,34 @@ async def run_loop(
         except BleakError as e:
             log(f"INFO read failed: {e}")
 
-        while True:
-            tick += 1
-            body = render_snapshot(template, tick=tick, animate=animate)
-            t0 = time.perf_counter()
+        waiter = StateWaiter()
+        await client.start_notify(UUID_STATUS_STATE, waiter.handler)
+        try:
+            while True:
+                tick += 1
+                body = render_snapshot(template, tick=tick, animate=animate)
+                t0 = time.perf_counter()
+                try:
+                    state = await push_snapshot(
+                        client,
+                        body,
+                        schema_version=int(template.get("schema_version", 1)),
+                        state_waiter=waiter,
+                    )
+                except Exception as e:
+                    state = f"error:{type(e).__name__}:{e}"
+                dt_ms = (time.perf_counter() - t0) * 1000.0
+                log(f"push tick={tick} bytes={len(body)} state={state!r} {dt_ms:.1f}ms")
+
+                if once or (max_ticks is not None and tick >= max_ticks):
+                    return 0 if state == "ok" else 1
+
+                await asyncio.sleep(interval)
+        finally:
             try:
-                state = await push_snapshot(client, body, schema_version=int(template.get("schema_version", 1)))
-            except Exception as e:
-                state = f"error:{type(e).__name__}:{e}"
-            dt_ms = (time.perf_counter() - t0) * 1000.0
-            log(f"push tick={tick} bytes={len(body)} state={state!r} {dt_ms:.1f}ms")
-
-            if once or (max_ticks is not None and tick >= max_ticks):
-                return 0 if state == "ok" else 1
-
-            await asyncio.sleep(interval)
+                await client.stop_notify(UUID_STATUS_STATE)
+            except Exception:
+                pass
 
 
 async def amain(argv: list[str] | None = None) -> int:

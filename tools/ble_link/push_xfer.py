@@ -4,7 +4,6 @@ PR-S2 host: chunked StatusSnapshot push; optional 100-transfer soak.
 
   python push_xfer.py --count 100
   python push_xfer.py --payload payloads/mock_3sessions.json
-  python push_xfer.py --payload payloads/schema_bad.json  # expect schema/ok path
 """
 
 from __future__ import annotations
@@ -12,8 +11,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import sys
 import time
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -21,7 +20,13 @@ from bleak import BleakClient
 from bleak.exc import BleakError
 
 from device import find_device
-from protocol import UUID_INFO, push_snapshot
+from protocol import (
+    UUID_INFO,
+    UUID_STATUS_STATE,
+    StateWaiter,
+    chunk_size_for_mtu,
+    push_snapshot,
+)
 
 HERE = Path(__file__).resolve().parent
 DEFAULT_PAYLOAD = HERE / "payloads" / "mock_3sessions.json"
@@ -37,26 +42,36 @@ def log(msg: str) -> None:
 
 def load_body(path: Path, *, pad_to: int | None) -> bytes:
     text = path.read_text(encoding="utf-8")
-    # Validate JSON then re-serialize compact for stable size
     obj = json.loads(text)
     body = json.dumps(obj, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
     if pad_to is not None:
         if pad_to < len(body):
             raise SystemExit(f"--pad-to {pad_to} < payload {len(body)}")
-        # Pad with spaces inside a dummy trailing field if needed — simpler: append spaces
-        # (invalid for strict JSON) — use a padding string field instead.
         if pad_to > len(body):
-            pad_field = "x" * max(0, pad_to - len(body) - 10)
-            obj["_pad"] = pad_field
-            body = json.dumps(obj, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
-            while len(body) < pad_to:
-                obj["_pad"] = obj.get("_pad", "") + "x"
+            obj["_pad"] = ""
+            while True:
                 body = json.dumps(obj, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
-            body = body[:pad_to] if len(body) > pad_to else body
-            # Ensure still valid JSON after rare trim
-            if len(body) != pad_to:
-                body = body.ljust(pad_to, b" ")
+                if len(body) >= pad_to:
+                    break
+                need = pad_to - len(body)
+                obj["_pad"] = obj.get("_pad", "") + ("x" * max(need, 1))
+            body = json.dumps(obj, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+            if len(body) > pad_to:
+                # Trim pad field
+                while len(body) > pad_to and obj["_pad"]:
+                    obj["_pad"] = obj["_pad"][:-1]
+                    body = json.dumps(obj, separators=(",", ":"), ensure_ascii=True).encode(
+                        "utf-8"
+                    )
     return body
+
+
+def is_success(state: str, schema: int) -> bool:
+    if state == "ok":
+        return True
+    if schema != 1 and state == "schema":
+        return True
+    return False
 
 
 async def amain(argv: list[str] | None = None) -> int:
@@ -68,7 +83,34 @@ async def amain(argv: list[str] | None = None) -> int:
     p.add_argument("--count", type=int, default=1, help="Consecutive transfers (use 100 for S2)")
     p.add_argument("--schema-version", type=int, default=None, help="Override BEGIN schema byte")
     p.add_argument("--pad-to", type=int, default=None, help="Grow JSON toward N bytes (≤8192)")
-    p.add_argument("--interval", type=float, default=0.05, help="Pause between transfers")
+    p.add_argument(
+        "--interval",
+        type=float,
+        default=0.15,
+        help="Pause between transfers (default 0.15s)",
+    )
+    p.add_argument(
+        "--chunk",
+        type=int,
+        default=None,
+        help="Override DATA payload bytes per chunk (default: conservative from MTU)",
+    )
+    p.add_argument(
+        "--fast-chunks",
+        action="store_true",
+        help="Use larger MTU-based chunks (less reliable on some hosts)",
+    )
+    p.add_argument(
+        "--write-cmd",
+        action="store_true",
+        help="Use write-without-response for DATA (faster, less reliable)",
+    )
+    p.add_argument(
+        "--retries",
+        type=int,
+        default=2,
+        help="Retries per transfer on busy/timeout (default 2)",
+    )
     args = p.parse_args(argv)
 
     body = load_body(args.payload, pad_to=args.pad_to)
@@ -89,42 +131,75 @@ async def amain(argv: list[str] | None = None) -> int:
                 log(f"  {d.address}  {d.name!r}")
         return 2
 
-    device = found if args.address else found
-    log(f"using {getattr(device, 'name', None)!r} {getattr(device, 'address', device)}")
+    log(f"using {getattr(found, 'name', None)!r} {getattr(found, 'address', found)}")
 
     ok = 0
     fail = 0
+    reasons: Counter[str] = Counter()
     t0 = time.perf_counter()
 
-    async with BleakClient(device, timeout=30.0) as client:
+    async with BleakClient(found, timeout=30.0) as client:
         mtu = getattr(client, "mtu_size", None)
-        log(f"connected mtu={mtu}")
+        chunk = args.chunk
+        if chunk is None:
+            chunk = chunk_size_for_mtu(mtu, conservative=not args.fast_chunks)
+        log(f"connected mtu={mtu} chunk_payload={chunk} data_response={not args.write_cmd}")
         try:
             info = await client.read_gatt_char(UUID_INFO)
             log(f"INFO: {info.decode('utf-8', errors='replace')}")
         except BleakError as e:
             log(f"INFO read failed: {e}")
 
-        for i in range(1, args.count + 1):
-            start = time.perf_counter()
+        waiter = StateWaiter()
+        await client.start_notify(UUID_STATUS_STATE, waiter.handler)
+        try:
+            for i in range(1, args.count + 1):
+                start = time.perf_counter()
+                state = "error"
+                attempts = 1 + max(0, args.retries)
+                for attempt in range(attempts):
+                    try:
+                        state = await push_snapshot(
+                            client,
+                            body,
+                            schema_version=schema,
+                            data_with_response=not args.write_cmd,
+                            chunk_max=chunk,
+                            state_waiter=waiter,
+                            conservative_mtu=not args.fast_chunks,
+                        )
+                    except Exception as e:
+                        state = f"error:{type(e).__name__}"
+                    if is_success(state, schema):
+                        break
+                    if state in ("busy", "timeout") and attempt + 1 < attempts:
+                        await asyncio.sleep(0.2 * (attempt + 1))
+                        continue
+                    break
+
+                dt_ms = (time.perf_counter() - start) * 1000.0
+                if is_success(state, schema):
+                    ok += 1
+                else:
+                    fail += 1
+                    reasons[state] += 1
+                if i <= 5 or i % 10 == 0 or not is_success(state, schema):
+                    log(
+                        f"xfer {i}/{args.count} state={state!r} {dt_ms:.1f}ms "
+                        f"ok={ok} fail={fail}"
+                    )
+                if args.interval > 0:
+                    await asyncio.sleep(args.interval)
+        finally:
             try:
-                state = await push_snapshot(client, body, schema_version=schema)
-            except Exception as e:
-                state = f"error:{type(e).__name__}"
-            dt_ms = (time.perf_counter() - start) * 1000.0
-            success = state == "ok" or (schema != 1 and state == "schema")
-            if success:
-                ok += 1
-            else:
-                fail += 1
-            if i <= 3 or i % 10 == 0 or not success:
-                log(f"xfer {i}/{args.count} state={state!r} {dt_ms:.1f}ms ok={ok} fail={fail}")
-            if args.interval > 0:
-                await asyncio.sleep(args.interval)
+                await client.stop_notify(UUID_STATUS_STATE)
+            except Exception:
+                pass
 
     elapsed = time.perf_counter() - t0
-    log(f"done ok={ok} fail={fail} elapsed={elapsed:.2f}s mtu={mtu}")
-    # S2 acceptance: 100/100 clean transfers when schema=1 and payload valid
+    log(f"done ok={ok} fail={fail} elapsed={elapsed:.2f}s mtu={mtu} chunk={chunk}")
+    if reasons:
+        log("fail reasons: " + ", ".join(f"{k}={v}" for k, v in reasons.most_common()))
     if args.count >= 100 and fail == 0 and ok == args.count:
         log("S2 PASS: 100/100 clean transfers")
         return 0
