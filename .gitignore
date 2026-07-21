@@ -1,6 +1,9 @@
 # PlatformIO build artifacts
 .pio/
 
+# Host UI sim (CMake)
+deck/sim/build/
+
 # Secrets / credentials (never commit)
 secrets.h
 .env

@@ -12,6 +12,37 @@ Control features (kill, approve, inject) are **out of scope** for this MVP.
 | [`docs/`](docs/) | Product design, schema notes, BLE spike log |
 | [`tools/ble_link/`](tools/ble_link/) | Low-level BLE soak / transfer tools (spike path) |
 | [`designs/`](designs/) | UI reference (HTML wireframes) |
+| [`deck/sim/`](deck/sim/) | Host UI sim — same layout C++ + SDL2 preview (no glass) |
+
+## PC UI simulation (no hardware)
+
+Preview the **same** e-paper layout code the firmware uses (FiraSansUI metrics, truncation, icons) on your Mac/PC:
+
+```bash
+brew install cmake sdl2   # once
+
+cd deck/sim
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+
+./build/acd-ui-sim ../../schema/examples/design_c_sessions.json
+# STALE / NO LINK / SCHEMA:
+./build/acd-ui-sim --stale --age-ms 45000 ../../schema/examples/mock_3sessions.json
+./build/acd-ui-sim --bmp /tmp/deck.bmp ../../schema/examples/design_c_sessions.json
+```
+
+Live with the bridge mock:
+
+```bash
+# terminal 1
+cd bridge && source .venv/bin/activate
+acd-bridge serve --adapter mock
+
+# terminal 2
+deck/sim/build/acd-ui-sim --from-url http://127.0.0.1:8787/v1/status --poll 2
+```
+
+Details: [`deck/sim/README.md`](deck/sim/README.md).
 
 ## MVP quickstart (~10 minutes)
 

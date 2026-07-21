@@ -17,6 +17,18 @@ PlatformIO firmware for the **LilyGo T5-ePaper** (classic **ESP32-WROVER**, 4.7"
 
 UI reference: [`designs/epaper-status-board.html`](../designs/epaper-status-board.html) (variant **D · 7 @ 20px**).
 
+## PC UI simulation
+
+Pixel-accurate host preview of this firmware’s layout (no BLE / no panel):
+
+```bash
+cd sim
+cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
+./build/acd-ui-sim ../../schema/examples/design_c_sessions.json
+```
+
+Requires `cmake` + `sdl2` (`brew install cmake sdl2`). See [`sim/README.md`](sim/README.md).
+
 ## Prerequisites
 
 - [PlatformIO Core](https://docs.platformio.org/en/latest/core/installation.html) (`pio`)
