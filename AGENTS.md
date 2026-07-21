@@ -105,7 +105,7 @@ Do not commit `deck/sim/build/`.
 
 ## Bridge (`bridge/`)
 
-Package: `agent_control_deck_bridge`. CLI: `acd-bridge`.
+Package: `agent_control_deck_bridge`. CLI: `acd-bridge`. Requires [uv](https://docs.astral.sh/uv/).
 
 | Command | Role |
 |---------|------|
@@ -114,14 +114,15 @@ Package: `agent_control_deck_bridge`. CLI: `acd-bridge`.
 
 ```bash
 cd bridge
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
-pytest -q
+uv sync                 # creates .venv from uv.lock; includes dev group
+uv run pytest -q
 
-acd-bridge serve --adapter mock --adapter post
+uv run acd-bridge serve --adapter mock --adapter post
 # other terminal:
-acd-bridge push-ble --once
+uv run acd-bridge push-ble --once
 ```
+
+Commit `bridge/uv.lock`. Prefer `uv run …` over activating `.venv` by hand.
 
 Default bind: **`127.0.0.1:8787`**. Non-loopback is refused unless `--allow-non-loopback`.
 

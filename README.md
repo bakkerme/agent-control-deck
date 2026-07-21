@@ -35,8 +35,7 @@ Live with the bridge mock:
 
 ```bash
 # terminal 1
-cd bridge && source .venv/bin/activate
-acd-bridge serve --adapter mock
+cd bridge && uv run acd-bridge serve --adapter mock
 
 # terminal 2
 deck/sim/build/acd-ui-sim --from-url http://127.0.0.1:8787/v1/status --poll 2
@@ -58,32 +57,33 @@ pio device monitor   # note name: ACD-**** ; Ctrl-C when ready
 
 ### 2. Install and run the bridge (hooks + store)
 
+Requires [uv](https://docs.astral.sh/uv/) and Python ≥3.11.
+
 ```bash
 cd bridge
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
+uv sync
 
 # Loopback HTTP for hooks / Session API (keep running)
-acd-bridge serve --adapter mock --adapter post
+uv run acd-bridge serve --adapter mock --adapter post
 ```
 
 Default: `http://127.0.0.1:8787`. Vendor hooks: see [`bridge/README.md`](bridge/README.md).
 
 ### 3. Push status to the glass
 
-In a **second** terminal (same venv):
+In a **second** terminal (from `bridge/`):
 
 ```bash
-cd bridge && source .venv/bin/activate
+cd bridge
 
 # Poll the running server and push every 15s
-acd-bridge push-ble
+uv run acd-bridge push-ble
 
 # Or one-shot
-acd-bridge push-ble --once
+uv run acd-bridge push-ble --once
 
 # Or local mock without HTTP
-acd-bridge push-ble --adapter mock --once
+uv run acd-bridge push-ble --adapter mock --once
 ```
 
 You should see mock (and any hook) sessions on the e-paper: top-bar state counts, up to **7** rows (icon · path · summary). Kill `push-ble` → deck shows **STALE** after ~30 s.
@@ -102,5 +102,5 @@ Schema details: [`docs/status-schema.md`](docs/status-schema.md). Product design
 
 ## Hygiene
 
-- Build artifacts (`.pio/`), secrets, Python venvs, and OS junk are ignored via [`.gitignore`](.gitignore).
+- Build artifacts (`.pio/`), secrets, local envs (`.venv/`), and OS junk are ignored via [`.gitignore`](.gitignore). Commit `bridge/uv.lock` for reproducible bridge installs.
 - Do not commit credentials or PlatformIO build output.

@@ -51,14 +51,13 @@ Host flow: subscribe STATE → BEGIN → DATA* → COMMIT → wait STATE.
 
 ```bash
 cd tools/ble_link
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+uv venv
+uv pip install -r requirements.txt
 
 # Flash deck first, note name from serial: [ble] advertising as ACD-....
-python connect_soak.py --duration 1800          # S1
-python push_xfer.py --count 100                 # S2
-python mock_bridge.py --animate                 # S3/S4 (kill → STALE)
+uv run python connect_soak.py --duration 1800          # S1
+uv run python push_xfer.py --count 100                 # S2
+uv run python mock_bridge.py --animate                 # S3/S4 (kill → STALE)
 ```
 
 - First run: allow **Bluetooth** for Terminal / IDE (System Settings → Privacy & Security).

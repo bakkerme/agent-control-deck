@@ -60,15 +60,14 @@ Host push (after flash):
 
 ```bash
 cd ../bridge
-source .venv/bin/activate
-acd-bridge push-ble --once          # needs acd-bridge serve on :8787
+uv run acd-bridge push-ble --once          # needs acd-bridge serve on :8787
 # or
-acd-bridge push-ble --adapter mock --once
+uv run acd-bridge push-ble --adapter mock --once
 
 # Design.png fixture (8 rows on glass + top-bar +2):
-acd-bridge push-ble --adapter file:../schema/examples/design_c_sessions.json --once
+uv run acd-bridge push-ble --adapter file:../schema/examples/design_c_sessions.json --once
 # or low-level:
-#   cd ../tools/ble_link && python push_xfer.py --payload payloads/design_c_sessions.json
+#   cd ../tools/ble_link && uv run --with-requirements requirements.txt python push_xfer.py --payload payloads/design_c_sessions.json
 ```
 
 Low-level soak tools remain under [`tools/ble_link/`](../tools/ble_link/). Wire format: [`docs/ble-spike.md`](../docs/ble-spike.md).

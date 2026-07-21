@@ -11,26 +11,28 @@ Design reference: [`docs/mvp-product-design.md`](../docs/mvp-product-design.md).
 
 ## Install
 
+Requires [uv](https://docs.astral.sh/uv/) and Python ≥3.11.
+
 ```bash
 cd bridge
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
+uv sync
 ```
+
+This creates `.venv/` and installs the package (editable) plus the `dev` group. Prefer `uv run …` over activating the venv.
 
 ## Run (loopback only)
 
 ```bash
 # post adapter only (HTTP hooks + POST /v1/sessions)
-acd-bridge serve
+uv run acd-bridge serve
 
 # mock + file + post
-acd-bridge serve \
+uv run acd-bridge serve \
   --adapter mock \
   --adapter file:./examples/sessions.json
 
 # optional host label
-acd-bridge serve --host-name brandon-mbp --adapter mock
+uv run acd-bridge serve --host-name brandon-mbp --adapter mock
 ```
 
 Default bind: **`127.0.0.1:8787`**. Default **display_limit = 8** (design C). Non-loopback bind is refused unless `--allow-non-loopback`.
@@ -39,16 +41,16 @@ Default bind: **`127.0.0.1:8787`**. Default **display_limit = 8** (design C). No
 
 ```bash
 # Poll the running serve process and push every 15s
-acd-bridge push-ble
+uv run acd-bridge push-ble
 
 # One-shot
-acd-bridge push-ble --once
+uv run acd-bridge push-ble --once
 
 # Standalone (no HTTP): local mock adapters
-acd-bridge push-ble --adapter mock --once
+uv run acd-bridge push-ble --adapter mock --once
 
 # Target a specific deck name
-acd-bridge push-ble --name ACD-A1B2
+uv run acd-bridge push-ble --name ACD-A1B2
 ```
 
 Kill `push-ble` → deck **STALE** after ~30 s without successful pushes.
@@ -56,8 +58,8 @@ Kill `push-ble` → deck **STALE** after ~30 s without successful pushes.
 **Hook logging (default on):** each vendor hook logs the full JSON body (truncated at 16 KiB) plus the mapped session line:
 
 ```bash
-acd-bridge serve --log-level info          # default: log hooks
-acd-bridge serve --no-log-hooks            # quiet
+uv run acd-bridge serve --log-level info          # default: log hooks
+uv run acd-bridge serve --no-log-hooks            # quiet
 ```
 
 ## Ingress paths (how the pieces fit)
@@ -122,7 +124,7 @@ All routes are **loopback-only** (non-loopback clients get `403`).
 
 ```bash
 # Terminal A
-acd-bridge serve --adapter mock
+uv run acd-bridge serve --adapter mock
 
 # Terminal B
 curl -s http://127.0.0.1:8787/v1/status | jq .
@@ -144,7 +146,7 @@ curl -s http://127.0.0.1:8787/v1/status | jq '.sessions'
 File adapter example:
 
 ```bash
-acd-bridge serve --adapter file:./examples/sessions.json
+uv run acd-bridge serve --adapter file:./examples/sessions.json
 # edit examples/sessions.json → next GET /v1/status reloads on mtime change
 ```
 
@@ -171,7 +173,7 @@ The example uses **command hooks** that pipe the event JSON (stdin) through `cur
 curl … -X POST http://127.0.0.1:8787/v1/hooks/grok … --data-binary @-
 ```
 
-1. Start the bridge: `acd-bridge serve`
+1. Start the bridge: `uv run acd-bridge serve`
 2. Install example hooks (global):
 
 ```bash
@@ -237,8 +239,7 @@ bridge/
 
 ```bash
 cd bridge
-source .venv/bin/activate
-pytest -q
+uv run pytest -q
 ```
 
 ## Out of scope (MVP)
