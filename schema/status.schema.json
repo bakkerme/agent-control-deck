@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-control-deck.local/schema/status.schema.json",
+  "title": "StatusSnapshot",
+  "description": "Agent Control Deck v1 status payload. Transport-agnostic (BLE, USB, future LAN). Max wire size 8192 bytes UTF-8 JSON.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "generated_at", "host", "sessions"],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Wire schema major version. Unsupported values → SCHEMA fault on deck (not STALE)."
+    },
+    "generated_at": {
+      "type": "string",
+      "description": "ISO-8601 UTC timestamp when the bridge built this snapshot (e.g. 2026-07-21T12:00:00Z)."
+    },
+    "host": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "bridge_version"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32,
+          "description": "Host machine label (hostname)."
+        },
+        "bridge_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16,
+          "description": "Bridge package version string."
+        }
+      }
+    },
+    "sessions": {
+      "type": "array",
+      "description": "Sessions already sorted and truncated for display (length ≤ display_limit, default 8).",
+      "maxItems": 16,
+      "items": { "$ref": "#/$defs/Session" }
+    },
+    "sessions_total": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 65535,
+      "description": "Pre-truncation session count. Enables top-bar +N when greater than sessions.length."
+    },
+    "state_counts": {
+      "$ref": "#/$defs/StateCounts",
+      "description": "Full-fleet counts by state (pre-truncation). Top bar uses these when present."
+    }
+  },
+  "$defs": {
+    "SessionState": {
+      "type": "string",
+      "enum": ["running", "idle", "waiting", "error", "done", "unknown"],
+      "description": "Canonical states. UI maps: error→failed, waiting→question, running→working, done→done."
+    },
+    "StateCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "running": { "type": "integer", "minimum": 0 },
+        "idle": { "type": "integer", "minimum": 0 },
+        "waiting": { "type": "integer", "minimum": 0 },
+        "error": { "type": "integer", "minimum": 0 },
+        "done": { "type": "integer", "minimum": 0 },
+        "unknown": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "Session": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "agent", "title", "summary", "state", "updated_at"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Stable unique id (e.g. post:grok:…, mock:demo-1)."
+        },
+        "agent": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 24,
+          "description": "Agent product name (grok, claude-code, mock, other)."
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Short path / project label shown in the path column (e.g. agent-control-deck, ~/src/api)."
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "One-line free-text status. Prefer error text here when state is error."
+        },
+        "state": { "$ref": "#/$defs/SessionState" },
+        "progress": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Optional 0..1 progress. MVP UI (design D) does not draw progress bars; field retained for adapters."
+        },
+        "detail": {
+          "type": ["string", "null"],
+          "maxLength": 80,
+          "description": "Optional secondary detail (file, tool name). Not drawn on design-D layout."
+        },
+        "started_at": {
+          "type": ["string", "null"],
+          "description": "ISO-8601 when the session started."
+        },
+        "updated_at": {
+          "type": "string",
+          "description": "ISO-8601 last update (required for sort)."
+        },
+        "error": {
+          "type": ["string", "null"],
+          "maxLength": 120,
+          "description": "Error message when state is error."
+        }
+      }
+    }
+  }
+}

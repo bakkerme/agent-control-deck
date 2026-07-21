@@ -13,7 +13,7 @@ from pydantic import ValidationError
 
 from agent_control_deck_bridge.adapters.base import Adapter
 from agent_control_deck_bridge.hooks import map_hook_event
-from agent_control_deck_bridge.model import Session, StatusSnapshot
+from agent_control_deck_bridge.model import DEFAULT_DISPLAY_LIMIT, Session, StatusSnapshot
 from agent_control_deck_bridge.store import SessionStore
 
 log = logging.getLogger(__name__)
@@ -41,7 +41,7 @@ class AppState:
         adapters: list[Adapter],
         *,
         host_name: str | None = None,
-        display_limit: int = 3,
+        display_limit: int = DEFAULT_DISPLAY_LIMIT,
         log_hooks: bool = True,
     ) -> None:
         self.store = store
@@ -110,7 +110,7 @@ def create_app(
     adapters: list[Adapter] | None = None,
     *,
     host_name: str | None = None,
-    display_limit: int = 3,
+    display_limit: int = DEFAULT_DISPLAY_LIMIT,
     enforce_loopback: bool = True,
     log_hooks: bool = True,
 ) -> FastAPI:
@@ -133,7 +133,7 @@ def create_app(
     app = FastAPI(
         title="Agent Control Deck Bridge",
         version="0.1.0",
-        description="Loopback hook ingress → StatusSnapshot (no deck egress in this spike).",
+        description="Loopback hook ingress → StatusSnapshot → BLE push (acd-bridge push-ble).",
         lifespan=lifespan,
     )
 

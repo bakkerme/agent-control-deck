@@ -9,9 +9,11 @@ from typing import Iterable
 
 from agent_control_deck_bridge import __version__
 from agent_control_deck_bridge.model import (
+    DEFAULT_DISPLAY_LIMIT,
     HostInfo,
     Session,
     StatusSnapshot,
+    count_states,
     truncate_sessions,
     utc_now_iso,
 )
@@ -64,7 +66,6 @@ class SessionStore:
     def all_sessions(self) -> list[Session]:
         with self._lock:
             by_id: dict[str, Session] = {}
-            # Deterministic adapter iteration order
             for name in sorted(self._by_adapter.keys()):
                 for sid, session in self._by_adapter[name].items():
                     if sid in by_id:
@@ -81,7 +82,7 @@ class SessionStore:
         *,
         host_name: str | None = None,
         bridge_version: str | None = None,
-        display_limit: int = 3,
+        display_limit: int = DEFAULT_DISPLAY_LIMIT,
     ) -> StatusSnapshot:
         sessions = self.all_sessions()
         top, total = truncate_sessions(sessions, display_limit=display_limit)
@@ -94,4 +95,5 @@ class SessionStore:
             ),
             sessions=top,
             sessions_total=total,
+            state_counts=count_states(sessions),
         )

@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-21T12:00:00Z",
+  "host": {
+    "name": "brandon-mbp",
+    "bridge_version": "0.1.0"
+  },
+  "sessions_total": 10,
+  "state_counts": {
+    "running": 3,
+    "idle": 0,
+    "waiting": 2,
+    "error": 2,
+    "done": 3,
+    "unknown": 0
+  },
+  "sessions": [
+    {
+      "id": "s1",
+      "agent": "mock",
+      "title": "~/src/api",
+      "summary": "Failed to push commit due to merge conflict in auth middleware.",
+      "state": "error",
+      "updated_at": "2026-07-21T11:50:00Z",
+      "error": "merge conflict"
+    },
+    {
+      "id": "s2",
+      "agent": "mock",
+      "title": "~/src/frontend",
+      "summary": "Build aborted after ESLint errors in Button.tsx on line 142.",
+      "state": "error",
+      "updated_at": "2026-07-21T11:49:00Z",
+      "error": "eslint"
+    },
+    {
+      "id": "s3",
+      "agent": "grok",
+      "title": "~/src/services/payment",
+      "summary": "Stripe webhook signature verification returned unexpected status.",
+      "state": "waiting",
+      "updated_at": "2026-07-21T11:48:00Z"
+    },
+    {
+      "id": "s4",
+      "agent": "claude-code",
+      "title": "~/src/infra/terraform",
+      "summary": "S3 bucket policy update may expose sensitive logging prefix.",
+      "state": "waiting",
+      "updated_at": "2026-07-21T11:47:00Z"
+    },
+    {
+      "id": "s5",
+      "agent": "mock",
+      "title": "~/src/utils/logger",
+      "summary": "Refactored winston transport to use structured JSON output.",
+      "state": "done",
+      "updated_at": "2026-07-21T11:46:00Z"
+    },
+    {
+      "id": "s6",
+      "agent": "mock",
+      "title": "~/src/cli/commands",
+      "summary": "Added --dry-run flag and validated against production schema.",
+      "state": "done",
+      "updated_at": "2026-07-21T11:45:00Z"
+    },
+    {
+      "id": "s7",
+      "agent": "mock",
+      "title": "~/src/api/routes/orders",
+      "summary": "Running integration tests against staging database cluster.",
+      "state": "running",
+      "updated_at": "2026-07-21T11:44:00Z",
+      "progress": 0.6
+    }
+  ]
+}

@@ -1,10 +1,13 @@
-# Bridge — hook ingress spike
+# Bridge — hooks → StatusSnapshot → BLE deck
 
-Python host process that collects agent status via **file** and **loopback HTTP**, and builds a versioned `StatusSnapshot`.
+Python host process that collects agent status via **file** and **loopback HTTP**, builds a versioned `StatusSnapshot`, and **pushes it to the e-paper deck over BLE**.
 
-**This spike does not push to the deck.** BLE/USB egress stays in `tools/ble_link/` until the production bridge wires them together.
+| Command | Role |
+|---------|------|
+| `acd-bridge serve` | Loopback HTTP (hooks, Session API, `GET /v1/status`) |
+| `acd-bridge push-ble` | BLE central: poll status → chunked GATT write to `ACD-*` |
 
-Design reference: [`docs/mvp-product-design.md`](../docs/mvp-product-design.md) (host bridge architecture, adapter merge, loopback POST).
+Design reference: [`docs/mvp-product-design.md`](../docs/mvp-product-design.md). Schema: [`docs/status-schema.md`](../docs/status-schema.md).
 
 ## Install
 
@@ -26,11 +29,29 @@ acd-bridge serve \
   --adapter mock \
   --adapter file:./examples/sessions.json
 
-# optional host footer label
+# optional host label
 acd-bridge serve --host-name brandon-mbp --adapter mock
 ```
 
-Default bind: **`127.0.0.1:8787`**. Non-loopback bind is refused unless `--allow-non-loopback` (still not recommended for hooks).
+Default bind: **`127.0.0.1:8787`**. Default **display_limit = 8** (design C). Non-loopback bind is refused unless `--allow-non-loopback`.
+
+### BLE push (second terminal)
+
+```bash
+# Poll the running serve process and push every 15s
+acd-bridge push-ble
+
+# One-shot
+acd-bridge push-ble --once
+
+# Standalone (no HTTP): local mock adapters
+acd-bridge push-ble --adapter mock --once
+
+# Target a specific deck name
+acd-bridge push-ble --name ACD-A1B2
+```
+
+Kill `push-ble` → deck **STALE** after ~30 s without successful pushes.
 
 **Hook logging (default on):** each vendor hook logs the full JSON body (truncated at 16 KiB) plus the mapped session line:
 
@@ -197,15 +218,18 @@ ACD_SESSION_ID=post:shell:demo ./examples/hooks/post_session.sh running "Buildin
 ```
 bridge/
   src/agent_control_deck_bridge/
-    model.py       # pydantic StatusSnapshot / Session
-    store.py       # per-adapter sets + sort/truncate
-    server.py      # FastAPI
-    hooks.py       # Grok/Claude event → Session
-    main.py        # acd-bridge CLI
-    adapters/      # mock, file, post
+    model.py         # pydantic StatusSnapshot / Session
+    store.py         # per-adapter sets + sort/truncate
+    server.py        # FastAPI
+    hooks.py         # Grok/Claude event → Session
+    ble_protocol.py  # chunk framing (from tools/ble_link)
+    ble_device.py    # ACD-* scan
+    ble_out.py       # push loop
+    main.py          # acd-bridge serve | push-ble
+    adapters/        # mock, file, post
   examples/
     sessions.json
-    hooks/         # Grok + Claude fragments + post_session.sh
+    hooks/           # Grok + Claude fragments + post_session.sh
   tests/
 ```
 
@@ -217,11 +241,10 @@ source .venv/bin/activate
 pytest -q
 ```
 
-## Out of scope (this spike)
+## Out of scope (MVP)
 
-- BLE / USB / Option B push to the deck
+- USB NDJSON exclusive mode (planned)
 - Named scrapers that reverse-engineer agent CLIs
 - Binding `0.0.0.0` as a product default
 - Auth beyond loopback
-
-Next step toward product: compose this store with `tools/ble_link` push (or production `ble_out.py`) on an interval.
+- Option B LAN reverse-push (deferred)

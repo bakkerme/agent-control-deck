@@ -205,7 +205,7 @@ void setup()
     Serial.begin(115200);
     delay(500);
     Serial.println();
-    Serial.println("agent-control-deck/deck: PR-S2..S4 BLE spike");
+    Serial.println("agent-control-deck/deck: BLE status (design C · 8 rows)");
 
     WiFi.mode(WIFI_OFF);
     Serial.println("[wifi] mode=OFF");
@@ -229,7 +229,7 @@ void setup()
         }
     }
 
-    Serial.println("[ble] ready — tools/ble_link/push_xfer.py | mock_bridge.py");
+    Serial.println("[ble] ready — acd-bridge push-ble | tools/ble_link/*");
 }
 
 void loop()

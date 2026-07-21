@@ -1,7 +1,14 @@
 /**
- * Multi-session status layout for 960×540 e-paper.
+ * Design C · 8 agents @ ~18px — e-paper status board (960×540).
  *
- * ASCII state tokens + geometric progress bars. No networking.
+ * Single top bar (state counts + link age + optional +N), session rows:
+ *   icon | path (title) | summary
+ * No footer, no progress bars.
+ *
+ * Type: FiraSansUI (9pt @ 150dpi → ~18px ascender / ~23px line) to match
+ * designs/design.png density so full design summaries fit on-glass.
+ * Icons: ~30px row glyphs (design C), thickened for e-paper contrast.
+ * Density: fixed 8-slot row grid — do not stretch when fewer sessions show.
  */
 
 #include "ui_layout.h"
@@ -10,70 +17,54 @@
 #include <string.h>
 
 #include "epd_driver.h"
-#include "firasans.h"
+#include "firasans_ui.h"
 
-/* Layout constants (panel 960×540, margins ~22 px). */
-static const int32_t kMarginX = 22;
-static const int32_t kMarginY = 18;
-static const int32_t kHeaderH = 48;
-static const int32_t kFooterH = 36;
-static const int32_t kStaleBannerH = 36;
-static const int32_t kLineAdvance = 42; /* FiraSans advance_y is 50; tighter for rows */
+/* Layout constants (panel 960×540; designs/epaper-status-board.html · C). */
+static const int32_t kMarginX = 16;
+static const int32_t kTopbarH = 46;
+static const int32_t kStaleBannerH = 28;
+static const int32_t kIconColW = 46;  /* room for ~30px icons */
+static const int32_t kPathColW = 250; /* fits ~/src/frontend/components @ 18px */
+static const int32_t kColGap = 12;
+static const int32_t kIconR = 15;     /* 30px diameter — design C */
+static const int32_t kMiniIconR = 8;  /* 16px — design C top-bar */
 static const int32_t kColorBlack = 0;
 static const int32_t kColorWhite = 0xFF;
-static const int32_t kMaxRowH = 130;
 
-static const char *state_token(DeckSessionState s)
+static const GFXfont *ui_font(void)
 {
-    switch (s) {
-    case DECK_STATE_RUNNING:
-        return "*";
-    case DECK_STATE_IDLE:
-        return "o";
-    case DECK_STATE_WAITING:
-        return "...";
-    case DECK_STATE_ERROR:
-        return "!";
-    case DECK_STATE_DONE:
-        return "v";
-    case DECK_STATE_UNKNOWN:
-    default:
-        return "?";
-    }
+    return (const GFXfont *)&FiraSansUI;
 }
 
-static const char *state_label(DeckSessionState s)
+/** Pixel width of @p text (0 if empty). */
+static int32_t text_width(const char *text)
 {
-    switch (s) {
-    case DECK_STATE_RUNNING:
-        return "RUNNING";
-    case DECK_STATE_IDLE:
-        return "IDLE";
-    case DECK_STATE_WAITING:
-        return "WAITING";
-    case DECK_STATE_ERROR:
-        return "ERROR";
-    case DECK_STATE_DONE:
-        return "DONE";
-    case DECK_STATE_UNKNOWN:
-    default:
-        return "UNKNOWN";
+    if (!text || !text[0]) {
+        return 0;
     }
+    int32_t x = 0;
+    int32_t y = 0;
+    int32_t x1 = 0;
+    int32_t y1 = 0;
+    int32_t w = 0;
+    int32_t h = 0;
+    get_text_bounds(ui_font(), text, &x, &y, &x1, &y1, &w, &h, NULL);
+    return w > 0 ? w : 0;
 }
 
-/** Clamp progress to [0, 1]; non-finite values become 0. */
-static float clamp_progress01(float p)
+static void draw_text(uint8_t *fb, int32_t x, int32_t y, const char *text)
 {
-    if (p != p) { /* NaN */
-        return 0.0f;
+    if (!text || !text[0]) {
+        return;
     }
-    if (p < 0.0f) {
-        return 0.0f;
-    }
-    if (p > 1.0f) {
-        return 1.0f;
-    }
-    return p;
+    int32_t cx = x;
+    int32_t cy = y;
+    writeln(ui_font(), text, &cx, &cy, fb);
+}
+
+static void draw_hline(uint8_t *fb, int32_t y)
+{
+    epd_draw_line(kMarginX, y, EPD_WIDTH - kMarginX, y, kColorBlack, fb);
 }
 
 /** Coarse relative age: "0s", "12s", "3m", "2h". */
@@ -92,62 +83,224 @@ static void format_age(uint32_t age_ms, char *out, size_t out_len)
     }
 }
 
-static void draw_text(uint8_t *fb, int32_t x, int32_t y, const char *text)
+/**
+ * Truncate s into out so measured pixel width ≤ max_px.
+ * End-ellipsis ("head...") — matches design.png path column (keep ~/src/…).
+ */
+static void trunc_fit(char *out, size_t out_len, const char *s, int32_t max_px)
 {
-    if (!text || !text[0]) {
+    if (!out || out_len == 0) {
         return;
     }
-    int32_t cx = x;
-    int32_t cy = y;
-    writeln((GFXfont *)&FiraSans, text, &cx, &cy, fb);
-}
-
-static void draw_hline(uint8_t *fb, int32_t y)
-{
-    epd_draw_line(kMarginX, y, EPD_WIDTH - kMarginX, y, kColorBlack, fb);
-}
-
-static void draw_progress_bar(uint8_t *fb, int32_t x, int32_t y, int32_t w, int32_t h,
-                              float progress)
-{
-    if (w < 4 || h < 4) {
+    out[0] = '\0';
+    if (!s || !s[0] || max_px <= 0) {
         return;
     }
-    /* Caller should pass already-clamped progress; clamp again defensively. */
-    progress = clamp_progress01(progress);
 
-    epd_draw_rect(x, y, w, h, kColorBlack, fb);
+    if (text_width(s) <= max_px) {
+        strncpy(out, s, out_len - 1);
+        out[out_len - 1] = '\0';
+        return;
+    }
 
-    int32_t inner_w = w - 4;
-    int32_t fill_w = (int32_t)((float)inner_w * progress + 0.5f);
-    if (fill_w > 0) {
-        epd_fill_rect(x + 2, y + 2, fill_w, h - 4, kColorBlack, fb);
+    const size_t n = strlen(s);
+    /* Longest prefix such that prefix + "..." fits. */
+    size_t lo = 1;
+    size_t hi = n;
+    size_t best = 1;
+    while (lo <= hi) {
+        size_t mid = (lo + hi) / 2;
+        if (mid + 4 > out_len) {
+            if (mid == 0) {
+                break;
+            }
+            hi = mid - 1;
+            continue;
+        }
+        /* Build candidate: first mid chars + "..." */
+        if (mid >= out_len) {
+            hi = mid - 1;
+            continue;
+        }
+        memcpy(out, s, mid);
+        out[mid] = '\0';
+        strncat(out, "...", out_len - mid - 1);
+        if (text_width(out) <= max_px) {
+            best = mid;
+            lo = mid + 1;
+        } else {
+            if (mid == 0) {
+                break;
+            }
+            hi = mid - 1;
+        }
+    }
+    if (best + 4 > out_len) {
+        best = out_len > 4 ? out_len - 4 : 1;
+    }
+    memcpy(out, s, best);
+    out[best] = '\0';
+    strncat(out, "...", out_len - best - 1);
+}
+
+/* ---- Thick primitives (e-paper single-pixel strokes vanish at desk distance) ---- */
+
+static void thick_circle(uint8_t *fb, int32_t cx, int32_t cy, int32_t r)
+{
+    epd_draw_circle(cx, cy, r, kColorBlack, fb);
+    if (r > 2) {
+        epd_draw_circle(cx, cy, r - 1, kColorBlack, fb);
+    }
+    if (r > 6) {
+        epd_draw_circle(cx, cy, r - 2, kColorBlack, fb);
     }
 }
 
-static void draw_centered_block(uint8_t *fb, const char *line1, const char *line2,
-                                const char *line3)
+static void thick_line(uint8_t *fb, int32_t x0, int32_t y0, int32_t x1, int32_t y1)
 {
-    /* Approximate center: FiraSans is ~ mono-width enough for short labels. */
-    int32_t mid_y = EPD_HEIGHT / 2 - 40;
-    int32_t left = kMarginX + 40;
+    epd_draw_line(x0, y0, x1, y1, kColorBlack, fb);
+    epd_draw_line(x0 + 1, y0, x1 + 1, y1, kColorBlack, fb);
+    epd_draw_line(x0, y0 + 1, x1, y1 + 1, kColorBlack, fb);
+}
 
-    if (line1) {
-        draw_text(fb, left, mid_y, line1);
+static void thick_line_white(uint8_t *fb, int32_t x0, int32_t y0, int32_t x1, int32_t y1)
+{
+    epd_draw_line(x0, y0, x1, y1, kColorWhite, fb);
+    epd_draw_line(x0 + 1, y0, x1 + 1, y1, kColorWhite, fb);
+    epd_draw_line(x0, y0 + 1, x1, y1 + 1, kColorWhite, fb);
+    epd_draw_line(x0 - 1, y0, x1 - 1, y1, kColorWhite, fb);
+}
+
+/* ---- State icons (design C glyphs, ~30px) ---- */
+
+static void icon_failed(uint8_t *fb, int32_t cx, int32_t cy, int32_t r)
+{
+    thick_circle(fb, cx, cy, r);
+    const int32_t d = (r * 5) / 10;
+    thick_line(fb, cx - d, cy - d, cx + d, cy + d);
+    thick_line(fb, cx + d, cy - d, cx - d, cy + d);
+}
+
+static void icon_question(uint8_t *fb, int32_t cx, int32_t cy, int32_t r)
+{
+    thick_circle(fb, cx, cy, r);
+    /* Geometric "?": arc + stem + dot (no font dependency). */
+    const int32_t s = (r * 4) / 10;
+    if (s < 2) {
+        return;
     }
-    if (line2) {
-        draw_text(fb, left, mid_y + kLineAdvance, line2);
+    thick_circle(fb, cx, cy - s / 2, s);
+    /* Open bottom of the small circle. */
+    for (int32_t dy = 0; dy < 3; dy++) {
+        for (int32_t dx = -s; dx <= s; dx++) {
+            epd_draw_pixel(cx + dx, cy - s / 2 + s - dy, kColorWhite, fb);
+        }
     }
-    if (line3) {
-        draw_text(fb, left, mid_y + 2 * kLineAdvance, line3);
+    thick_line(fb, cx, cy - s / 2 + s - 1, cx, cy + s / 2);
+    const int32_t ds = r >= 10 ? 3 : 2;
+    epd_fill_rect(cx - ds / 2, cy + s + 1, ds, ds, kColorBlack, fb);
+}
+
+static void icon_done(uint8_t *fb, int32_t cx, int32_t cy, int32_t r)
+{
+    epd_fill_circle(cx, cy, r, kColorBlack, fb);
+    const int32_t x0 = cx - (r * 5) / 10;
+    const int32_t y0 = cy;
+    const int32_t x1 = cx - r / 10;
+    const int32_t y1 = cy + (r * 5) / 10;
+    const int32_t x2 = cx + (r * 5) / 10;
+    const int32_t y2 = cy - (r * 4) / 10;
+    thick_line_white(fb, x0, y0, x1, y1);
+    thick_line_white(fb, x1, y1, x2, y2);
+}
+
+static void icon_working(uint8_t *fb, int32_t cx, int32_t cy, int32_t r)
+{
+    /* Static spinner: thick ring with a gap in the upper-right. */
+    thick_circle(fb, cx, cy, r);
+    const int32_t gap = (r * 6) / 10;
+    for (int32_t dy = -r; dy <= 0; dy++) {
+        for (int32_t dx = 0; dx <= r; dx++) {
+            const int32_t d2 = dx * dx + dy * dy;
+            if (d2 <= r * r && d2 >= (r - 4) * (r - 4)) {
+                if (dx + dy > gap / 2) {
+                    epd_draw_pixel(cx + dx, cy + dy, kColorWhite, fb);
+                }
+            }
+        }
     }
 }
 
-static void draw_header(uint8_t *fb, const DeckView *view)
+static void icon_idle(uint8_t *fb, int32_t cx, int32_t cy, int32_t r)
 {
-    const int32_t base_y = kMarginY + 30;
+    thick_circle(fb, cx, cy, r);
+}
 
-    draw_text(fb, kMarginX, base_y, "AGENT CONTROL DECK");
+static void draw_state_icon_at(uint8_t *fb, DeckSessionState st, int32_t cx, int32_t cy,
+                               int32_t r)
+{
+    switch (st) {
+    case DECK_STATE_ERROR:
+        icon_failed(fb, cx, cy, r);
+        break;
+    case DECK_STATE_WAITING:
+    case DECK_STATE_UNKNOWN:
+        icon_question(fb, cx, cy, r);
+        break;
+    case DECK_STATE_DONE:
+        icon_done(fb, cx, cy, r);
+        break;
+    case DECK_STATE_RUNNING:
+        icon_working(fb, cx, cy, r);
+        break;
+    case DECK_STATE_IDLE:
+    default:
+        icon_idle(fb, cx, cy, r);
+        break;
+    }
+}
+
+static void draw_state_icon(uint8_t *fb, DeckSessionState st, int32_t cx, int32_t cy)
+{
+    draw_state_icon_at(fb, st, cx, cy, kIconR);
+}
+
+/** Mini icon + digit for top-bar counts (~16px). */
+static void draw_mini_count(uint8_t *fb, int32_t *x, int32_t baseline_y, DeckSessionState st,
+                            int count)
+{
+    const int32_t r = kMiniIconR;
+    const int32_t cx = *x + r;
+    /* Center mini glyph on the text cap-height band. */
+    const int32_t cy = baseline_y - (ui_font()->ascender / 3);
+    draw_state_icon_at(fb, st, cx, cy, r);
+    *x += 2 * r + 5;
+    char buf[8];
+    snprintf(buf, sizeof(buf), "%d", count);
+    draw_text(fb, *x, baseline_y, buf);
+    *x += text_width(buf) + 12;
+}
+
+static void draw_topbar(uint8_t *fb, const DeckView *view)
+{
+    const GFXfont *font = ui_font();
+    /*
+     * Vertically center the glyph band in the top bar.
+     * baseline ≈ top + (bar + ascender + descender) / 2
+     */
+    int32_t baseline = (kTopbarH + font->ascender + font->descender) / 2 + 6;
+    if (baseline < 26) {
+        baseline = 26;
+    }
+    if (baseline > 38) {
+        baseline = 38;
+    }
+
+    int32_t x = kMarginX;
+    draw_mini_count(fb, &x, baseline, DECK_STATE_ERROR, (int)view->count_error);
+    draw_mini_count(fb, &x, baseline, DECK_STATE_WAITING, (int)view->count_waiting);
+    draw_mini_count(fb, &x, baseline, DECK_STATE_DONE, (int)view->count_done);
+    draw_mini_count(fb, &x, baseline, DECK_STATE_RUNNING, (int)view->count_running);
 
     char age_buf[12];
     format_age(view->age_ms, age_buf, sizeof(age_buf));
@@ -159,72 +312,123 @@ static void draw_header(uint8_t *fb, const DeckView *view)
         link_tok = "o";
     }
 
-    const char *transport =
-        view->transport[0] ? view->transport : "demo";
-
-    char right[64];
-    /* e.g. "demo *  12s  bat --%" — transport label stands in for WiFi in demo */
-    snprintf(right, sizeof(right), "%s %s  %s  bat --%%", transport, link_tok, age_buf);
-
-    /* Right-align approximately: ~14 px/char for FiraSans. */
-    int32_t approx_w = (int32_t)strlen(right) * 14;
-    int32_t rx = EPD_WIDTH - kMarginX - approx_w;
-    if (rx < EPD_WIDTH / 2) {
-        rx = EPD_WIDTH / 2;
+    char transport[DECK_STR_TRANSPORT];
+    if (view->transport[0]) {
+        size_t i = 0;
+        for (; view->transport[i] && i + 1 < sizeof(transport); i++) {
+            char c = view->transport[i];
+            if (c >= 'a' && c <= 'z') {
+                c = (char)(c - 'a' + 'A');
+            }
+            transport[i] = c;
+        }
+        transport[i] = '\0';
+    } else {
+        strncpy(transport, "BLE", sizeof(transport) - 1);
+        transport[sizeof(transport) - 1] = '\0';
     }
-    draw_text(fb, rx, base_y, right);
 
-    draw_hline(fb, kMarginY + kHeaderH);
+    int more = 0;
+    if (view->sessions_total > view->row_count) {
+        more = (int)view->sessions_total - (int)view->row_count;
+    }
+
+    /* Design mock: "BLE * 12s · +2" */
+    char right[40];
+    if (more > 0) {
+        snprintf(right, sizeof(right), "%s %s  %s  +%d", transport, link_tok, age_buf, more);
+    } else {
+        snprintf(right, sizeof(right), "%s %s  %s", transport, link_tok, age_buf);
+    }
+
+    int32_t tw = text_width(right);
+    int32_t rx = EPD_WIDTH - kMarginX - tw;
+    if (rx < x + 12) {
+        if (more > 0) {
+            snprintf(right, sizeof(right), "%s %s +%d", transport, link_tok, more);
+        } else {
+            snprintf(right, sizeof(right), "%s %s", transport, link_tok);
+        }
+        tw = text_width(right);
+        rx = EPD_WIDTH - kMarginX - tw;
+    }
+    if (rx < x + 8) {
+        rx = x + 8;
+    }
+    draw_text(fb, rx, baseline, right);
+
+    draw_hline(fb, kTopbarH);
+    epd_draw_line(kMarginX, kTopbarH + 1, EPD_WIDTH - kMarginX, kTopbarH + 1, kColorBlack, fb);
 }
 
-/**
- * Thin STALE banner under the header when we still have cached session rows.
- * Returns vertical offset consumed below the header line.
- */
 static int32_t draw_stale_banner(uint8_t *fb, const DeckView *view)
 {
     char age_buf[12];
     format_age(view->age_ms, age_buf, sizeof(age_buf));
 
     char line[80];
-    snprintf(line, sizeof(line), "STALE · last ok %s ago · showing cached sessions", age_buf);
+    snprintf(line, sizeof(line), "STALE · last ok %s ago · cached", age_buf);
 
-    const int32_t y = kMarginY + kHeaderH + 28;
-    draw_text(fb, kMarginX + 10, y, line);
-    draw_hline(fb, kMarginY + kHeaderH + kStaleBannerH);
+    const GFXfont *font = ui_font();
+    const int32_t y = kTopbarH + font->advance_y + font->descender - 2;
+    draw_text(fb, kMarginX + 4, y, line);
+    draw_hline(fb, kTopbarH + kStaleBannerH);
     return kStaleBannerH;
 }
 
-static void draw_footer(uint8_t *fb, const DeckView *view)
+static void draw_centered_block(uint8_t *fb, const char *line1, const char *line2,
+                                const char *line3)
 {
-    const int32_t footer_top = EPD_HEIGHT - kMarginY - kFooterH;
-    draw_hline(fb, footer_top);
+    const GFXfont *font = ui_font();
+    const int32_t line_gap = font->advance_y;
+    int32_t mid_y = EPD_HEIGHT / 2 - line_gap;
+    int32_t left = kMarginX + 40;
 
-    const int32_t base_y = footer_top + 28;
-    char line[160];
-    const char *host = view->host_name[0] ? view->host_name : "-";
-    const char *bridge = view->bridge_version[0] ? view->bridge_version : "-";
-    int schema = view->schema_version > 0 ? view->schema_version : 1;
-
-    int more = 0;
-    if (view->sessions_total > DECK_MAX_ROWS) {
-        more = (int)view->sessions_total - DECK_MAX_ROWS;
+    if (line1) {
+        draw_text(fb, left, mid_y, line1);
     }
-
-    if (more > 0) {
-        snprintf(line, sizeof(line),
-                 "host:%s   bridge %s   schema v%d   refresh #%lu   +%d more", host, bridge,
-                 schema, (unsigned long)view->refresh_count, more);
-    } else {
-        snprintf(line, sizeof(line), "host:%s   bridge %s   schema v%d   refresh #%lu",
-                 host, bridge, schema, (unsigned long)view->refresh_count);
+    if (line2) {
+        draw_text(fb, left, mid_y + line_gap, line2);
     }
-
-    draw_text(fb, kMarginX, base_y, line);
+    if (line3) {
+        draw_text(fb, left, mid_y + 2 * line_gap, line3);
+    }
 }
 
-static void draw_empty_body(uint8_t *fb, const DeckView *view)
+static void draw_session_row(uint8_t *fb, const DeckSessionRow *row, int32_t row_top,
+                             int32_t row_h, bool draw_separator)
 {
+    const GFXfont *font = ui_font();
+    const int32_t mid_y = row_top + row_h / 2;
+    /* Center glyph band in the row (ascender above baseline, descender below). */
+    const int32_t text_y = mid_y + (font->ascender + font->descender) / 2;
+
+    const int32_t icon_cx = kMarginX + kIconColW / 2;
+    draw_state_icon(fb, row->state, icon_cx, mid_y);
+
+    const int32_t path_x = kMarginX + kIconColW + kColGap;
+    char path_buf[DECK_STR_TITLE];
+    trunc_fit(path_buf, sizeof(path_buf), row->title[0] ? row->title : "?", kPathColW);
+    draw_text(fb, path_x, text_y, path_buf);
+
+    const int32_t sum_x = path_x + kPathColW + kColGap;
+    const int32_t sum_max_w = EPD_WIDTH - kMarginX - sum_x;
+    const char *body = row->summary;
+    if (row->state == DECK_STATE_ERROR && row->error[0]) {
+        body = row->error;
+    }
+    char sum_buf[DECK_STR_SUMMARY];
+    trunc_fit(sum_buf, sizeof(sum_buf), body && body[0] ? body : "-", sum_max_w);
+    draw_text(fb, sum_x, text_y, sum_buf);
+
+    if (draw_separator) {
+        draw_hline(fb, row_top + row_h);
+    }
+}
+
+static void draw_empty_body(uint8_t *fb, const DeckView *view, int32_t body_top)
+{
+    (void)body_top;
     if (view->stale || view->link_state == DECK_LINK_DOWN) {
         char age_buf[12];
         format_age(view->age_ms, age_buf, sizeof(age_buf));
@@ -234,8 +438,7 @@ static void draw_empty_body(uint8_t *fb, const DeckView *view)
         return;
     }
     if (view->link_state == DECK_LINK_DEGRADED) {
-        draw_centered_block(fb, "No agent sessions", "Link degraded · waiting for adapters",
-                            NULL);
+        draw_centered_block(fb, "No agent sessions", "Link degraded · waiting", NULL);
         return;
     }
     draw_centered_block(fb, "No agent sessions", "Bridge OK · waiting for adapters", NULL);
@@ -247,12 +450,10 @@ static void draw_schema_frame(uint8_t *fb, const DeckView *view)
     int got = view->last_schema_version;
     snprintf(detail, sizeof(detail), "Unsupported schema_version (got %d, need 1)", got);
 
-    draw_header(fb, view);
+    draw_topbar(fb, view);
     draw_centered_block(fb, "SCHEMA", detail, "Update bridge or firmware");
-    draw_footer(fb, view);
 }
 
-/** Full-screen NO LINK when stale and nothing cached. */
 static void draw_stale_empty_frame(uint8_t *fb, const DeckView *view)
 {
     char age_buf[12];
@@ -261,69 +462,17 @@ static void draw_stale_empty_frame(uint8_t *fb, const DeckView *view)
     char line2[96];
     snprintf(line2, sizeof(line2), "Last ok %s ago", age_buf);
 
-    draw_header(fb, view);
+    draw_topbar(fb, view);
     draw_centered_block(fb, "NO LINK", line2, "No cached sessions");
-    draw_footer(fb, view);
-}
-
-static void draw_session_row(uint8_t *fb, const DeckSessionRow *row, int32_t row_top,
-                             int32_t row_h, bool draw_separator)
-{
-    const int32_t pad = 10;
-    const int32_t text_x = kMarginX + pad;
-    int32_t y = row_top + 36;
-
-    /* Line 1: token STATE   agent · title */
-    char line1[96];
-    snprintf(line1, sizeof(line1), "%s %-8s  %s · %s", state_token(row->state),
-             state_label(row->state), row->agent[0] ? row->agent : "?",
-             row->title[0] ? row->title : "-");
-    draw_text(fb, text_x, y, line1);
-
-    /* Line 2: summary, or error text when in error state */
-    y += kLineAdvance;
-    const char *body = row->summary;
-    if (row->state == DECK_STATE_ERROR && row->error[0]) {
-        body = row->error;
-    }
-    if (body && body[0]) {
-        draw_text(fb, text_x, y, body);
-    }
-
-    /* Line 3: optional progress bar + detail */
-    y += kLineAdvance - 4;
-    if (row->has_progress) {
-        const float p01 = clamp_progress01(row->progress);
-        const int32_t bar_w = 220;
-        const int32_t bar_h = 18;
-        draw_progress_bar(fb, text_x, y - 14, bar_w, bar_h, p01);
-
-        /* Sized for "100%   " + full detail (DECK_STR_DETAIL includes NUL). */
-        char pct[16 + DECK_STR_DETAIL];
-        int p = (int)(p01 * 100.0f + 0.5f);
-        if (row->detail[0]) {
-            snprintf(pct, sizeof(pct), "%d%%   %s", p, row->detail);
-        } else {
-            snprintf(pct, sizeof(pct), "%d%%", p);
-        }
-        draw_text(fb, text_x + bar_w + 16, y, pct);
-    } else if (row->detail[0]) {
-        draw_text(fb, text_x, y, row->detail);
-    }
-
-    if (draw_separator) {
-        draw_hline(fb, row_top + row_h);
-    }
 }
 
 static void draw_normal(uint8_t *fb, const DeckView *view)
 {
-    draw_header(fb, view);
+    draw_topbar(fb, view);
 
-    int32_t body_top = kMarginY + kHeaderH;
-    const int32_t body_bottom = EPD_HEIGHT - kMarginY - kFooterH;
+    int32_t body_top = kTopbarH;
+    const int32_t body_bottom = EPD_HEIGHT;
 
-    /* STALE with cached rows: banner under header, then rows (design doc). */
     const bool stale_with_rows = view->stale && view->row_count > 0;
     if (stale_with_rows) {
         body_top += draw_stale_banner(fb, view);
@@ -337,25 +486,17 @@ static void draw_normal(uint8_t *fb, const DeckView *view)
     }
 
     if (n == 0) {
-        draw_empty_body(fb, view);
-    } else {
-        int32_t row_h = body_h / (int32_t)n;
-        if (row_h > kMaxRowH) {
-            row_h = kMaxRowH;
-        }
-        const int32_t used_h = (int32_t)n * row_h;
-        for (uint8_t i = 0; i < n; i++) {
-            /* Per-row separators for all but last; close the block once below. */
-            const bool is_last = (i + 1 == n);
-            const bool need_mid_sep = !is_last;
-            draw_session_row(fb, &view->rows[i], body_top + (int32_t)i * row_h, row_h,
-                             need_mid_sep);
-        }
-        /* Single bottom separator for the row block (also separates from footer). */
-        draw_hline(fb, body_top + used_h);
+        draw_empty_body(fb, view, body_top);
+        return;
     }
 
-    draw_footer(fb, view);
+    /* Fixed 8-slot grid so density matches design.png even with fewer sessions. */
+    const int32_t row_h = body_h / (int32_t)DECK_MAX_ROWS;
+    for (uint8_t i = 0; i < n; i++) {
+        const bool is_last = (i + 1 == n);
+        const bool draw_sep = !is_last || (int)n < DECK_MAX_ROWS;
+        draw_session_row(fb, &view->rows[i], body_top + (int32_t)i * row_h, row_h, draw_sep);
+    }
 }
 
 void ui_draw_status(uint8_t *framebuffer, const DeckView *view)
@@ -366,7 +507,6 @@ void ui_draw_status(uint8_t *framebuffer, const DeckView *view)
 
     memset(framebuffer, kColorWhite, (size_t)EPD_WIDTH * (size_t)EPD_HEIGHT / 2);
 
-    /* Frame priority (highest wins): SCHEMA > STALE empty > normal (+ STALE banner). */
     if (view->fault == DECK_FAULT_SCHEMA) {
         draw_schema_frame(framebuffer, view);
         return;

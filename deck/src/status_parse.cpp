@@ -1,5 +1,5 @@
 /**
- * Minimal StatusSnapshot v1 parser (ArduinoJson 7).
+ * StatusSnapshot v1 parser (ArduinoJson 7).
  * Never logs body text.
  */
 
@@ -46,6 +46,17 @@ DeckSessionState parse_state(const char *s)
     return DECK_STATE_UNKNOWN;
 }
 
+uint16_t clamp_u16(int v)
+{
+    if (v < 0) {
+        return 0;
+    }
+    if (v > 65535) {
+        return 65535;
+    }
+    return (uint16_t)v;
+}
+
 } // namespace
 
 StatusParseResult status_parse_snapshot(const uint8_t *data, size_t len, DeckView *view)
@@ -90,16 +101,32 @@ StatusParseResult status_parse_snapshot(const uint8_t *data, size_t len, DeckVie
 
     const size_t n_all = sessions.size();
     if (doc["sessions_total"].is<int>()) {
-        int st = doc["sessions_total"].as<int>();
-        if (st < 0) {
-            st = 0;
-        }
-        if (st > 65535) {
-            st = 65535;
-        }
-        view->sessions_total = (uint16_t)st;
+        view->sessions_total = clamp_u16(doc["sessions_total"].as<int>());
     } else {
-        view->sessions_total = (uint16_t)(n_all > 65535 ? 65535 : n_all);
+        view->sessions_total = clamp_u16((int)n_all);
+    }
+
+    /* Optional full-fleet state_counts; fall back to visible rows after parse. */
+    bool have_counts = false;
+    view->count_error = 0;
+    view->count_waiting = 0;
+    view->count_done = 0;
+    view->count_running = 0;
+    JsonObjectConst sc = doc["state_counts"].as<JsonObjectConst>();
+    if (!sc.isNull()) {
+        have_counts = true;
+        if (sc["error"].is<int>()) {
+            view->count_error = clamp_u16(sc["error"].as<int>());
+        }
+        int waiting = sc["waiting"].is<int>() ? sc["waiting"].as<int>() : 0;
+        int unknown = sc["unknown"].is<int>() ? sc["unknown"].as<int>() : 0;
+        view->count_waiting = clamp_u16(waiting + unknown);
+        if (sc["done"].is<int>()) {
+            view->count_done = clamp_u16(sc["done"].as<int>());
+        }
+        if (sc["running"].is<int>()) {
+            view->count_running = clamp_u16(sc["running"].as<int>());
+        }
     }
 
     view->row_count = 0;
@@ -115,7 +142,6 @@ StatusParseResult status_parse_snapshot(const uint8_t *data, size_t len, DeckVie
         const char *summary = s["summary"].as<const char *>();
         const char *state = s["state"].as<const char *>();
         if (!agent || !title || !summary || !state) {
-            /* Skip incomplete row rather than fail whole snapshot for spike. */
             continue;
         }
         row->state = parse_state(state);
@@ -130,6 +156,11 @@ StatusParseResult status_parse_snapshot(const uint8_t *data, size_t len, DeckVie
         if (error) {
             copy_trunc(row->error, sizeof(row->error), error);
         }
+        /* Prefer error text as body when present and state is error. */
+        if (row->state == DECK_STATE_ERROR && row->error[0] &&
+            (!row->summary[0] || strcmp(row->summary, row->error) != 0)) {
+            /* Keep summary if already useful; error drawn as summary in UI. */
+        }
         if (s["progress"].is<float>() || s["progress"].is<double>() || s["progress"].is<int>()) {
             row->has_progress = true;
             row->progress = s["progress"].as<float>();
@@ -138,6 +169,28 @@ StatusParseResult status_parse_snapshot(const uint8_t *data, size_t len, DeckVie
             row->progress = 0.0f;
         }
         view->row_count++;
+    }
+
+    if (!have_counts) {
+        for (uint8_t i = 0; i < view->row_count; i++) {
+            switch (view->rows[i].state) {
+            case DECK_STATE_ERROR:
+                view->count_error++;
+                break;
+            case DECK_STATE_WAITING:
+            case DECK_STATE_UNKNOWN:
+                view->count_waiting++;
+                break;
+            case DECK_STATE_DONE:
+                view->count_done++;
+                break;
+            case DECK_STATE_RUNNING:
+                view->count_running++;
+                break;
+            default:
+                break;
+            }
+        }
     }
 
     return STATUS_PARSE_OK;

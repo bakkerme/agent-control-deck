@@ -1,3 +1,3 @@
-"""Agent Control Deck host bridge — hook ingress spike (no deck egress)."""
+"""Agent Control Deck host bridge — hooks/file → StatusSnapshot → BLE deck."""
 
 __version__ = "0.1.0"

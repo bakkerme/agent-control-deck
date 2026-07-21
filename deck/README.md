@@ -4,18 +4,18 @@ PlatformIO firmware for the **LilyGo T5-ePaper** (classic **ESP32-WROVER**, 4.7"
 
 ## Current status
 
-**BLE spike S1–S4:** NimBLE **peripheral** advertises `ACD-****`, accepts one central, reassembles chunked StatusSnapshot writes (≤ 8 KiB + CRC32), parses JSON → `DeckView`, redraws e-paper, and marks **STALE** after ~30 s without a successful push. Wi‑Fi is forced **off**.
+**MVP BLE path:** NimBLE **peripheral** advertises `ACD-****`, accepts one central, reassembles chunked StatusSnapshot writes (≤ 8 KiB + CRC32), parses JSON → `DeckView`, redraws e-paper (**design C · up to 8 rows @ ~18–22px**), and marks **STALE** after ~30 s without a successful push. Wi‑Fi is forced **off**.
 
 | Module | Role |
 |--------|------|
 | `src/display.*` | E-paper init, PSRAM framebuffer, power/present |
 | `src/status_model.h` | C structs for `DeckView` / session rows |
-| `src/status_parse.*` | ArduinoJson StatusSnapshot → `DeckView` (S3) |
-| `src/ui_layout.*` | Draw header / rows / footer into the framebuffer |
-| `src/ble_gatt.*` | NimBLE advertise/connect/HEARTBEAT + CTRL/DATA/STATE (S1–S2) |
-| `src/main.cpp` | Wi‑Fi off → BLE poll → parse → present; STALE grace (S4) |
+| `src/status_parse.*` | ArduinoJson StatusSnapshot → `DeckView` |
+| `src/ui_layout.*` | Top bar (counts + link) + icon/path/summary rows |
+| `src/ble_gatt.*` | NimBLE advertise/connect + CTRL/DATA/STATE |
+| `src/main.cpp` | Wi‑Fi off → BLE poll → parse → present; STALE grace |
 
-ASCII state tokens: `*` running, `o` idle, `...` waiting, `!` error, `v` done, `?` unknown.
+UI reference: [`designs/epaper-status-board.html`](../designs/epaper-status-board.html) (variant **D · 7 @ 20px**).
 
 ## Prerequisites
 
@@ -44,24 +44,22 @@ pio device monitor      # serial @ 115200
 pio run -t upload && pio device monitor
 ```
 
-Host tools (after flash):
+Host push (after flash):
 
 ```bash
-cd ../tools/ble_link
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+cd ../bridge
+source .venv/bin/activate
+acd-bridge push-ble --once          # needs acd-bridge serve on :8787
+# or
+acd-bridge push-ble --adapter mock --once
 
-# S1 link soak
-python connect_soak.py --duration 1800
-
-# S2 bulk transfer (100 consecutive)
-python push_xfer.py --count 100
-
-# S3/S4 mock bridge — 3 sessions on glass; kill process → STALE ~30s
-python mock_bridge.py --animate
+# Design.png fixture (8 rows on glass + top-bar +2):
+acd-bridge push-ble --adapter file:../schema/examples/design_c_sessions.json --once
+# or low-level:
+#   cd ../tools/ble_link && python push_xfer.py --payload payloads/design_c_sessions.json
 ```
 
-Wire format and acceptance logs: [`docs/ble-spike.md`](../docs/ble-spike.md).
+Low-level soak tools remain under [`tools/ble_link/`](../tools/ble_link/). Wire format: [`docs/ble-spike.md`](../docs/ble-spike.md).
 
 If the port is busy, close other serial monitors. If upload still fails, hold **BOOT**, tap **RST**, release **BOOT**, then upload again.
 
@@ -72,6 +70,7 @@ If the port is busy, close other serial monitors. If upload still fails, hold **
 | Env | `T5-ePaper` |
 | Chip | ESP32 (+ PSRAM) |
 | Panel | 960×540, 4-bit grayscale |
+| Layout | design C: 8 rows (FiraSansUI ~18px + 30px icons), no footer / no progress bars |
 | Upload | ~460800 baud, external USB-UART |
 | BLE name | `ACD-` + last 4 hex of BT MAC |
 | STALE grace | 30 s without successful v1 commit |

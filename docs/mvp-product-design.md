@@ -5,7 +5,7 @@
 | **Document** | Product Design / System Design — MVP |
 | **Author** | TBD |
 | **Date** | 2026-07-20 |
-| **Status** | Draft (rev 2.8 — BLE closed; **bridge ingress spike** PR3a/PR6a landed; egress + schema still open) |
+| **Status** | Draft (rev 2.9 — BLE closed; schema PR2 ✅; bridge ingress+egress PR3a/PR3b/PR6a ✅; design-D UI; quickstart PR10 ✅) |
 | **Scope** | Read-only agent status on LilyGo T5-ePaper |
 | **Repo** | `agent-control-deck` (this monorepo) |
 
@@ -15,7 +15,7 @@
 
 **Agent Control Deck** is a desk- and room-portable **e-paper status display** for AI coding agents. Despite the product name, the MVP is a **status deck only**: a **read-only** glanceable view of agent state (name, task summary, running/idle/error, progress, last update) so a developer can leave their phone in their pocket while agents run on a host machine. **Control features (kill, approve, inject prompt, or any intervention) are a future product generation, not a hidden MVP toggle.**
 
-Today the monorepo is under git with a **flashable BLE status path** on a **LilyGo T5-ePaper** (classic ESP32-WROVER, 960×540, 4-bit grayscale): `display_*`, `DeckView`, **NimBLE** peripheral (`ACD-*`, chunked ≤8 KiB StatusSnapshot + CRC), ArduinoJson → on-glass redraw, **STALE after 30 s**. Host BLE tools live under **`tools/ble_link/`**. A **bridge ingress spike** lives under **`bridge/`**: pydantic model/store, mock + file + post adapters, loopback FastAPI (`/v1/sessions`, vendor `/v1/hooks/*`), tests, and Grok/Claude hook examples — **no deck egress yet**. Still missing: formal schema package (**PR2**), bridge **BLE/USB push** (**PR3b**), USB product path, scrapers. This document defines the product problem and architecture; the PR plan / tickets live in [`docs/tickets/pr-plan.md`](tickets/pr-plan.md).
+Today the monorepo has a **working MVP product pipe**: LilyGo T5-ePaper firmware (design **D · 7 rows**, NimBLE peripheral, STALE ~30 s) + **`bridge/`** (hooks/file/mock → store → **`acd-bridge push-ble`**) + formal **`schema/`** package. USB exclusive mode and scrapers remain deferred. Tickets: [`docs/pr-plan.md`](pr-plan.md).
 
 **Transport decision (rev 2.7 — locked):** host machines may be **firewalled against inbound TCP**; SoftAP is **not viable**; third-host status is a **compliance risk**. The BLE spike is **closed**: **BLE host-push is the primary portable path**; **USB serial remains desk/debug exclusive mode**; **Option B (LAN reverse-push) is deferred**. Evidence and residual notes live in [`docs/ble-spike.md`](ble-spike.md). Control/intervention is **explicitly out of scope**.
 
@@ -151,7 +151,7 @@ No API availability for most agents, only hooks.
 | K5 | **Python bridge for MVP** (`bleak` for BLE central) | Fast adapter/hook iteration + cross-platform BLE |
 | K6 | **Versioned JSON StatusSnapshot (`schema_version`)** | Single contract across BLE / USB / future LAN |
 | K7 | **Default update cadence ~15 s; full-frame redraw on content/fault change only** | E-paper strengths; no heartbeat flash for age ticks |
-| K8 | **Display + bridge default cap = 3 sessions** | Single number for schema, UI, tests; optional `sessions_total` for `+N more` |
+| K8 | **Display + bridge default cap = 7 sessions** (design D · 20px) | Glass legibility; optional `sessions_total` / `state_counts` for top-bar `+N` and tallies |
 | K9 | **Supported MVP integration = mock + file + loopback POST hooks**; scrapers **deferred** | Clear script mental model; no reverse-engineering CLIs |
 | K10 | **Prefer RF/USB that keeps summaries off the LAN**; adapter HTTP writes stay loopback-only | Firewall + compliance constraints |
 | K11 | **SoftAP rejected**; stable host IP / device-pull WiFi **not** product primary | Host must keep Wi‑Fi; host may not listen |

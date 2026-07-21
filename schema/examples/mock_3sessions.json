@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-21T12:00:00Z",
+  "host": {
+    "name": "brandon-mbp",
+    "bridge_version": "0.1.0"
+  },
+  "sessions_total": 3,
+  "state_counts": {
+    "running": 1,
+    "idle": 1,
+    "waiting": 0,
+    "error": 1,
+    "done": 0,
+    "unknown": 0
+  },
+  "sessions": [
+    {
+      "id": "mock:demo-err",
+      "agent": "mock",
+      "title": "demo",
+      "summary": "Adapter crash: permission denied",
+      "state": "error",
+      "progress": null,
+      "detail": null,
+      "started_at": "2026-07-21T11:00:00Z",
+      "updated_at": "2026-07-21T11:55:00Z",
+      "error": "Adapter crash: permission denied"
+    },
+    {
+      "id": "mock:demo-1",
+      "agent": "mock",
+      "title": "agent-control-deck",
+      "summary": "Implement BLE chunk push + status layout",
+      "state": "running",
+      "progress": 0.45,
+      "detail": "Editing deck/src/ble_gatt.cpp",
+      "started_at": "2026-07-21T11:30:00Z",
+      "updated_at": "2026-07-21T11:59:00Z",
+      "error": null
+    },
+    {
+      "id": "file:docs",
+      "agent": "other",
+      "title": "docs",
+      "summary": "No active task",
+      "state": "idle",
+      "progress": null,
+      "detail": null,
+      "started_at": null,
+      "updated_at": "2026-07-21T10:00:00Z",
+      "error": null
+    }
+  ]
+}

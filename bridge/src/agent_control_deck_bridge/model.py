@@ -1,4 +1,4 @@
-"""StatusSnapshot v1 models (design field dictionary)."""
+"""StatusSnapshot v1 models (schema/status.schema.json)."""
 
 from __future__ import annotations
 
@@ -7,6 +7,9 @@ from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
+
+# Design D default: 7 rows @ ~20px on 960×540.
+DEFAULT_DISPLAY_LIMIT = 8
 
 
 def utc_now_iso() -> str:
@@ -22,20 +25,30 @@ class SessionState(str, Enum):
     unknown = "unknown"
 
 
-# Sort priority: lower = more important (design § sort key)
+# Sort priority: lower = higher on glass.
+# Design D: failed → question → done → working (idle/unknown between question and done).
 STATE_PRIORITY: dict[SessionState, int] = {
     SessionState.error: 0,
-    SessionState.running: 1,
-    SessionState.waiting: 2,
-    SessionState.unknown: 3,
-    SessionState.idle: 4,
-    SessionState.done: 5,
+    SessionState.waiting: 1,
+    SessionState.unknown: 2,
+    SessionState.idle: 3,
+    SessionState.done: 4,
+    SessionState.running: 5,
 }
 
 
 class HostInfo(BaseModel):
     name: str = Field(..., max_length=32)
     bridge_version: str = Field(..., max_length=16)
+
+
+class StateCounts(BaseModel):
+    running: int = 0
+    idle: int = 0
+    waiting: int = 0
+    error: int = 0
+    done: int = 0
+    unknown: int = 0
 
 
 class Session(BaseModel):
@@ -73,6 +86,7 @@ class StatusSnapshot(BaseModel):
     host: HostInfo
     sessions: list[Session] = Field(default_factory=list)
     sessions_total: int | None = None
+    state_counts: StateCounts | None = None
 
 
 def _updated_ts(iso: str) -> float:
@@ -88,14 +102,22 @@ def sort_sessions(sessions: list[Session]) -> list[Session]:
         sessions,
         key=lambda s: (
             STATE_PRIORITY.get(s.state, 99),
-            -_updated_ts(s.updated_at),  # newer first
+            -_updated_ts(s.updated_at),
             s.id,
         ),
     )
 
 
+def count_states(sessions: list[Session]) -> StateCounts:
+    counts = StateCounts()
+    for s in sessions:
+        key = s.state.value
+        setattr(counts, key, getattr(counts, key) + 1)
+    return counts
+
+
 def truncate_sessions(
-    sessions: list[Session], display_limit: int = 3
+    sessions: list[Session], display_limit: int = DEFAULT_DISPLAY_LIMIT
 ) -> tuple[list[Session], int]:
     ordered = sort_sessions(sessions)
     total = len(ordered)

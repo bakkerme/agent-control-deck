@@ -4,7 +4,7 @@ Each PR leaves the tree buildable. Stacked branches under `execute-plan/` (or me
 
 Source design: [`docs/mvp-product-design.md`](../mvp-product-design.md).
 
-**Progress (rev 2.8):** **PR0**, **PR1a**, **PR1b**, **PR-S1…PR-S4** (BLE **closed**, primary locked). **PR3a** + **PR6a** (bridge **ingress** spike under `bridge/`). **Still open:** **PR2** (formal schema), **PR3b** (BLE egress into bridge — **next for product pipe**), PR5 polish, PR7 USB, PR10 quickstart. Do **not** invest in host-listen WiFi pull as product default.
+**Progress (rev 2.9):** **PR0**, **PR1a**, **PR1b**, **PR-S1…PR-S4** (BLE **closed**). **PR3a** + **PR6a** (ingress). **PR2** schema package ✅, **PR3b** BLE egress ✅ (`acd-bridge push-ble`), **PR10** quickstart ✅, design-D UI (7 rows). **Still open:** PR5 polish, PR7 USB, PR6b optional. Do **not** invest in host-listen WiFi pull as product default.
 
 ---
 
@@ -32,13 +32,13 @@ Source design: [`docs/mvp-product-design.md`](../mvp-product-design.md).
 - **Depends on:** PR1a
 - **Description:** Draw header + **3** rows + footer from a compile-time `DeckView`. ASCII tokens `* o ! v`; progress via `epd_fill_rect`. No JSON/radio.
 
-## PR2 — Schema package: JSON Schema + shared examples ⏳ Pending
+## PR2 — Schema package: JSON Schema + shared examples ✅ Done
 
-- **Status:** **Pending** — bridge/firmware currently use pydantic + C parse + this doc’s field dictionary
+- **Status:** **Done** (2026-07-21) — `display_limit=7` (design D), optional `state_counts`
 - **Title:** `docs(schema): add StatusSnapshot v1 JSON Schema and examples`
 - **Files/components:** `schema/status.schema.json`, `schema/examples/*.json`, `docs/status-schema.md`, root `README.md`
 - **Depends on:** PR0 (parallel); can land before or with PR3b
-- **Description:** Freeze field dictionary, sort order, **`display_limit=3`**, optional `sessions_total`, 8 KiB budget. Transport-agnostic examples. Align with bridge pydantic models and deck `status_parse`.
+- **Description:** Freeze field dictionary, sort order, **`display_limit=7`**, optional `sessions_total` + `state_counts`, 8 KiB budget. Align with bridge pydantic and deck `status_parse`.
 
 ## PR-S1 — Spike: BLE link only ✅ Done
 
@@ -85,14 +85,14 @@ Source design: [`docs/mvp-product-design.md`](../mvp-product-design.md).
 - **Description:** Pydantic model, per-adapter replace semantics, mock adapter, truncate to 3 + `sessions_total`. **Localhost** HTTP for hooks/tools — **not** the firewalled “serve the deck” path. CLI: `acd-bridge serve`.
 - **Caveats:** No `ble_out` / push loop; default `--log-hooks` logs bodies (spike); Grok uses command+curl not `type:http`.
 
-## PR3b — Bridge BLE egress (promote ble_link) ⏳ Next
+## PR3b — Bridge BLE egress (promote ble_link) ✅ Done
 
-- **Status:** **Pending**
+- **Status:** **Done** (2026-07-21)
 - **Title:** `feat(bridge): bleak push of store snapshot to deck`
-- **Files/components:** `ble_out.py` (or promote `tools/ble_link/{protocol,device,push}`), CLI `push-ble` / serve+push loop, docs
+- **Files/components:** `ble_protocol.py`, `ble_device.py`, `ble_out.py`, CLI `push-ble` (`--from-url` or `--adapter`), docs
 - **Depends on:** PR3a; deck BLE path (PR-S* closed); ideally PR2
-- **Description:** Build snapshot from store on interval → chunked GATT write (reuse S2 protocol). Kill pusher → deck STALE; restart → recovery. Retire or thin-wrap `tools/ble_link/mock_bridge.py` as the production path. Pairing/hardening may stay PR5.
-- **Acceptance:** Mock and/or file/post sessions appear on glass via `acd-bridge` without hand-editing `mock_3sessions.json`.
+- **Description:** Poll `GET /v1/status` (or local adapters) → chunked GATT write. Kill pusher → deck STALE; restart → recovery. `tools/ble_link/*` remains for soak/lab.
+- **Acceptance:** Mock and/or file/post sessions appear on glass via `acd-bridge push-ble` without hand-editing `mock_3sessions.json`.
 
 ## PR4 — Firmware: ArduinoJson v7 parse path + embedded fixture
 
@@ -142,12 +142,13 @@ Source design: [`docs/mvp-product-design.md`](../mvp-product-design.md).
 - **Depends on:** Stable radio path post-spike
 - **Description:** Battery: poweron → delay → ADC → poweroff; default UI off.
 
-## PR10 — Docs & demo polish: quickstart
+## PR10 — Docs & demo polish: quickstart ✅ Done
 
+- **Status:** **Done** (2026-07-21)
 - **Title:** `docs: MVP quickstart (flash deck + push mock status)`
-- **Files/components:** root `README.md`, demo script, troubleshooting (BLE pair, STALE, USB)
+- **Files/components:** root `README.md`, bridge/deck READMEs, troubleshooting (BLE pair, STALE)
 - **Depends on:** Winning transport from PR-S4 + **PR3b** (end-to-end bridge push)
-- **Description:** 10-minute path for the **chosen** transport. States control is out of scope. Include hook install notes (Grok command hooks; Claude HTTP).
+- **Description:** 10-minute path: flash → serve → push-ble. Control out of scope. Hook notes in bridge README.
 
 ---
 

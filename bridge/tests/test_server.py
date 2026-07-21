@@ -34,8 +34,11 @@ def test_status_mock_sessions():
     assert body["host"]["name"] == "test-host"
     assert body["sessions_total"] == 3
     assert len(body["sessions"]) == 3
-    # error should sort first
+    # error should sort first (design D)
     assert body["sessions"][0]["state"] == "error"
+    assert body["state_counts"]["error"] == 1
+    assert body["state_counts"]["running"] == 1
+    assert body["state_counts"]["idle"] == 1
 
 
 def test_post_upsert_and_delete():
