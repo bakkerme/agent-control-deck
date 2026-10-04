@@ -6,6 +6,7 @@ import ChatEditor, { type EditorHandle } from "./ChatEditor";
 import Sources from "./Sources";
 import { providerLabel, displayName, displayPreview, message, age, Status, Modal } from "./components";
 import MarkdownPreview from "./MarkdownPreview";
+import TitleBar from "./TitleBar";
 import "./style.css";
 const api = window.deck;
 
@@ -73,10 +74,12 @@ function App() {
   }, [chat, snapshot]);
   if (!snapshot)
     return (
-      <div className="loading">
-        <h1>Agent Control Deck</h1>
-        <p>{error || "Opening your workspace…"}</p>
-        {error && <button onClick={() => location.reload()}>Retry</button>}
+      <div className="app">
+        <TitleBar subtitle="Local workspace" />
+        <div className="loading">
+          <p>{error || "Opening your workspace…"}</p>
+          {error && <button onClick={() => location.reload()}>Retry</button>}
+        </div>
       </div>
     );
   const activeChats = snapshot.chats.filter((c) => !c.archived);
@@ -154,15 +157,9 @@ function App() {
   };
   return (
     <div className="app">
-      <header>
-        <div>
-          <h1>Agent Control Deck</h1>
-          <span className="muted">
-            {snapshot.demo
-              ? "Demo workspace · separate sample data"
-              : "Local workspace · read-only agent monitoring"}
-          </span>
-        </div>
+      <TitleBar subtitle={snapshot.demo
+        ? "Demo workspace · separate sample data"
+        : "Local workspace · read-only agent monitoring"}>
         <nav aria-label="Main">
           <button
             className={page === "workspace" ? "selected" : ""}
@@ -202,7 +199,7 @@ function App() {
             {snapshot.demo ? "Leave demo" : "Try demo"}
           </button>
         </nav>
-      </header>
+      </TitleBar>
       {snapshot.ingestionError && <div className="global-error" role="alert">{snapshot.ingestionError}</div>}
       {error && (
         <div className="global-error" role="alert">

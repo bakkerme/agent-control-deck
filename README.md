@@ -32,7 +32,7 @@ Use **Try demo** in the app to explore sample projects, a standalone chat, and l
 - Recent activity (100 entries per chat), Markdown previews (500 characters), and last-observed timestamps. A completed turn means idle, not completed work. Preview links and images are displayed without navigation or remote loading.
 - Source setup, diagnostic events, pause/resume, and workspace aliases to group Windows/WSL paths into one project.
 
-The three-pane UI is intentionally basic. Visual polish and broader task/Jira workflows come later.
+The three-pane workspace uses an app-rendered, draggable title bar with integrated navigation. macOS keeps its traffic lights and system menu; Windows uses native window buttons without a separate title or menu bar. Broader visual polish and task/Jira workflows come later.
 
 ## Connect live sources
 

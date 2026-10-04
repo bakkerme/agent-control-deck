@@ -174,6 +174,17 @@ function createWindow(): void {
     minWidth: 980,
     minHeight: 650,
     title: "Agent Control Deck",
+    backgroundColor: "#f5f6f8",
+    titleBarStyle: "hidden",
+    // Keep OS window controls (including Windows snap layouts) over our header.
+    titleBarOverlay: {
+      color: "#ffffff",
+      symbolColor: "#253044",
+      height: 64,
+    },
+    ...(process.platform === "darwin"
+      ? { trafficLightPosition: { x: 16, y: 24 } }
+      : {}),
     show: false,
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
@@ -182,6 +193,8 @@ function createWindow(): void {
       sandbox: true,
     },
   });
+  // macOS retains its system menu; Windows/Linux have no in-window menu bar.
+  if (process.platform !== "darwin") window.setMenu(null);
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event) => event.preventDefault());
   window.webContents.session.setPermissionRequestHandler(

@@ -88,19 +88,55 @@ small {
   display: flex;
   flex-direction: column;
 }
-header {
+.titlebar {
+  height: 64px;
+  flex-shrink: 0;
+  border-bottom: 1px solid #dce0e6;
+  background: white;
+  -webkit-app-region: drag;
+  user-select: none;
+}
+.titlebar-content {
+  /* Electron updates this safe area for OS controls, scaling and fullscreen. */
+  margin-left: env(titlebar-area-x, 0px);
+  width: env(titlebar-area-width, 100%);
+  height: 100%;
   display: flex;
   justify-content: space-between;
   gap: 15px;
   align-items: center;
-  padding: 17px 22px;
-  border-bottom: 1px solid #dce0e6;
-  background: white;
+  padding: 0 20px;
 }
-header nav {
+.titlebar-brand {
+  min-width: 0;
+}
+.titlebar-brand h1 {
+  font-size: 16px;
+  margin-bottom: 3px;
+}
+.titlebar-brand .muted {
+  display: block;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.titlebar nav {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  flex-shrink: 0;
+  gap: 6px;
+}
+.titlebar button {
+  -webkit-app-region: no-drag;
+  font-size: 13px;
+  padding: 6px 10px;
+}
+.titlebar nav button:not(.selected) {
+  background: transparent;
+  border-color: transparent;
+}
+.titlebar nav button:not(.selected):hover {
+  background: #edf2f9;
 }
 .board {
   display: grid;
