@@ -1,4 +1,4 @@
-"""Scenario player + adapter tests (no BLE)."""
+"""Scenario player + adapter tests."""
 
 from __future__ import annotations
 

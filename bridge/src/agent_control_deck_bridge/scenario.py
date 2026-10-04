@@ -1,8 +1,8 @@
-"""Scenario player: multi-step session transitions for BLE / UI demos.
+"""Scenario player: multi-step session transitions for session API demos.
 
 A scenario is a sequence of steps. Each step either replaces the working
 session set or patches it (upsert / remove). Hold counts how many poll()
-ticks keep that step on glass before advancing.
+ticks keep that step active before advancing.
 
 Formats
 -------
@@ -417,10 +417,10 @@ def _builtin_lifecycle() -> ScenarioDoc:
                         "sc:api",
                         agent="grok",
                         title="~/src/api",
-                        summary="Scaffolding BLE chunk push",
+                        summary="Scaffolding session API",
                         state="running",
                         progress=0.12,
-                        detail="ble_protocol.py",
+                        detail="server.py",
                     ),
                 ],
             ),
@@ -484,7 +484,7 @@ def _builtin_lifecycle() -> ScenarioDoc:
                         "id": "sc:fix",
                         "op": "upsert",
                         "agent": "grok",
-                        "title": "tools/ble_link",
+                        "title": "bridge/tests",
                         "summary": "Reproducing transfer failure",
                         "state": "running",
                         "progress": 0.4,

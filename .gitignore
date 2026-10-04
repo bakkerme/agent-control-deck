@@ -1,11 +1,4 @@
-# PlatformIO build artifacts
-.pio/
-
-# Host UI sim (CMake)
-deck/sim/build/
-
 # Secrets / credentials (never commit)
-secrets.h
 .env
 .env.*
 !.env.example
@@ -23,3 +16,14 @@ __pycache__/
 
 # IDE
 .idea/
+
+# Desktop dependencies, output, and local data
+node_modules/
+out/
+out-tests/
+release/
+test-results/
+playwright-report/
+*.sqlite
+*.sqlite-*
+*.sqlite.bak*

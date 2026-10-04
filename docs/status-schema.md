@@ -1,68 +1,45 @@
-# StatusSnapshot v1
+# StatusSnapshot v1 — retained bridge contract
 
-Canonical contract for agent status between the host bridge and the deck.  
-Machine-readable schema: [`schema/status.schema.json`](../schema/status.schema.json).  
-Examples: [`schema/examples/`](../schema/examples/) — including
-[`design_c_sessions.json`](../schema/examples/design_c_sessions.json) (design.png content: 10 sessions, 8 on glass, `+2`).
+The existing session API contract remains during the desktop transition. Its models, field limits, sort order, and examples are preserved; the future desktop data model will be introduced separately.
 
-## Wire budget
+Machine schema: [schema/status.schema.json](../schema/status.schema.json). Examples: [schema/examples/](../schema/examples/), including the historical `design_c_sessions.json` fixture containing ten sessions. Fixture filenames are retained for compatibility and do not refer to an active UI.
 
-| Limit | Value |
-|-------|--------|
-| Max payload | **8192** bytes UTF-8 JSON (BLE reassembly buffer) |
-| `schema_version` | **1** only |
-| Default `display_limit` | **8** (design C · ~18–22px rows; bridge truncates before push) |
-| Sort (bridge) | error → waiting → unknown → idle → done → running |
+## Limits and ordering
 
-Compact JSON (`separators=(',', ':')`) on the wire. Prefer ASCII in free-text fields for FiraSans glyph safety.
+- Schema version: **1**.
+- Default `display_limit`: **8**; the bridge sorts before truncating.
+- Sort order: error → waiting → unknown → idle → done → running, then newest `updated_at`, then ID.
+- The JSON Schema allows at most 16 sessions and `sessions_total` up to 65535.
+- The existing **8192-byte example budget** remains in `make schema-check`. It is a compatibility check for fixtures, not an HTTP request/response size limit.
 
-## Top-level fields
+## Snapshot fields
 
-| Field | Required | Notes |
-|-------|----------|--------|
-| `schema_version` | yes | Integer `1`. Other values → deck **SCHEMA** frame (does not increment fail_count). |
-| `generated_at` | yes | ISO-8601 UTC when the bridge built the snapshot. |
-| `host.name` | yes | ≤32 chars |
-| `host.bridge_version` | yes | ≤16 chars |
-| `sessions` | yes | Array of Session, already sorted + truncated |
-| `sessions_total` | recommended | Pre-truncation count; drives top-bar `+N` |
-| `state_counts` | recommended | Full-fleet tallies for top-bar icons |
+Required: `schema_version`, `generated_at` (ISO-8601 UTC), `host`, and `sessions`.
+
+`host.name` has a 32-character maximum; `host.bridge_version` has a 16-character maximum. `sessions_total` reports the count before truncation. `state_counts` contains full-set tallies for running, idle, waiting, error, done, and unknown.
 
 ## Session fields
 
-| Field | Required | Max | Notes |
-|-------|----------|-----|--------|
-| `id` | yes | 64 | Stable unique id |
-| `agent` | yes | 24 | e.g. `grok`, `claude-code`, `mock` |
-| `title` | yes | 64 | Path / project column on glass |
-| `summary` | yes | 120 | One-line free text |
-| `state` | yes | — | `running` \| `idle` \| `waiting` \| `error` \| `done` \| `unknown` |
-| `updated_at` | yes | — | ISO-8601; secondary sort key |
-| `progress` | no | — | 0..1; retained for adapters, not drawn on design-D UI |
-| `detail` | no | 80 | Optional secondary detail |
-| `started_at` | no | — | ISO-8601 |
-| `error` | no | 120 | Prefer when `state` is `error` |
+Required:
 
-## UI mapping (design C · 8 @ ~18–24px)
+- `id`: stable session identifier, up to 64 characters.
+- `agent`: provider/source label, up to 24 characters.
+- `title`: short project/session label, up to 64 characters.
+- `summary`: one-line status, up to 120 characters.
+- `state`: `running`, `idle`, `waiting`, `error`, `done`, or `unknown`.
+- `updated_at`: ISO-8601 timestamp, used for sorting.
 
-| Schema `state` | Glass label | Icon |
-|----------------|-------------|------|
-| `error` | failed | circle + ✕ |
-| `waiting` / `unknown` | question | circle + ? |
-| `done` | done | filled circle |
-| `running` | working | three horizontal dots |
-| `idle` | idle | empty circle |
+Optional:
 
-Top-bar counts: **failed** (`error`) · **question** (`waiting`+`unknown`) · **done** · **working** (`running`).  
-Overflow: `+N` when `sessions_total > len(sessions)`.
+- `progress`: number from 0 to 1, or null.
+- `detail`: secondary detail, up to 80 characters in JSON Schema, or null.
+- `started_at`: ISO-8601 timestamp, or null.
+- `error`: error message, up to 120 characters in JSON Schema, or null.
 
-## Transport notes
+The existing Pydantic models are less restrictive than the JSON Schema in some places, including `detail`/`error` lengths, extra fields, and the snapshot version. This cleanup does not change those API validation semantics. Example checks run both validators.
 
-- **BLE:** chunked BEGIN/DATA/COMMIT over STATUS_* GATT chars; CRC32 over full body. See [`ble-spike.md`](ble-spike.md).
-- **USB (planned):** one NDJSON object per line, same schema.
-- Adapter HTTP (`POST /v1/sessions`, hooks) is loopback-only and is **not** the deck transport.
+## API and validation
 
-## Validation
+`GET /v1/status` refreshes adapters and returns the merged snapshot. Sessions are in memory. Vendor hooks translate lifecycle events, while Session API and file ingress accept Session-shaped data; their body shapes are not interchangeable. See [bridge API and hooks](../bridge/README.md).
 
-Bridge: Pydantic models in `agent_control_deck_bridge.model`.  
-Deck: `status_parse.cpp` (ArduinoJson) — incomplete rows are skipped; missing required top-level fields fail the snapshot.
+Run `make schema-check` to validate examples against the canonical JSON Schema, the bridge models, and the retained example byte budget. Keep these definitions and examples synchronized for future contract changes.

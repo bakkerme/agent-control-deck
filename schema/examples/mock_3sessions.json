@@ -34,7 +34,7 @@
       "summary": "Implement BLE chunk push + status layout",
       "state": "running",
       "progress": 0.45,
-      "detail": "Editing deck/src/ble_gatt.cpp",
+      "detail": "Editing bridge/src/agent_control_deck_bridge/server.py",
       "started_at": "2026-07-21T11:30:00Z",
       "updated_at": "2026-07-21T11:59:00Z",
       "error": null

@@ -1,0 +1,82 @@
+{
+  "name": "agent-control-deck",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Local desktop monitor for agent conversations across projects",
+  "author": "Agent Control Deck contributors",
+  "main": "out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "start": "electron-vite preview",
+    "demo": "electron-vite preview -- --demo",
+    "typecheck": "tsc --noEmit",
+    "build": "npm run typecheck && electron-vite build",
+    "postinstall": "install-electron --no && electron-builder install-app-deps",
+    "test": "node scripts/test.cjs",
+    "test:ui": "npm run build && playwright test",
+    "check": "npm run typecheck && npm test && npm run test:ui",
+    "package": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder",
+    "test:packaged": "node scripts/test-packaged.cjs"
+  },
+  "dependencies": {
+    "better-sqlite3": "13.0.3",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "react-markdown": "10.1.0",
+    "remark-gfm": "4.0.1",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.0",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "electron": "44.5.1",
+    "electron-builder": "26.15.3",
+    "electron-vite": "5.0.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.9.0",
+    "vite": "^7.0.0"
+  },
+  "build": {
+    "appId": "local.agentcontroldeck.desktop",
+    "productName": "Agent Control Deck",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "**/*.node"
+    ],
+    "mac": {
+      "target": [
+        "zip"
+      ],
+      "category": "public.app-category.developer-tools",
+      "identity": null
+    },
+    "win": {
+      "target": [
+        "zip"
+      ]
+    },
+    "linux": {
+      "target": [
+        "dir"
+      ]
+    }
+  },
+  "overrides": {
+    "app-builder-lib": {
+      "@electron/get": "^5.0.0"
+    }
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

@@ -1,13 +1,8 @@
-"""Scenario adapter — multi-step session transitions for demos and BLE tests.
+"""Scenario adapter — multi-step session transitions for demos and tests.
 
-Intended primarily with::
-
-    acd-bridge push-ble --adapter scenario:builtin:lifecycle --interval 3
-    acd-bridge push-ble --adapter scenario:./examples/scenarios/lifecycle.json
-
-Each ``poll()`` returns the current working set and advances the scenario
-hold counter (one tick per poll). Prefer this with ``push-ble`` local
-adapters; with ``serve``, every ``GET /v1/status`` also advances a tick.
+Run with ``acd-bridge serve --adapter scenario:builtin:lifecycle``.
+Each ``poll()`` returns the current working set and advances the hold
+counter. The server polls once at startup and on every GET /v1/status.
 """
 
 from __future__ import annotations

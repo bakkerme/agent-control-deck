@@ -1,9 +1,0 @@
-{
-  "schema_version": 99,
-  "generated_at": "2026-07-20T18:42:01Z",
-  "host": {
-    "name": "brandon-mbp",
-    "bridge_version": "9.9.9"
-  },
-  "sessions": []
-}

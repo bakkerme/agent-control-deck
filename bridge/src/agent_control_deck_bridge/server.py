@@ -133,7 +133,7 @@ def create_app(
     app = FastAPI(
         title="Agent Control Deck Bridge",
         version="0.1.0",
-        description="Loopback hook ingress → StatusSnapshot → BLE push (acd-bridge push-ble).",
+        description="Loopback hooks and adapters → StatusSnapshot session API.",
         lifespan=lifespan,
     )
 

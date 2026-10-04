@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://agent-control-deck.local/schema/status.schema.json",
   "title": "StatusSnapshot",
-  "description": "Agent Control Deck v1 status payload. Transport-agnostic (BLE, USB, future LAN). Max wire size 8192 bytes UTF-8 JSON.",
+  "description": "Agent Control Deck v1 session API payload retained during the desktop transition. Examples retain an 8192-byte validation budget.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "generated_at", "host", "sessions"],
@@ -10,7 +10,7 @@
     "schema_version": {
       "type": "integer",
       "const": 1,
-      "description": "Wire schema major version. Unsupported values → SCHEMA fault on deck (not STALE)."
+      "description": "StatusSnapshot schema major version; the canonical contract requires version 1."
     },
     "generated_at": {
       "type": "string",
@@ -45,18 +45,18 @@
       "type": "integer",
       "minimum": 0,
       "maximum": 65535,
-      "description": "Pre-truncation session count. Enables top-bar +N when greater than sessions.length."
+      "description": "Pre-truncation session count, including sessions omitted by display_limit."
     },
     "state_counts": {
       "$ref": "#/$defs/StateCounts",
-      "description": "Full-fleet counts by state (pre-truncation). Top bar uses these when present."
+      "description": "Full-set counts by state before truncation."
     }
   },
   "$defs": {
     "SessionState": {
       "type": "string",
       "enum": ["running", "idle", "waiting", "error", "done", "unknown"],
-      "description": "Canonical states. UI maps: error→failed, waiting→question, running→working, done→done."
+      "description": "Canonical session states retained by the bridge."
     },
     "StateCounts": {
       "type": "object",
@@ -91,7 +91,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 64,
-          "description": "Short path / project label shown in the path column (e.g. agent-control-deck, ~/src/api)."
+          "description": "Short path or project label (e.g. agent-control-deck, ~/src/api)."
         },
         "summary": {
           "type": "string",
@@ -104,12 +104,12 @@
           "type": ["number", "null"],
           "minimum": 0,
           "maximum": 1,
-          "description": "Optional 0..1 progress. MVP UI (design D) does not draw progress bars; field retained for adapters."
+          "description": "Optional 0..1 progress reported by adapters."
         },
         "detail": {
           "type": ["string", "null"],
           "maxLength": 80,
-          "description": "Optional secondary detail (file, tool name). Not drawn on design-D layout."
+          "description": "Optional secondary detail (file, tool name)."
         },
         "started_at": {
           "type": ["string", "null"],

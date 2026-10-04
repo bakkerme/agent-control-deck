@@ -14,10 +14,10 @@
           "id": "sc:api",
           "agent": "grok",
           "title": "~/src/api",
-          "summary": "Scaffolding BLE chunk push",
+          "summary": "Scaffolding session API",
           "state": "running",
           "progress": 0.12,
-          "detail": "ble_protocol.py",
+          "detail": "server.py",
           "updated_at": "2026-07-21T12:00:00Z"
         }
       ]
@@ -80,7 +80,7 @@
           "id": "sc:fix",
           "op": "upsert",
           "agent": "grok",
-          "title": "tools/ble_link",
+          "title": "bridge/tests",
           "summary": "Reproducing transfer failure",
           "state": "running",
           "progress": 0.4

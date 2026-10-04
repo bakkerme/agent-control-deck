@@ -8,7 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
-# Design D default: 7 rows @ ~20px on 960×540.
+# Retained v1 snapshot limit during the desktop transition.
 DEFAULT_DISPLAY_LIMIT = 8
 
 
@@ -25,8 +25,7 @@ class SessionState(str, Enum):
     unknown = "unknown"
 
 
-# Sort priority: lower = higher on glass.
-# Design D: failed → question → done → working (idle/unknown between question and done).
+# Snapshot sort priority: lower values appear first.
 STATE_PRIORITY: dict[SessionState, int] = {
     SessionState.error: 0,
     SessionState.waiting: 1,
@@ -97,7 +96,7 @@ def _updated_ts(iso: str) -> float:
 
 
 def sort_sessions(sessions: list[Session]) -> list[Session]:
-    """Design sort: state priority → newer updated_at → id asc."""
+    """Snapshot sort: state priority → newer updated_at → id asc."""
     return sorted(
         sessions,
         key=lambda s: (

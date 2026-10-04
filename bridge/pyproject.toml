@@ -5,19 +5,19 @@ build-backend = "hatchling.build"
 [project]
 name = "agent-control-deck-bridge"
 version = "0.1.0"
-description = "Host bridge: agent hooks → StatusSnapshot → BLE push to e-paper deck"
+description = "Host bridge: agent hooks and adapters → loopback session API"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.115.0",
   "uvicorn[standard]>=0.32.0",
   "pydantic>=2.9.0",
-  "httpx>=0.27.0",
-  "bleak>=0.22.0",
 ]
 
 [dependency-groups]
 dev = [
+  "httpx>=0.27.0",
+  "jsonschema>=4.23.0",
   "pytest>=8.0",
   "pytest-asyncio>=0.24.0",
 ]
