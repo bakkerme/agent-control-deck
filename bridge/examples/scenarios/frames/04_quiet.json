@@ -1,0 +1,12 @@
+{
+  "sessions": [
+    {
+      "id": "frame:idle",
+      "agent": "other",
+      "title": "desk",
+      "summary": "No active task",
+      "state": "idle",
+      "updated_at": "2026-07-21T12:02:00Z"
+    }
+  ]
+}

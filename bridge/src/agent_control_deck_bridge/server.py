@@ -268,12 +268,13 @@ def create_app(
 
 
 def build_adapters_from_specs(specs: list[str], store: SessionStore) -> list[Adapter]:
-    """Parse CLI adapter specs: mock | file:/path | post."""
+    """Parse CLI adapter specs: mock | mock:animate | file:PATH | scenario:… | post."""
     from pathlib import Path
 
     from agent_control_deck_bridge.adapters.file_adapter import FileAdapter
     from agent_control_deck_bridge.adapters.mock import MockAdapter
     from agent_control_deck_bridge.adapters.post_adapter import PostAdapter
+    from agent_control_deck_bridge.adapters.scenario_adapter import ScenarioAdapter
 
     out: list[Adapter] = []
     seen: set[str] = set()
@@ -296,6 +297,17 @@ def build_adapters_from_specs(specs: list[str], store: SessionStore) -> list[Ada
                 raise ValueError("only one file adapter supported")
             out.append(FileAdapter(Path(path)))
             seen.add("file")
+        elif spec.startswith("scenario:"):
+            source = spec[len("scenario:") :]
+            if not source:
+                raise ValueError(
+                    "scenario: requires a path, directory, or builtin:name "
+                    "(e.g. scenario:builtin:lifecycle)"
+                )
+            if "scenario" in seen:
+                raise ValueError("only one scenario adapter supported")
+            out.append(ScenarioAdapter(source))
+            seen.add("scenario")
         else:
             raise ValueError(f"unknown adapter spec: {spec!r}")
     # Always include post so HTTP upserts appear in snapshots when any HTTP used

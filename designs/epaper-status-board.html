@@ -424,12 +424,12 @@
       if (state === "done") {
         return `<svg viewBox="0 0 28 28" width="${size}" height="${size}" aria-hidden="true">
           <circle cx="14" cy="14" r="12" fill="#000"/>
-          <path d="M8 14.2l4 4L20 10" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="square" stroke-linejoin="miter"/>
         </svg>`;
       }
       return `<svg viewBox="0 0 28 28" width="${size}" height="${size}" aria-hidden="true">
-        <circle cx="14" cy="14" r="11" fill="none" stroke="#000" stroke-width="2.4"
-          stroke-dasharray="48 22" stroke-linecap="square" transform="rotate(-80 14 14)"/>
+        <circle cx="6" cy="14" r="3.2" fill="#000"/>
+        <circle cx="14" cy="14" r="3.2" fill="#000"/>
+        <circle cx="22" cy="14" r="3.2" fill="#000"/>
       </svg>`;
     }
 
@@ -441,9 +441,9 @@
         return `<svg viewBox="0 0 14 14" aria-hidden="true"><circle cx="7" cy="7" r="6" fill="none" stroke="#000" stroke-width="1.5"/><text x="7" y="10.5" text-anchor="middle" font-size="9" font-family="Helvetica, Arial, sans-serif" font-weight="700">?</text></svg>`;
       }
       if (state === "done") {
-        return `<svg viewBox="0 0 14 14" aria-hidden="true"><circle cx="7" cy="7" r="6" fill="#000"/><path d="M4 7.2l2.1 2.1L10 5.2" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="square"/></svg>`;
+        return `<svg viewBox="0 0 14 14" aria-hidden="true"><circle cx="7" cy="7" r="6" fill="#000"/></svg>`;
       }
-      return `<svg viewBox="0 0 14 14" aria-hidden="true"><circle cx="7" cy="7" r="5.2" fill="none" stroke="#000" stroke-width="1.6" stroke-dasharray="24 11" stroke-linecap="square" transform="rotate(-80 7 7)"/></svg>`;
+      return `<svg viewBox="0 0 14 14" aria-hidden="true"><circle cx="2.5" cy="7" r="1.6" fill="#000"/><circle cx="7" cy="7" r="1.6" fill="#000"/><circle cx="11.5" cy="7" r="1.6" fill="#000"/></svg>`;
     }
 
     function countsHtml(list) {

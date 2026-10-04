@@ -1,0 +1,30 @@
+{
+  "sessions": [
+    {
+      "id": "frame:job-1",
+      "agent": "grok",
+      "title": "agent-control-deck",
+      "summary": "Chunk push green",
+      "state": "done",
+      "progress": 1.0,
+      "updated_at": "2026-07-21T12:01:00Z"
+    },
+    {
+      "id": "frame:job-2",
+      "agent": "claude-code",
+      "title": "docs",
+      "summary": "Waiting on review",
+      "state": "waiting",
+      "updated_at": "2026-07-21T12:01:00Z"
+    },
+    {
+      "id": "frame:job-3",
+      "agent": "other",
+      "title": "spike",
+      "summary": "Adapter crash",
+      "state": "error",
+      "error": "Adapter crash",
+      "updated_at": "2026-07-21T12:01:00Z"
+    }
+  ]
+}

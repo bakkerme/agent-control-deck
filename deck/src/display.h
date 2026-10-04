@@ -15,7 +15,10 @@ bool display_init();
 uint8_t *display_framebuffer();
 
 /**
- * Power on, optionally full-panel clear, draw framebuffer full screen, power off.
- * @param full_clear if true, epd_clear() before draw (use on first present / every N frames).
+ * Power on, clear panel, draw full-screen framebuffer, power off.
+ *
+ * Grayscale blit is black-on-white only and cannot erase prior ink, so every
+ * present clears first. @p full_clear is currently ignored (always clears);
+ * kept so call sites can later request area-scoped clears without API churn.
  */
 void display_present(bool full_clear);

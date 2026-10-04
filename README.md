@@ -14,6 +14,25 @@ Control features (kill, approve, inject) are **out of scope** for this MVP.
 | [`designs/`](designs/) | UI reference (HTML wireframes) |
 | [`deck/sim/`](deck/sim/) | Host UI sim — same layout C++ + SDL2 preview (no glass) |
 
+## Make targets
+
+Common workflows are wired in the root [`Makefile`](Makefile). Run `make` / `make help` for the full list.
+
+```bash
+make bridge-install          # uv sync (editable + dev)
+make bridge-serve            # loopback HTTP (mock + post)
+make bridge-test             # pytest
+make sim-build && make sim   # SDL UI preview (EXAMPLE=… SCALE=2)
+make deck-build              # PlatformIO firmware
+make deck-flash              # upload + serial monitor
+make push-ble-once           # one-shot BLE push (serve must be up)
+make push-ble-mock           # push local mock, no HTTP
+make schema-check            # validate schema/examples
+make check                   # tests + schema + firmware & sim builds
+```
+
+Overrides: `ADAPTERS="mock post"`, `EXAMPLE=mock_3sessions.json`, `ONCE=1`, `NAME=ACD-A1B2`, `BMP=/tmp/deck.bmp`, `SIM_FLAGS=--stale`, etc.
+
 ## PC UI simulation (no hardware)
 
 Preview the **same** e-paper layout code the firmware uses (FiraSansUI metrics, truncation, icons) on your Mac/PC:
@@ -84,9 +103,13 @@ uv run acd-bridge push-ble --once
 
 # Or local mock without HTTP
 uv run acd-bridge push-ble --adapter mock --once
+
+# Multi-step transitions (empty → running → error → done → overflow → quiet)
+uv run acd-bridge push-ble --adapter scenario:builtin:lifecycle --interval 3
+# make push-ble-scenario INTERVAL=3
 ```
 
-You should see mock (and any hook) sessions on the e-paper: top-bar state counts, up to **7** rows (icon · path · summary). Kill `push-ble` → deck shows **STALE** after ~30 s.
+You should see mock (and any hook) sessions on the e-paper: top-bar state counts, up to **7** rows (icon · path · summary). Kill `push-ble` → deck shows **STALE** after ~30 s. With `scenario:…`, the glass should redraw as sessions appear, change state, and leave.
 
 ### Troubleshooting
 

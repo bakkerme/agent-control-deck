@@ -49,8 +49,8 @@ Compact JSON (`separators=(',', ':')`) on the wire. Prefer ASCII in free-text fi
 |----------------|-------------|------|
 | `error` | failed | circle + ✕ |
 | `waiting` / `unknown` | question | circle + ? |
-| `done` | done | filled circle + check |
-| `running` | working | open arc (spinner) |
+| `done` | done | filled circle |
+| `running` | working | three horizontal dots |
 | `idle` | idle | empty circle |
 
 Top-bar counts: **failed** (`error`) · **question** (`waiting`+`unknown`) · **done** · **working** (`running`).  

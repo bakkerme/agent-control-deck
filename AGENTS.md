@@ -120,6 +120,10 @@ uv run pytest -q
 uv run acd-bridge serve --adapter mock --adapter post
 # other terminal:
 uv run acd-bridge push-ble --once
+
+# Multi-step glass transitions (no HTTP serve needed):
+uv run acd-bridge push-ble --adapter scenario:builtin:lifecycle --interval 3
+# or: make push-ble-scenario INTERVAL=3
 ```
 
 Commit `bridge/uv.lock`. Prefer `uv run …` over activating `.venv` by hand.
@@ -144,7 +148,7 @@ Module map:
 - `server.py` — FastAPI
 - `hooks.py` — Grok/Claude → Session
 - `ble_protocol.py` / `ble_device.py` / `ble_out.py` — BLE egress
-- `adapters/` — mock, file, post
+- `adapters/` — mock, file, post, scenario (transition demos)
 
 ## BLE protocol notes
 
@@ -166,13 +170,15 @@ Spike history and wire details: [`docs/ble-spike.md`](docs/ble-spike.md). Produc
 
 ## Verify before finishing
 
-| Change area | Minimum check |
-|-------------|----------------|
-| Bridge logic / hooks / store | `cd bridge && source .venv/bin/activate && pytest -q` |
-| Schema / examples | Validate against `schema/status.schema.json`; keep examples under 8 KiB |
-| Layout / UI strings | `deck/sim` build + screenshot or interactive preview |
-| Firmware compile | `cd deck && pio run` (needs PlatformIO + LilyGo-EPD47 sibling) |
-| End-to-end BLE | Flash deck + `acd-bridge push-ble --once` (hardware + macOS BT permission) |
+Root [`Makefile`](Makefile) wraps common commands (`make help`, `make check`).
+
+| Change area | Minimum check | Make |
+|-------------|----------------|------|
+| Bridge logic / hooks / store | `cd bridge && uv run pytest -q` | `make bridge-test` |
+| Schema / examples | Validate against `schema/status.schema.json`; keep examples under 8 KiB | `make schema-check` |
+| Layout / UI strings | `deck/sim` build + screenshot or interactive preview | `make sim-build && make sim` |
+| Firmware compile | `cd deck && pio run` (needs PlatformIO + LilyGo-EPD47 sibling) | `make deck-build` |
+| End-to-end BLE | Flash deck + `acd-bridge push-ble --once` (hardware + macOS BT permission) | `make deck-flash` / `make push-ble-once` |
 
 ## Doc map
 

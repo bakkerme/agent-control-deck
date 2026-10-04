@@ -49,11 +49,58 @@ uv run acd-bridge push-ble --once
 # Standalone (no HTTP): local mock adapters
 uv run acd-bridge push-ble --adapter mock --once
 
+# Multi-step session transitions (demo / glass soak)
+uv run acd-bridge push-ble --adapter scenario:builtin:lifecycle --interval 3
+uv run acd-bridge push-ble --adapter scenario:./examples/scenarios/lifecycle.json --interval 2
+uv run acd-bridge push-ble --adapter scenario:./examples/scenarios/frames --interval 2
+# Other builtins: scenario:builtin:states
+
 # Target a specific deck name
 uv run acd-bridge push-ble --name ACD-A1B2
 ```
 
 Kill `push-ble` → deck **STALE** after ~30 s without successful pushes.
+
+### Scenario adapter (transition demos)
+
+Static `file:` / `mock` pushes are great for a single frame. For **state changes over time** (jobs appear, fail, finish, overflow `+N`, wind-down), use:
+
+```text
+--adapter scenario:PATH | scenario:DIR | scenario:builtin:NAME
+```
+
+| Source | Behavior |
+|--------|----------|
+| `scenario:builtin:lifecycle` | Built-in desk story (empty → running → error → done → busy → quiet), loops |
+| `scenario:builtin:states` | One session cycles every state (icon/sort check) |
+| `scenario:./examples/scenarios/lifecycle.json` | Same shape as builtin; edit freely |
+| `scenario:./examples/scenarios/frames/` | Ordered `01_*.json` … full session frames |
+
+Each **push tick** advances the scenario hold counter (`hold` on the doc or per step, default 1). Prefer this with **local** `push-ble --adapter scenario:…` (not as a long-lived `serve` source unless you want every `GET /v1/status` to step).
+
+**Scenario document shape:**
+
+```json
+{
+  "name": "demo",
+  "loop": true,
+  "hold": 2,
+  "steps": [
+    { "label": "start", "sessions": [ { "id": "s1", "agent": "grok", "title": "api", "summary": "…", "state": "running", "updated_at": "…" } ] },
+    { "label": "fail", "patch": [
+        { "id": "s1", "state": "error", "summary": "boom", "error": "boom", "progress": null },
+        { "id": "s2", "op": "upsert", "agent": "claude-code", "title": "docs", "summary": "joined", "state": "idle" },
+        { "id": "s2", "op": "remove" }
+      ] },
+    { "label": "from file", "file": "frames/03_mixed.json" }
+  ]
+}
+```
+
+- **`sessions`**: replace the working set for that step.
+- **`patch`**: upsert / `remove` by `id` (partial field updates; `null` clears optional fields).
+- **`file`**: load a snapshot or `{ "sessions": [...] }` relative to the scenario file.
+- **`hold`**: how many push ticks keep that step on glass before advancing.
 
 **Hook logging (default on):** each vendor hook logs the full JSON body (truncated at 16 KiB) plus the mapped session line:
 

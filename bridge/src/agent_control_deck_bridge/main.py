@@ -36,8 +36,9 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         default=[],
         metavar="SPEC",
-        help="Adapter: mock | mock:animate | file:PATH | post (repeatable). "
-        "Default: post only. Example: --adapter mock --adapter file:./sessions.json",
+        help="Adapter: mock | mock:animate | file:PATH | scenario:PATH|builtin:NAME | post "
+        "(repeatable). Default: post only. "
+        "Example: --adapter mock --adapter file:./sessions.json",
     )
     serve.add_argument(
         "--host-name",
@@ -82,7 +83,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         metavar="SPEC",
         help="Instead of --from-url: build snapshot from local adapters "
-        "(mock | mock:animate | file:PATH | post). Implies empty post set unless file/mock.",
+        "(mock | mock:animate | file:PATH | scenario:PATH|builtin:NAME | post). "
+        "Scenario advances one hold tick per push — good for transition demos.",
     )
     push.add_argument(
         "--host-name",
@@ -195,6 +197,17 @@ def _cmd_push_ble(args: argparse.Namespace) -> int:
                     )
                     continue
                 store.replace_adapter(adapter.name, sessions)
+                # Scenario demos: surface the step that was just pushed
+                player = getattr(adapter, "player", None)
+                if player is not None:
+                    logging.getLogger(__name__).info(
+                        "scenario step %s/%s %r sessions=%s finished=%s",
+                        player.last_step_index + 1,
+                        len(player.doc.steps),
+                        player.last_label,
+                        len(sessions),
+                        player.finished,
+                    )
             return store.build_snapshot(
                 host_name=args.host_name,
                 display_limit=args.display_limit,

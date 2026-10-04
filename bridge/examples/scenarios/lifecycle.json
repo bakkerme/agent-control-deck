@@ -1,0 +1,218 @@
+{
+  "name": "lifecycle",
+  "loop": true,
+  "hold": 2,
+  "steps": [
+    {
+      "label": "empty desk",
+      "sessions": []
+    },
+    {
+      "label": "first job starts",
+      "sessions": [
+        {
+          "id": "sc:api",
+          "agent": "grok",
+          "title": "~/src/api",
+          "summary": "Scaffolding BLE chunk push",
+          "state": "running",
+          "progress": 0.12,
+          "detail": "ble_protocol.py",
+          "updated_at": "2026-07-21T12:00:00Z"
+        }
+      ]
+    },
+    {
+      "label": "second agent joins",
+      "patch": [
+        {
+          "id": "sc:api",
+          "progress": 0.35,
+          "summary": "Implementing BEGIN/DATA/COMMIT framing"
+        },
+        {
+          "id": "sc:docs",
+          "op": "upsert",
+          "agent": "claude-code",
+          "title": "docs",
+          "summary": "Drafting status-schema notes",
+          "state": "running",
+          "progress": 0.2
+        },
+        {
+          "id": "sc:idle-web",
+          "op": "upsert",
+          "agent": "other",
+          "title": "~/src/web",
+          "summary": "No active task",
+          "state": "idle"
+        }
+      ]
+    },
+    {
+      "label": "waiting on review",
+      "patch": [
+        {
+          "id": "sc:docs",
+          "state": "waiting",
+          "summary": "Need review on schema field names",
+          "progress": null
+        },
+        {
+          "id": "sc:api",
+          "progress": 0.62,
+          "summary": "CRC32 + STATE notify path"
+        }
+      ]
+    },
+    {
+      "label": "error appears",
+      "hold": 3,
+      "patch": [
+        {
+          "id": "sc:api",
+          "state": "error",
+          "summary": "COMMIT CRC mismatch on large payload",
+          "error": "COMMIT CRC mismatch on large payload",
+          "progress": null
+        },
+        {
+          "id": "sc:fix",
+          "op": "upsert",
+          "agent": "grok",
+          "title": "tools/ble_link",
+          "summary": "Reproducing transfer failure",
+          "state": "running",
+          "progress": 0.4
+        }
+      ]
+    },
+    {
+      "label": "recover + done",
+      "patch": [
+        {
+          "id": "sc:api",
+          "state": "done",
+          "summary": "Fixed chunk size + retry on busy",
+          "error": null,
+          "progress": 1.0
+        },
+        {
+          "id": "sc:fix",
+          "state": "done",
+          "summary": "100/100 soak clean",
+          "progress": 1.0
+        },
+        {
+          "id": "sc:docs",
+          "state": "done",
+          "summary": "Schema notes merged"
+        }
+      ]
+    },
+    {
+      "label": "busy desk (overflow)",
+      "hold": 3,
+      "sessions": [
+        {
+          "id": "sc:err-auth",
+          "agent": "grok",
+          "title": "~/src/api/auth",
+          "summary": "Merge conflict in middleware",
+          "state": "error",
+          "error": "Merge conflict in middleware",
+          "updated_at": "2026-07-21T12:10:00Z"
+        },
+        {
+          "id": "sc:wait-pay",
+          "agent": "claude-code",
+          "title": "~/src/services/payment",
+          "summary": "Stripe webhook verification unclear",
+          "state": "waiting",
+          "updated_at": "2026-07-21T12:09:00Z"
+        },
+        {
+          "id": "sc:wait-tf",
+          "agent": "other",
+          "title": "~/src/infra/terraform",
+          "summary": "Confirm S3 logging prefix policy",
+          "state": "waiting",
+          "updated_at": "2026-07-21T12:08:00Z"
+        },
+        {
+          "id": "sc:done-log",
+          "agent": "grok",
+          "title": "~/src/utils/logger",
+          "summary": "Structured JSON transport shipped",
+          "state": "done",
+          "updated_at": "2026-07-21T12:07:00Z"
+        },
+        {
+          "id": "sc:done-cli",
+          "agent": "claude-code",
+          "title": "~/src/cli",
+          "summary": "--dry-run flag validated",
+          "state": "done",
+          "updated_at": "2026-07-21T12:06:00Z"
+        },
+        {
+          "id": "sc:run-orders",
+          "agent": "grok",
+          "title": "~/src/api/orders",
+          "summary": "Integration tests on staging",
+          "state": "running",
+          "progress": 0.55,
+          "updated_at": "2026-07-21T12:05:00Z"
+        },
+        {
+          "id": "sc:run-android",
+          "agent": "other",
+          "title": "~/src/mobile/android",
+          "summary": "Gradle sync + native modules",
+          "state": "running",
+          "progress": 0.3,
+          "updated_at": "2026-07-21T12:04:00Z"
+        },
+        {
+          "id": "sc:run-docs",
+          "agent": "claude-code",
+          "title": "~/src/docs",
+          "summary": "OpenAPI static site rebuild",
+          "state": "running",
+          "progress": 0.8,
+          "updated_at": "2026-07-21T12:03:00Z"
+        },
+        {
+          "id": "sc:run-extra",
+          "agent": "grok",
+          "title": "~/src/extra",
+          "summary": "Should appear only in +N overflow",
+          "state": "running",
+          "progress": 0.1,
+          "updated_at": "2026-07-21T12:02:00Z"
+        }
+      ]
+    },
+    {
+      "label": "wind down",
+      "sessions": [
+        {
+          "id": "sc:idle-api",
+          "agent": "grok",
+          "title": "~/src/api",
+          "summary": "No active task",
+          "state": "idle",
+          "updated_at": "2026-07-21T12:20:00Z"
+        },
+        {
+          "id": "sc:done-day",
+          "agent": "claude-code",
+          "title": "docs",
+          "summary": "Day's work landed",
+          "state": "done",
+          "updated_at": "2026-07-21T12:19:00Z"
+        }
+      ]
+    }
+  ]
+}

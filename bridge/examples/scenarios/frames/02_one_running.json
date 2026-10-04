@@ -1,0 +1,13 @@
+{
+  "sessions": [
+    {
+      "id": "frame:job-1",
+      "agent": "grok",
+      "title": "agent-control-deck",
+      "summary": "Wire scenario BLE push",
+      "state": "running",
+      "progress": 0.25,
+      "updated_at": "2026-07-21T12:00:00Z"
+    }
+  ]
+}

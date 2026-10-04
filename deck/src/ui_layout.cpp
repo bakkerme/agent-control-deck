@@ -163,14 +163,6 @@ static void thick_line(uint8_t *fb, int32_t x0, int32_t y0, int32_t x1, int32_t 
     epd_draw_line(x0, y0 + 1, x1, y1 + 1, kColorBlack, fb);
 }
 
-static void thick_line_white(uint8_t *fb, int32_t x0, int32_t y0, int32_t x1, int32_t y1)
-{
-    epd_draw_line(x0, y0, x1, y1, kColorWhite, fb);
-    epd_draw_line(x0 + 1, y0, x1 + 1, y1, kColorWhite, fb);
-    epd_draw_line(x0, y0 + 1, x1, y1 + 1, kColorWhite, fb);
-    epd_draw_line(x0 - 1, y0, x1 - 1, y1, kColorWhite, fb);
-}
-
 /* ---- State icons (design C glyphs, ~30px) ---- */
 
 static void icon_failed(uint8_t *fb, int32_t cx, int32_t cy, int32_t r)
@@ -203,32 +195,31 @@ static void icon_question(uint8_t *fb, int32_t cx, int32_t cy, int32_t r)
 
 static void icon_done(uint8_t *fb, int32_t cx, int32_t cy, int32_t r)
 {
+    /* Solid disk — high mass vs open rings / dots. */
     epd_fill_circle(cx, cy, r, kColorBlack, fb);
-    const int32_t x0 = cx - (r * 5) / 10;
-    const int32_t y0 = cy;
-    const int32_t x1 = cx - r / 10;
-    const int32_t y1 = cy + (r * 5) / 10;
-    const int32_t x2 = cx + (r * 5) / 10;
-    const int32_t y2 = cy - (r * 4) / 10;
-    thick_line_white(fb, x0, y0, x1, y1);
-    thick_line_white(fb, x1, y1, x2, y2);
 }
 
 static void icon_working(uint8_t *fb, int32_t cx, int32_t cy, int32_t r)
 {
-    /* Static spinner: thick ring with a gap in the upper-right. */
-    thick_circle(fb, cx, cy, r);
-    const int32_t gap = (r * 6) / 10;
-    for (int32_t dy = -r; dy <= 0; dy++) {
-        for (int32_t dx = 0; dx <= r; dx++) {
-            const int32_t d2 = dx * dx + dy * dy;
-            if (d2 <= r * r && d2 >= (r - 4) * (r - 4)) {
-                if (dx + dy > gap / 2) {
-                    epd_draw_pixel(cx + dx, cy + dy, kColorWhite, fb);
-                }
-            }
-        }
+    /* Three horizontal dots (busy / ellipsis), no circle family. */
+    int32_t dr = (r * 28) / 100; /* ~0.28 r */
+    if (dr < 2) {
+        dr = 2;
     }
+    if (dr > 5) {
+        dr = 5;
+    }
+    /* Center-to-center spacing so outer dots stay inside the icon footprint. */
+    int32_t step = (r * 7) / 10;
+    if (step < dr * 2 + 2) {
+        step = dr * 2 + 2;
+    }
+    if (cx - step - dr < cx - r) {
+        step = r - dr;
+    }
+    epd_fill_circle(cx - step, cy, dr, kColorBlack, fb);
+    epd_fill_circle(cx, cy, dr, kColorBlack, fb);
+    epd_fill_circle(cx + step, cy, dr, kColorBlack, fb);
 }
 
 static void icon_idle(uint8_t *fb, int32_t cx, int32_t cy, int32_t r)
