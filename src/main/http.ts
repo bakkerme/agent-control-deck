@@ -4,7 +4,7 @@ import { randomUUID, timingSafeEqual } from "node:crypto";
 import type { Store } from "./store";
 import type { Inbox } from "./inbox";
 import { normalize } from "./providers";
-import { DEFAULT_HTTP_PORT, hookEvents, hookOrigin, sourceToken, type HookConnection } from "./setup";
+import { DEFAULT_HTTP_PORT, hookEvents, sourceToken, type HookConnection } from "./setup";
 
 interface Context { store: Store; inbox: Inbox; root: string; demo: boolean }
 export function receiverOptions(env: NodeJS.ProcessEnv = process.env) {
@@ -12,8 +12,7 @@ export function receiverOptions(env: NodeJS.ProcessEnv = process.env) {
   const port = Number(env.ACD_HTTP_PORT ?? DEFAULT_HTTP_PORT);
   if (!isIP(host) || !Number.isInteger(port) || port < 0 || port > 65535)
     throw new Error("ACD_HTTP_HOST must be an IP address and ACD_HTTP_PORT must be between 0 and 65535");
-  const wslUrl = env.ACD_WSL_HOOK_URL ? hookOrigin(env.ACD_WSL_HOOK_URL) : undefined;
-  return { host, port, wslUrl };
+  return { host, port };
 }
 
 export class HookReceiver {
@@ -37,7 +36,7 @@ export class HookReceiver {
     if (!address || typeof address === "string") throw new Error("Could not determine HTTP receiver address");
     // Wildcard listening is explicitly opt-in, but native hooks still use loopback.
     const host = options.host === "0.0.0.0" ? "127.0.0.1" : options.host === "::" ? "::1" : options.host;
-    return { url: `http://${host.includes(":") ? `[${host}]` : host}:${address.port}`, wslUrl: options.wslUrl };
+    return { url: `http://${host.includes(":") ? `[${host}]` : host}:${address.port}` };
   }
   async close(): Promise<void> {
     await new Promise<void>((resolve, reject) => {

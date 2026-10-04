@@ -38,9 +38,9 @@ The three-pane UI is intentionally basic. Visual polish and broader task/Jira wo
 
 Open **Sources → Add source**. Choose the provider and native or WSL environment. The app generates an authenticated HTTP hook configuration under its local data directory. Merge it into the provider's user settings, preserving unrelated settings/hooks and replacing the deck's old entries. Provider configuration is never edited automatically.
 
-Claude Code uses native HTTP hooks. Cursor and Codex use documented command hooks that POST stdin with `curl` (`curl.exe` on native Windows). No PowerShell or Bash collector scripts, separate Node installation, or Python are required.
+Native Claude Code uses HTTP hooks directly. WSL sources configured by the Windows deck use command hooks that invoke Windows `curl.exe`, keeping HTTP on the Windows side. Cursor and Codex also use command hooks that POST stdin with curl. No PowerShell or Bash collector scripts, separate Node installation, or Python are required.
 
-For Claude Code in WSL, run the **Windows app**, create a WSL source per distro, and configure Claude inside that distro. The receiver defaults to `http://127.0.0.1:43821`. WSL mirrored networking can reach Windows via localhost; default WSL2 NAT needs an explicitly configured Windows host address and possibly a firewall rule. See [WSL networking and setup](docs/desktop-integrations.md#wsl-networking).
+For Claude Code in WSL, run the **Windows app**, create a WSL source per distro, and configure Claude inside that distro. The receiver defaults to `http://127.0.0.1:43821`. WSL hooks launch `curl.exe` through Windows executable interoperability and POST to Windows localhost. This route needs no WSL host-IP, mirrored-networking configuration, or inbound firewall exception. Windows interoperability must be enabled and `curl.exe` available on the WSL PATH. See [WSL setup and diagnostics](docs/desktop-integrations.md#wsl-networking).
 
 Keep the deck running while using your agents. New and existing/resumed chats appear on their next submitted prompt; merely opening or closing an unused chat does not add it. Historical conversations are not scanned. Events sent while the deck is closed are not captured. Accepted requests are queued on disk before ingestion; pause/resume and storage retries retain that queue.
 

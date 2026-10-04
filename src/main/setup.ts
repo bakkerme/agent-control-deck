@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { Setup, Source } from "../shared/types";
 
 export const DEFAULT_HTTP_PORT = 43821;
-export interface HookConnection { url: string; wslUrl?: string }
+export interface HookConnection { url: string }
 export const hookEvents = (provider: Source["provider"]): string[] =>
   provider === "claude"
     ? ["UserPromptSubmit", "Stop", "StopFailure", "SessionEnd", "Notification"]
@@ -37,16 +37,20 @@ export function sourceSetup(
   root: string, source: Source, platform = process.platform,
   connection: HookConnection = { url: `http://127.0.0.1:${DEFAULT_HTTP_PORT}` },
 ): Setup {
-  const origin = hookOrigin(source.environment === "wsl" ? connection.wslUrl ?? connection.url : connection.url);
+  const windowsWSL = platform === "win32" && source.environment === "wsl";
+  const directHTTP = source.provider === "claude" && !windowsWSL;
+  // curl.exe launched by WSL runs on Windows. Its request uses the Windows
+  // receiver address, never the WSL VM's host-IP/networking route.
+  const origin = hookOrigin(connection.url);
   const endpoint = `${origin}/hooks/${source.id}`;
   const token = sourceToken(root, source.id);
   const headers = { Authorization: `Bearer ${token}` };
-  const curl = platform === "win32" && source.environment === "native" ? "curl.exe" : "curl";
+  const curl = platform === "win32" ? "curl.exe" : "curl";
   const command = (event: string) => `${curl} --silent --fail --noproxy "*" --connect-timeout 1 --max-time 2 -H "Content-Type: application/json" -H "Authorization: Bearer ${token}" --data-binary "@-" "${endpoint}/${event}"`;
   const hooks = Object.fromEntries(hookEvents(source.provider).map((event) => {
-    const hook = source.provider === "claude"
+    const hook = directHTTP
       ? { type: "http", url: `${endpoint}/${event}`, headers, timeout: 3 }
-      : { ...(source.provider === "codex" ? { type: "command" } : {}), command: command(event), timeout: 3 };
+      : { ...(source.provider !== "cursor" ? { type: "command" } : {}), command: command(event), timeout: 3 };
     return [event, source.provider === "cursor" ? [hook] : [{ hooks: [hook] }]];
   }));
   return {
@@ -58,10 +62,12 @@ export function sourceSetup(
       : source.provider === "claude" ? "~/.claude/settings.json" : "~/.cursor/hooks.json",
     instructions: (source.provider === "codex"
       ? "Codex: review and trust these hooks in Codex before they can run (CLI: /hooks). " : "") +
-      (source.provider === "claude" ? "Claude sends HTTP events directly; no collector script is needed. "
+      (windowsWSL
+        ? "WSL hooks invoke Windows curl.exe, which sends HTTP from Windows to the deck. No PowerShell or collector script is needed. Windows executable interoperability must be enabled and curl.exe available on your WSL PATH. "
+        : directHTTP ? "Claude sends HTTP events directly; no collector script is needed. "
         : "Command hooks forward events with curl; no collector script, Node, or Python is needed. ") +
       (source.environment === "wsl"
-        ? "Configure hooks inside your WSL distro, with a separate source per distro. Windows localhost is reachable with WSL mirrored networking. For NAT, configure the receiver's WSL address as described in the integration guide. " : "") +
+        ? "Configure hooks inside your WSL distro, with a separate source per distro. Use the Windows deck to generate the real WSL configuration. With the receiver on Windows loopback, no WSL host-IP, mirrored-networking setup, or inbound firewall exception is needed for this route. " : "") +
       "Keep the deck running. A chat appears on its next submitted prompt, including an existing resumed chat. Events emitted while the deck is closed are not captured. Replace the deck's old hook entries and preserve unrelated hooks.",
   };
 }

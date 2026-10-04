@@ -18,7 +18,7 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }) {
   let inbox = new Inbox(store, root, () => {});
   let demo = false;
   const receiver = new HookReceiver(() => ({ store, inbox, root, demo }));
-  const connection = await receiver.listen({ host: "127.0.0.1", port: 0, wslUrl: undefined });
+  const connection = await receiver.listen({ host: "127.0.0.1", port: 0 });
   const sources = store.sources();
   const setups = Object.fromEntries(sources.map(s => [s.provider, writeHookSetup(root, s, connection)]));
   t.after(async () => { await receiver.close(); store.close(); rmSync(root, { recursive: true, force: true }); });
@@ -100,12 +100,17 @@ test("HTTP rejects unauthorized, cross-source, browser, mismatched and oversized
 
 test("generated curl commands deliver stdin through the real shell and return neutral responses", async t => {
   const f = await fixture(t);
-  for (const provider of ["cursor", "codex"] as const) {
-    const config = JSON.parse(f.setups[provider].config);
+  for (const provider of ["claude", "cursor", "codex"] as const) {
+    // Check Windows WSL configuration while exercising payload delivery with
+    // the host's curl. This is not a claim of real WSL interoperability coverage.
+    const source = f.sources.find(s => s.provider === provider)!;
+    const setup = provider === "claude" ? sourceSetup(f.root, source, "win32", f.connection) : f.setups[provider];
+    const config = JSON.parse(setup.config);
     const event = provider === "cursor" ? "beforeSubmitPrompt" : "UserPromptSubmit";
     const hook = provider === "cursor" ? config.hooks[event][0] : config.hooks[event][0].hooks[0];
     const result = await new Promise<{ code: number | null; stdout: string }>((resolve, reject) => {
-      const child = spawn(process.platform === "win32" ? "cmd.exe" : "sh", process.platform === "win32" ? ["/d", "/s", "/c", hook.command] : ["-c", hook.command]);
+      const command = process.platform === "win32" ? hook.command : hook.command.replace(/^curl\.exe /, "curl ");
+      const child = spawn(process.platform === "win32" ? "cmd.exe" : "sh", process.platform === "win32" ? ["/d", "/s", "/c", command] : ["-c", command]);
       let stdout = ""; child.stdout.on("data", data => stdout += data);
       child.on("error", reject); child.on("close", code => resolve({ code, stdout }));
       child.stdin.end(JSON.stringify({ hook_event_name: event, session_id: "curl-chat", conversation_id: "curl-chat", prompt: "Unicode café 日本語\nSecond line" }));
@@ -114,7 +119,7 @@ test("generated curl commands deliver stdin through the real shell and return ne
     assert.equal(result.stdout, provider === "cursor" ? '{"continue":true}' : "");
     f.inbox.poll();
   }
-  assert.equal(f.store.chats().length, 2);
+  assert.equal(f.store.chats().length, 3);
   assert.ok(f.store.chats().every(chat => chat.preview === "Unicode café 日本語\nSecond line"));
   assert.equal(await (await f.send("codex", "Stop")).text(), "{}");
   assert.equal(await (await f.send("cursor", "stop", { status: "completed" })).text(), "");
@@ -135,19 +140,38 @@ test("queued HTTP events survive database failure and a full queue refuses accep
   assert.equal(readdirSync(f.setups.claude.inbox).length, 1000);
 });
 
-test("HTTP configuration persists credentials and supports explicit WSL host routing without scripts", async t => {
+test("Windows WSL hooks use Windows curl and receiver address, preserving credentials across restart", async t => {
   const f = await fixture(t);
   const source = f.sources.find(s => s.provider === "claude")!;
-  const setup = sourceSetup(f.root, source, "win32", { url: f.connection.url, wslUrl: "http://172.30.0.1:43821" });
+  const setup = sourceSetup(f.root, source, "win32", f.connection);
   const config = JSON.parse(setup.config);
   assert.deepEqual(Object.keys(config.hooks), ["UserPromptSubmit", "Stop", "StopFailure", "SessionEnd", "Notification"]);
-  assert.equal(config.hooks.UserPromptSubmit[0].hooks[0].type, "http");
-  assert.ok(setup.endpoint.startsWith("http://172.30.0.1:43821/"));
-  assert.ok(!setup.config.includes("powershell") && !setup.config.includes("wslpath") && !setup.config.includes("command"));
+  for (const groups of Object.values(config.hooks) as { hooks: { type: string; command: string; url?: string }[] }[][]) {
+    const hook = groups[0].hooks[0];
+    assert.equal(hook.type, "command");
+    assert.ok(hook.command.startsWith("curl.exe "));
+    assert.ok(hook.command.includes(`${f.connection.url}/hooks/${source.id}/`));
+    assert.ok(hook.command.includes('--data-binary "@-"'));
+    assert.equal(hook.url, undefined);
+  }
+  assert.ok(setup.endpoint.startsWith(f.connection.url));
+  assert.ok(!setup.config.includes("powershell") && !setup.config.includes("wslpath"));
+  assert.ok(setup.testCommand.startsWith("curl.exe "));
   f.reopen();
-  assert.equal(sourceSetup(f.root, source, "win32", { url: f.connection.url, wslUrl: "http://172.30.0.1:43821" }).config, setup.config);
+  assert.equal(sourceSetup(f.root, source, "win32", f.connection).config, setup.config);
+  // Native Claude keeps direct HTTP. Other Windows WSL providers use the same
+  // Windows curl transport, keeping tokens and source identities separate.
+  const native = JSON.parse(sourceSetup(f.root, { ...source, environment: "native" }, "win32", f.connection).config);
+  assert.equal(native.hooks.UserPromptSubmit[0].hooks[0].type, "http");
+  for (const provider of ["cursor", "codex"] as const) {
+    const other = f.sources.find(s => s.provider === provider)!;
+    const configured = JSON.parse(sourceSetup(f.root, { ...other, environment: "wsl" }, "win32", f.connection).config);
+    const groups = configured.hooks[provider === "cursor" ? "beforeSubmitPrompt" : "UserPromptSubmit"];
+    assert.ok((provider === "cursor" ? groups[0] : groups[0].hooks[0]).command.startsWith("curl.exe "));
+  }
   assert.throws(() => hookOrigin('http://host/$(danger)'));
   assert.throws(() => hookOrigin("https://example.com"));
   assert.throws(() => receiverOptions({ ACD_HTTP_HOST: "example.com" }));
   assert.throws(() => receiverOptions({ ACD_HTTP_PORT: "bad" }));
+  assert.deepEqual(receiverOptions({ ACD_WSL_HOOK_URL: "http://172.30.0.1:43821" }), { host: "127.0.0.1", port: 43821 });
 });

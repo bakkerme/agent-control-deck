@@ -16,7 +16,7 @@ async function fixture(t: { after: (fn: () => void | Promise<void>) => void }) {
   const source = store.sources()[0];
   const inbox = new Inbox(store, dir, () => {});
   const receiver = new HookReceiver(() => ({ store, inbox, root: dir, demo: false }));
-  const connection = await receiver.listen({ host: "127.0.0.1", port: 0, wslUrl: undefined });
+  const connection = await receiver.listen({ host: "127.0.0.1", port: 0 });
   const setup = writeHookSetup(dir, source, connection);
   const token = /Authorization: Bearer ([a-f0-9]+)/.exec(setup.testCommand)![1];
   t.after(async () => { await receiver.close(); store.close(); rmSync(dir, { recursive: true, force: true }); });
@@ -81,7 +81,7 @@ test("Codex configuration uses its own schema, locations, timeouts, and neutral 
   const windows = sourceSetup(f.dir, f.source, "win32", f.connection);
   assert.ok(windows.config.includes("curl.exe"));
   const wsl = sourceSetup(f.dir, { ...f.source, environment: "wsl" }, "win32", f.connection);
-  assert.ok(wsl.config.includes("curl "));
+  assert.ok(wsl.config.includes("curl.exe "));
   await f.collect("Stop", "{", 400);
   assert.equal(f.store.chats().length, 0);
   await f.collect("Stop", "x".repeat(270000), 413);

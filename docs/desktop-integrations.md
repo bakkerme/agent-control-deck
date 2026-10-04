@@ -8,7 +8,7 @@ Create a source in the app for each provider/environment. A source owns its auth
 - Claude Code: `~/.claude/settings.json` (inside WSL for a WSL source).
 - Cursor: `~/.cursor/hooks.json` in the native Windows/macOS user profile.
 
-Claude uses documented `type: "http"` hooks and POSTs its JSON input directly. Cursor and Codex do not document a native HTTP hook type; their command hooks forward stdin with `curl`. Native Windows uses `curl.exe`, avoiding the PowerShell alias. No generated collector scripts or separate Node/Python runtime are needed. Command hooks need curl on the provider's PATH.
+Native Claude uses documented `type: "http"` hooks and POSTs its JSON input directly. For WSL sources configured by the Windows deck, Claude instead uses `type: "command"` hooks invoking Windows `curl.exe` through WSL interoperability. Cursor and Codex do not document a native HTTP hook type; their command hooks forward stdin with curl (`curl.exe` for all sources configured by the Windows deck). No generated collector scripts or separate Node/Python runtime are needed. Command hooks need curl on the provider's PATH.
 
 All sources discover chats on `UserPromptSubmit` / `beforeSubmitPrompt`. `SessionStart` / `sessionStart` are not registered. This lets you enable monitoring and return to an existing chat: its next prompt carries the stable conversation ID and workspace, creates an entry, and opens its lifecycle. Completion, notification, error, and end events update known chats but do not create unused chats. Existing deck chats and all user-owned edits remain intact.
 
@@ -22,17 +22,33 @@ First use **Send diagnostic event** to test the local inbox reader. The Sources 
 
 ### WSL networking
 
-Create WSL sources in the Windows deck and configure the provider inside that distro, using a separate source per distro. Paths remain Linux paths; no `wslpath` or Windows drive mount is needed for delivery.
+Create WSL sources in the Windows deck and configure the provider inside that distro, using a separate source per distro. Paths remain Linux paths. The generated command launches **Windows `curl.exe`** from WSL and pipes the JSON hook payload to its stdin:
 
-The receiver defaults to IPv4 loopback on port **43821**. With WSL2 mirrored networking, Windows is reachable from WSL using `127.0.0.1`. With default WSL2 NAT, WSL must use the Windows host IP, and the Windows listener must bind an address reachable from WSL. VPN/firewall policy can affect connectivity; validate from the actual distro. See [Microsoft's WSL networking guide](https://learn.microsoft.com/en-us/windows/wsl/networking).
+**Provider in WSL → Windows curl.exe → Windows loopback HTTP receiver → durable inbox**
+
+The receiver defaults to `127.0.0.1:43821`. The HTTP request originates from a Windows process, so it does not cross the WSL virtual network or require an inbound WSL-to-Windows firewall exception. This works independently of WSL NAT versus mirrored networking, provided Windows executable interoperability is enabled and Windows curl is available. No PowerShell, external proxy, collector script, or WSL host-IP configuration is used. See [Microsoft's Windows executable interoperability documentation](https://learn.microsoft.com/en-us/windows/wsl/filesystems#run-windows-tools-from-linux).
+
+From the same WSL environment used by the provider:
+
+```bash
+curl.exe --version
+curl.exe --noproxy "*" --max-time 3 -i http://127.0.0.1:43821/
+```
+
+With the deck running on the default address, **405 Method Not Allowed** confirms receiver reachability: GET is intentionally unsupported. Then use the authenticated test command and input shown in Sources, and submit a real prompt in an existing chat. The local **Send diagnostic event** button alone does not test interoperability or HTTP.
+
+If `curl.exe` is not found, check whether your WSL configuration imports the Windows PATH. With the standard Windows C-drive mount, `/mnt/c/Windows/System32/curl.exe --version` can distinguish a PATH problem from unavailable interoperability. If that executable works, restore/add its directory to the provider's WSL PATH or use its quoted absolute path in the command hooks. If Windows execution is blocked by workplace policy, this transport cannot be assumed to work; use an approved transport such as a shared-file inbox instead. The app does not change WSL or security settings automatically.
+
+### Migrating an earlier NAT setup
+
+Restart the Windows deck after restoring `ACD_HTTP_HOST` to `127.0.0.1` (or removing the override). `ACD_WSL_HOOK_URL` is no longer used. Replace only the deck's old HTTP/script hook entries with the new curl command entries from Sources, preserving unrelated provider settings. Keep the same source to preserve identity, tokens, notes, and project mappings. No additional firewall rule is needed for the Windows-loopback route; an earlier rule is not used by it.
 
 Optional environment variables, set before launching the deck:
 
-- `ACD_HTTP_HOST`: listener IP; defaults to `127.0.0.1`. For NAT, use the Windows WSL-facing interface IP where available. `0.0.0.0` explicitly opts into listening on all IPv4 interfaces, including LAN interfaces.
+- `ACD_HTTP_HOST`: listener IP; defaults to `127.0.0.1`. Keep loopback for native and WSL interoperability delivery. `0.0.0.0` explicitly opts into listening on all IPv4 interfaces, including LAN interfaces, and is unnecessary for this setup.
 - `ACD_HTTP_PORT`: stable receiver port; defaults to `43821`. Use an available port and regenerate/remerge hooks if it changes. `0` selects a temporary port for isolated tests, not everyday setup.
-- `ACD_WSL_HOOK_URL`: HTTP origin used in WSL source fragments, for example `http://172.30.0.1:43821`. It changes the destination only; it does not change the listener binding. Native sources continue to use the listener address (loopback when wildcard-bound).
 
-Configure the binding and WSL destination together, restrict any needed inbound firewall rule to WSL, then replace the generated provider fragments. NAT host addresses may change after reboot, requiring regeneration; mirrored mode avoids that address dependency. The app does not change networking or firewall configuration automatically. Bind errors (including a port in use) are reported at startup without resetting the database. Per-source authentication applies on every interface; requests carrying browser Origin/Fetch Metadata headers are rejected, and no CORS access is enabled. Claude HTTP hooks may also be subject to workplace hook URL allowlists.
+Bind errors (including a port in use) are reported at startup without resetting the database. Per-source authentication applies on every interface; browser Origin/Fetch Metadata requests are rejected and no CORS access is enabled. Workplace rules for user-defined command hooks and Windows interoperability still apply. Automated macOS fixtures check generation and curl payload delivery; they do not prove real Windows/WSL execution or workplace policy compatibility.
 
 ## Observed events
 

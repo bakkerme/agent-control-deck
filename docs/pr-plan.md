@@ -17,7 +17,7 @@ Use the working app and representative scenarios to refine scanning, attention c
 
 ## Work-machine validation
 
-Run the Windows build and validate native Cursor plus Claude Code in WSL with real hooks. Verify HTTP hook support, curl forwarding, WSL receiver reachability, workspace aliases, and provider versions. Fixture tests and a configured CI job do not prove workplace compatibility.
+Run the Windows build and validate native Cursor plus Claude Code in WSL with real hooks. Verify HTTP hook support, curl forwarding, Windows curl interoperability from WSL and receiver reachability, workspace aliases, and provider versions. Fixture tests and a configured CI job do not prove workplace compatibility.
 
 ## Deferred
 
