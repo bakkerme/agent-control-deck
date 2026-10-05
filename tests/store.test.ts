@@ -328,7 +328,7 @@ test("v1 migration backs up and preserves chats, relationships, history, and ded
   legacy.close();
   const store = new Store(filename);
   try {
-    assert.equal(store.db.pragma("user_version", { simple: true }), 2);
+    assert.equal(store.db.pragma("user_version", { simple: true }), 3);
     assert.deepEqual(tables.map((table) => store.db.prepare(`SELECT * FROM ${table}`).all()), before);
     assert.deepEqual(store.db.pragma("foreign_key_check"), []);
     assert.equal(store.db.pragma("foreign_keys", { simple: true }), 1);
@@ -351,4 +351,40 @@ test("v1 migration backs up and preserves chats, relationships, history, and ded
     assert.equal(reopened.projects()[0].name, "Unassigned");
     assert.equal(readdirSync(dir).filter((name) => /\.bak-\d+$/.test(name)).length, 1);
   } finally { reopened.close(); }
+});
+
+test("v2 settings migration preserves records, backs up once, and isolates demo settings", (t) => {
+  const f = fixture(t);
+  f.store.command({ type: "createChat", projectId: null, name: "Before migration" });
+  const chat = f.store.chats()[0];
+  f.store.command({ type: "updateChat", id: chat.id, patch: { notes: "## Keep Markdown", jiraKey: "DECK-42", archived: true } });
+  const before = f.store.chat(chat.id);
+  f.store.db.exec("DROP TABLE settings; PRAGMA user_version=2;");
+  const migrated = f.reopen();
+  assert.deepEqual(migrated.chat(chat.id), before);
+  assert.deepEqual(migrated.settings(), { jiraBaseUrl: "" });
+  assert.equal(migrated.db.pragma("user_version", { simple: true }), 3);
+  migrated.command({ type: "updateSettings", jiraBaseUrl: "https://company.example/jira/" });
+  assert.deepEqual(f.reopen().settings(), { jiraBaseUrl: "https://company.example/jira" });
+  assert.equal(readdirSync(f.dir).filter(n => n.startsWith("workspace.sqlite.bak-")).length, 1);
+  assert.throws(() => f.store.command({ type: "updateSettings", jiraBaseUrl: "javascript:alert(1)" }));
+  assert.equal(f.store.settings().jiraBaseUrl, "https://company.example/jira");
+  const demo = new Store(join(f.dir, "demo", "workspace.sqlite"));
+  try {
+    assert.equal(demo.settings().jiraBaseUrl, "");
+    demo.command({ type: "updateSettings", jiraBaseUrl: "https://demo.example" });
+    assert.equal(f.store.settings().jiraBaseUrl, "https://company.example/jira");
+  } finally { demo.close(); }
+});
+
+test("a newer database is rejected without resetting it", (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "acd-newer-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const filename = join(dir, "workspace.sqlite");
+  const db = new Database(filename);
+  db.exec("CREATE TABLE future_data(value TEXT); INSERT INTO future_data VALUES ('keep'); PRAGMA user_version=4;");
+  db.close();
+  assert.throws(() => new Store(filename), /newer version/);
+  const preserved = new Database(filename, { readonly: true });
+  try { assert.deepEqual(preserved.prepare("SELECT * FROM future_data").all(), [{ value: "keep" }]); } finally { preserved.close(); }
 });

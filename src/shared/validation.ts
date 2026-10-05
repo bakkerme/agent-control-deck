@@ -18,7 +18,16 @@ export const ticketUrl = z
       return false;
     }
   }, "Use a complete http:// or https:// URL without credentials");
+export const jiraBaseUrl = ticketUrl.refine((value) => {
+  if (!value) return true;
+  try {
+    const url = new URL(value);
+    return !url.search && !url.hash;
+  } catch { return false; }
+}, "Use a Jira base URL without query parameters or a fragment")
+  .transform((value) => value.replace(/\/+$/, ""));
 export const commandSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("updateSettings"), jiraBaseUrl: jiraBaseUrl }).strict(),
   z.object({ type: z.literal("createProject"), name }).strict(),
   z.object({ type: z.literal("renameProject"), id, name }).strict(),
   z.object({ type: z.literal("createChat"), projectId: id.nullable(), name }).strict(),

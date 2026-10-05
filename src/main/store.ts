@@ -9,6 +9,7 @@ import type {
   Project,
   Source,
   Workspace,
+  Settings,
 } from "../shared/types";
 import { commandSchema, envelopeSchema } from "../shared/validation";
 import { normalize } from "./providers";
@@ -38,11 +39,11 @@ export class Store {
       const version = this.db.pragma("user_version", {
         simple: true,
       }) as number;
-      if (version > 2)
+      if (version > 3)
         throw new Error(
           "This database was created by a newer version of Agent Control Deck",
         );
-      if (version < 2 && existed) {
+      if (version < 3 && existed) {
         this.db.pragma("wal_checkpoint(TRUNCATE)");
         copyFileSync(filename, `${filename}.bak-${Date.now()}`);
       }
@@ -80,6 +81,14 @@ export class Store {
           this.db.pragma("foreign_keys = ON");
         }
       }
+      if (version < 3) {
+        this.db.transaction(() => {
+          this.db.exec(`
+            CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            PRAGMA user_version = 3;
+          `);
+        })();
+      }
     } catch (error) {
       this.db.close();
       throw error;
@@ -92,6 +101,10 @@ export class Store {
     return this.db
       .prepare("SELECT * FROM projects ORDER BY name COLLATE NOCASE, id")
       .all() as Project[];
+  }
+  settings(): Settings {
+    const row = this.db.prepare("SELECT value FROM settings WHERE key='jiraBaseUrl'").get() as { value: string } | undefined;
+    return { jiraBaseUrl: row?.value ?? "" };
   }
   chats(): Chat[] {
     return (
@@ -142,6 +155,9 @@ export class Store {
   command(raw: Command): void {
     const c = commandSchema.parse(raw);
     switch (c.type) {
+      case "updateSettings":
+        this.db.prepare("INSERT INTO settings (key,value) VALUES ('jiraBaseUrl',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(c.jiraBaseUrl);
+        break;
       case "createProject":
         this.createProject(c.name);
         break;

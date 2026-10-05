@@ -10,8 +10,9 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { mkdirSync } from "node:fs";
 import { z } from "zod";
+import { resolveTicketUrl } from "../shared/tickets";
 import type { Snapshot } from "../shared/types";
-import { commandSchema, idSchema, ticketUrl } from "../shared/validation";
+import { commandSchema, idSchema } from "../shared/validation";
 import { Store } from "./store";
 import { Inbox } from "./inbox";
 import { sourceSetup, writeHookSetup, type HookConnection } from "./setup";
@@ -64,6 +65,7 @@ function pollInbox(): void {
 function snapshot(): Snapshot {
   const sources = store.sources();
   return {
+    settings: store.settings(),
     projects: store.projects(),
     chats: store.chats(),
     sources,
@@ -121,7 +123,7 @@ function registerIpc(): void {
     clipboard.writeText(z.string().max(100000).parse(input)),
   );
   handle("deck:open-ticket", async (input) => {
-    const url = ticketUrl.parse(store.chat(idSchema.parse(input)).jiraUrl);
+    const url = resolveTicketUrl(store.chat(idSchema.parse(input)), store.settings());
     if (url) await shell.openExternal(url);
   });
   handle("deck:command", (input) => {

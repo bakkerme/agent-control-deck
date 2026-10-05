@@ -1,3 +1,4 @@
+import { notesField, organizationField, organizationButton } from "./ui-helpers";
 import { test, expect, _electron as electron } from "@playwright/test";
 import {
   mkdtempSync,
@@ -36,7 +37,7 @@ test("desktop CRUD, live events, archive, search, demo isolation, and restart pe
     await expect(page.getByRole("dialog").getByRole("combobox", { name: "Project", exact: true })).toHaveValue("");
     await page.getByRole("dialog").getByLabel("Chat name").fill("Standalone task");
     await page.getByRole("dialog").getByRole("button", { name: "Create chat", exact: true }).click();
-    await page.getByLabel("Notes", { exact: true }).fill("Keep my standalone notes");
+    await (await notesField(page)).fill("Keep my standalone notes");
     await expect(page.getByRole("status")).toHaveText("Saved");
     await expect(page.getByRole("button", { name: /^No project 1$/ })).toBeVisible();
     await expect(page.getByRole("button", { name: "Rename project", exact: true })).toHaveCount(0);
@@ -49,22 +50,22 @@ test("desktop CRUD, live events, archive, search, demo isolation, and restart pe
       .getByRole("button", { name: "Create project", exact: true })
       .click();
     // Assigning and removing a project moves the same chat between filters.
-    await page.getByRole("combobox", { name: "Project", exact: true }).selectOption({ label: "Work project" });
+    await (await organizationField(page, "Project")).selectOption({ label: "Work project" });
     await expect(page.getByRole("status")).toHaveText("Saved");
     await expect(page.getByRole("button", { name: "Select chat Standalone task" })).toHaveCount(0);
     await page.getByRole("button", { name: /^Work project 1$/ }).click();
     await expect(page.getByRole("button", { name: "Select chat Standalone task" })).toBeVisible();
-    await page.getByRole("combobox", { name: "Project", exact: true }).selectOption("");
+    await (await organizationField(page, "Project")).selectOption("");
     await expect(page.getByRole("status")).toHaveText("Saved");
     await expect(page.getByRole("button", { name: "Select chat Standalone task" })).toHaveCount(0);
     await page.getByRole("button", { name: /^No project 1$/ }).click();
     await expect(page.getByRole("button", { name: "Select chat Standalone task" })).toBeVisible();
-    await expect(page.getByLabel("Notes", { exact: true })).toHaveValue("Keep my standalone notes");
-    await page.getByRole("button", { name: "Archive chat", exact: true }).click();
+    await expect((await notesField(page))).toHaveValue("Keep my standalone notes");
+    await (await organizationButton(page, "Archive chat")).click();
     await expect(page.getByRole("button", { name: /^No project 0$/ })).toBeVisible();
     await page.getByLabel("Show archived chats").check();
     await expect(page.getByRole("button", { name: "Select chat Standalone task" })).toBeVisible();
-    await page.getByRole("button", { name: "Restore chat", exact: true }).click();
+    await (await organizationButton(page, "Restore chat")).click();
     await page.getByLabel("Show archived chats").uncheck();
     await page.getByRole("button", { name: /^Work project 0$/ }).click();
     await page.getByRole("button", { name: "New chat", exact: true }).click();
@@ -78,38 +79,35 @@ test("desktop CRUD, live events, archive, search, demo isolation, and restart pe
       .getByRole("button", { name: "Create chat", exact: true })
       .click();
     await expect(page.getByLabel("Chat details").getByRole("heading", { name: "Investigate retries", exact: true })).toBeVisible();
-    await page
-      .getByLabel("Notes", { exact: true })
+    await (await notesField(page))
       .fill("Check retry limits before changing the API.");
-    await page.getByLabel("Jira key", { exact: true }).fill("WORK-42");
-    await page
-      .getByLabel("Jira URL", { exact: true })
+    await page.getByRole("button", { name: "Add ticket", exact: true }).click();
+    await page.getByLabel("Ticket number or full URL")
       .fill("https://jira.example/browse/WORK-42");
+    await page.getByLabel("Ticket number or full URL").press("Enter");
     await expect(page.getByRole("status")).toHaveText("Saved");
     // Invalid fields must keep drafts visible and prevent navigation until fixed.
-    await page
-      .getByLabel("Jira URL", { exact: true })
+    await page.getByRole("button", { name: "Edit ticket", exact: true }).click();
+    await page.getByLabel("Ticket number or full URL")
       .fill("javascript:alert(1)");
-    await page
-      .getByLabel("Notes", { exact: true })
+    await (await notesField(page))
       .fill("Check retry limits before changing the API.");
     await page.getByRole("button", { name: "Sources", exact: true }).click();
     await expect(page.getByRole("alert")).toContainText(
-      "Use a complete http:// or https:// URL",
+      "complete http:// or https:// URL",
     );
     await expect(page.getByLabel("Chat details")).toBeVisible();
-    await page
-      .getByLabel("Jira URL", { exact: true })
+    await page.getByLabel("Ticket number or full URL")
       .fill("https://jira.example/browse/WORK-42");
+    await page.getByLabel("Ticket number or full URL").press("Enter");
     await expect(page.getByRole("status")).toHaveText("Saved");
-    await page.getByLabel("Manual state").selectOption("waiting");
+    await (await organizationField(page, "Manual state")).selectOption("waiting");
     await expect(page.getByRole("status")).toHaveText("Saved");
     await page.getByLabel("Search chats").fill("WORK-42");
     await expect(
       page.getByRole("button", { name: "Select chat Investigate retries" }),
     ).toBeVisible();
-    await page
-      .getByRole("button", { name: "Archive chat", exact: true })
+    await (await organizationButton(page, "Archive chat"))
       .click();
     await expect(
       page.getByRole("button", { name: "Select chat Investigate retries" }),
@@ -118,8 +116,7 @@ test("desktop CRUD, live events, archive, search, demo isolation, and restart pe
     await expect(
       page.getByRole("button", { name: "Select chat Investigate retries" }),
     ).toBeVisible();
-    await page
-      .getByRole("button", { name: "Restore chat", exact: true })
+    await (await organizationButton(page, "Restore chat"))
       .click();
     await page.getByLabel("Show archived chats").uncheck();
     await page.getByLabel("Search chats").fill("");
@@ -153,18 +150,17 @@ test("desktop CRUD, live events, archive, search, demo isolation, and restart pe
     await page
       .getByRole("button", { name: "Select chat Live integration fixture" })
       .click();
-    await page.getByLabel("Chat name", { exact: true }).fill("Named live task");
-    await page
-      .getByLabel("Notes", { exact: true })
+    await (await organizationField(page, "Chat name")).fill("Named live task");
+    await (await notesField(page))
       .fill("User notes survive provider updates");
     await expect(page.getByRole("status")).toHaveText("Saved");
-    await page.getByRole("combobox", { name: "Project", exact: true }).selectOption("");
+    await (await organizationField(page, "Project")).selectOption("");
     await expect(page.getByRole("status")).toHaveText("Saved");
     await emit("Stop", { last_assistant_message: "Ready for review" });
     await expect(
       page.getByText("Ready for review", { exact: true }).last(),
     ).toBeVisible();
-    await expect(page.getByLabel("Notes", { exact: true })).toHaveValue(
+    await expect((await notesField(page))).toHaveValue(
       "User notes survive provider updates",
     );
     await emit("SessionEnd", { reason: "prompt_input_exit" });
@@ -181,11 +177,11 @@ test("desktop CRUD, live events, archive, search, demo isolation, and restart pe
     ).toHaveCount(0);
     await page.getByRole("button", { name: /^No project 1$/ }).click();
     await page.getByRole("button", { name: "Select chat Explore a standalone idea" }).click();
-    await expect(page.getByRole("combobox", { name: "Project", exact: true })).toHaveValue("");
-    await page.getByRole("combobox", { name: "Project", exact: true }).selectOption({ label: "Customer portal" });
+    await expect((await organizationField(page, "Project"))).toHaveValue("");
+    await (await organizationField(page, "Project")).selectOption({ label: "Customer portal" });
     await expect(page.getByRole("status")).toHaveText("Saved");
     await expect(page.getByRole("button", { name: /^No project 0$/ })).toBeVisible();
-    await page.getByRole("combobox", { name: "Project", exact: true }).selectOption("");
+    await (await organizationField(page, "Project")).selectOption("");
     await expect(page.getByRole("status")).toHaveText("Saved");
     await expect(page.getByRole("button", { name: "Select chat Explore a standalone idea" })).toBeVisible();
     await page.getByRole("button", { name: "Next sample event" }).click();
@@ -205,18 +201,18 @@ test("desktop CRUD, live events, archive, search, demo isolation, and restart pe
     app = await launch();
     page = await app.firstWindow();
     await page.getByRole("button", { name: "Select chat Standalone task" }).click();
-    await expect(page.getByRole("combobox", { name: "Project", exact: true })).toHaveValue("");
-    await expect(page.getByLabel("Notes", { exact: true })).toHaveValue("Keep my standalone notes");
+    await expect((await organizationField(page, "Project"))).toHaveValue("");
+    await expect((await notesField(page))).toHaveValue("Keep my standalone notes");
     await page
       .getByRole("button", { name: "Select chat Investigate retries" })
       .click();
-    await expect(page.getByLabel("Notes", { exact: true })).toHaveValue(
+    await expect((await notesField(page))).toHaveValue(
       "Check retry limits before changing the API.",
     );
-    await expect(page.getByLabel("Jira key", { exact: true })).toHaveValue(
+    await expect(page.getByRole("button", { name: "Open Jira ticket WORK-42", exact: true })).toHaveText(
       "WORK-42",
     );
-    await expect(page.getByLabel("Manual state")).toHaveValue("waiting");
+    await expect((await organizationField(page, "Manual state"))).toHaveValue("waiting");
   } finally {
     await app.close();
     rmSync(dir, { recursive: true, force: true });

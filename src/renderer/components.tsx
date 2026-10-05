@@ -33,9 +33,9 @@ export function Status({ chat }: { chat: Chat }) {
     >
       {chat.lifecycle === "ended"
         ? "Ended"
-        : chat.state === "waiting"
-          ? "Needs attention"
-          : chat.state}
+        : chat.state === "waiting" ? "Needs input"
+          : chat.state === "idle" && chat.provider !== "manual" && chat.lastEventAt ? "Turn finished"
+          : ({ running: "Running", idle: "Idle", error: "Error", unknown: "Unknown" }[chat.state] ?? chat.state)}
     </span>
   );
 }

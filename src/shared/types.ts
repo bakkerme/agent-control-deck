@@ -64,7 +64,11 @@ export interface Setup {
   configFile: string;
   instructions: string;
 }
+export interface Settings {
+  jiraBaseUrl: string;
+}
 export interface Snapshot {
+  settings: Settings;
   projects: Project[];
   chats: Chat[];
   sources: Source[];
@@ -75,6 +79,7 @@ export interface Snapshot {
   setups: Record<string, Setup>;
 }
 export type Command =
+  | { type: "updateSettings"; jiraBaseUrl: string }
   | { type: "createProject"; name: string }
   | { type: "renameProject"; id: string; name: string }
   | { type: "createChat"; projectId: string | null; name: string }

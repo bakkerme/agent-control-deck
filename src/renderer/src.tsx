@@ -4,8 +4,8 @@ import type { Activity, Chat, Command, Snapshot } from "../shared/types";
 import { states } from "../shared/types";
 import ChatEditor, { type EditorHandle } from "./ChatEditor";
 import Sources from "./Sources";
-import { providerLabel, displayName, displayPreview, message, age, Status, Modal } from "./components";
-import MarkdownPreview from "./MarkdownPreview";
+import { providerLabel, displayName, message, age, Status, Modal } from "./components";
+import Settings from "./Settings";
 import TitleBar from "./TitleBar";
 import "./style.css";
 const api = window.deck;
@@ -19,13 +19,14 @@ function App() {
   const [provider, setProvider] = useState("all");
   const [state, setState] = useState("all");
   const [archived, setArchived] = useState(false);
-  const [page, setPage] = useState<"workspace" | "sources">("workspace");
+  const [page, setPage] = useState<"workspace" | "sources" | "settings">("workspace");
   const [modal, setModal] = useState<"project" | "chat" | "rename" | null>(
     null,
   );
   const [modalError, setModalError] = useState("");
   const [activities, setActivities] = useState<Activity[]>([]);
   const editor = useRef<EditorHandle>(null);
+  const settingsEditor = useRef<EditorHandle>(null);
   const [, tick] = useState(0);
   useEffect(() => {
     const reload = () => {
@@ -47,6 +48,7 @@ function App() {
   }, []);
   const navigate = async (action: () => void | Promise<void>) => {
     if (editor.current && !(await editor.current.flush())) return;
+    if (settingsEditor.current && !(await settingsEditor.current.flush())) return;
     try {
       await action();
     } catch (e) {
@@ -87,16 +89,12 @@ function App() {
     c.lifecycle === "ended"
       ? 5
       : { error: 0, waiting: 1, running: 2, idle: 3, unknown: 4 }[c.state];
-  const visible = snapshot.chats
+  const scoped = snapshot.chats
     .filter(
       (c) =>
         c.archived === archived &&
         (project === "all" || c.projectId === (project === "unassigned" ? null : project)) &&
         (provider === "all" || c.provider === provider) &&
-        (state === "all" ||
-          (state === "ended"
-            ? c.lifecycle === "ended"
-            : c.lifecycle === "open" && c.state === state)) &&
         [
           displayName(c),
           c.notes,
@@ -107,7 +105,9 @@ function App() {
           .join(" ")
           .toLowerCase()
           .includes(search.toLowerCase()),
-    )
+    );
+  const matchesState = (c: Chat, value: string) => value === "all" || (value === "ended" ? c.lifecycle === "ended" : c.lifecycle === "open" && (value === "finished" ? c.provider !== "manual" && c.state === "idle" && !!c.lastEventAt : c.state === value));
+  const visible = scoped.filter(c => matchesState(c, state))
     .sort(
       (a, b) =>
         rank(a) - rank(b) ||
@@ -173,6 +173,7 @@ function App() {
           >
             Sources
           </button>
+          <button className={page === "settings" ? "selected" : ""} onClick={() => void navigate(() => setPage("settings"))}>Settings</button>
           {snapshot.demo && (
             <button
               onClick={() =>
@@ -209,6 +210,8 @@ function App() {
       )}
       {page === "sources" ? (
         <Sources snapshot={snapshot} mutate={mutate} report={setError} />
+      ) : page === "settings" ? (
+        <Settings key={String(snapshot.demo)} ref={settingsEditor} settings={snapshot.settings} mutate={mutate} />
       ) : (
         <main className="board">
           <aside className="projects">
@@ -266,7 +269,7 @@ function App() {
           </aside>
           <section className="chat-list" aria-label="Chats">
             <div className="section-heading">
-              <h2>{archived ? "Archived chats" : "Chats"}</h2>
+              <div><span className="eyebrow">Operations</span><h2>{archived ? "Archived chats" : "All chats"}</h2></div>
               <button
                 onClick={() =>
                   openModal("chat")
@@ -302,6 +305,7 @@ function App() {
                 onChange={(e) => setState(e.target.value)}
               >
                 <option value="all">All states</option>
+                <option value="finished">Finished turns</option>
                 {states.map((s) => (
                   <option key={s}>{s}</option>
                 ))}
@@ -316,6 +320,10 @@ function App() {
               />
               Show archived chats
             </label>
+            <nav className="status-filters" aria-label="Quick status filters">
+              {[["all", "All"], ["running", "Running"], ["waiting", "Needs input"], ["finished", "Finished turns"]].map(([value, label]) => <button key={value} aria-pressed={state === value} className={state === value ? "selected" : ""} onClick={() => setState(value)}>{label} <span>{scoped.filter(c => matchesState(c, value)).length}</span></button>)}
+            </nav>
+            <div className="record-heading" aria-hidden="true"><span>Chat / project / provider</span><span>Reported</span><span>Event age</span></div>
             <div className="chat-items">
               {visible.map((c) => (
                 <button
@@ -325,20 +333,19 @@ function App() {
                   aria-pressed={selected === c.id}
                   onClick={() => void navigate(() => setSelected(c.id))}
                 >
-                  <div className="chat-item-heading">
+                  <div className="chat-record-title">
                     <strong>{displayName(c)}</strong>
-                    <Status chat={c} />
-                  </div>
                   <small>
                     {(snapshot.projects.find((p) => p.id === c.projectId)?.name ?? "No project")}{" "}
                     · {providerLabel(c.provider)}
                     {c.jiraKey && ` · ${c.jiraKey}`}
                   </small>
-                  <MarkdownPreview compact text={displayPreview(c) || c.notes || "No notes or activity yet"} />
-                  <small>
+                  </div>
+                  <Status chat={c} />
+                  <small className="record-age" title={c.lastEventAt ?? undefined}>
                     {c.provider === "manual"
                       ? "Manual entry"
-                      : `Last event ${age(c.lastEventAt)}`}
+                      : age(c.lastEventAt)}
                   </small>
                 </button>
               ))}
@@ -369,6 +376,8 @@ function App() {
               ref={editor}
               chat={chat}
               projects={snapshot.projects}
+              settings={snapshot.settings}
+              configureJira={() => void navigate(() => setPage("settings"))}
               activities={activities}
               mutate={mutate}
               report={setError}

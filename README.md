@@ -24,15 +24,16 @@ Use **Try demo** in the app to explore sample projects, a standalone chat, and l
 
 ## What works
 
-- Projects, manual chats, local chat names, autosaved notes, and Jira keys/URLs.
+- Projects, manual chats, local chat names, and autosaved Markdown notes. Notes render inline in the details sidebar; click them or **Edit** to write, then use **Done** or Ctrl/Cmd+Enter to finish.
+- Jira tickets sit beside the chat title. Click a populated ticket to open it in your default browser; use the pencil to edit its number or full URL inline. Enter saves and Escape cancels. Configure **Settings → Jira base URL** for ticket numbers; full URLs use their own address.
 - Chats can exist without a project. Choose **No project** in a chat’s Project selector to remove its assignment; use the sidebar to find unassigned chats.
-- Search across names, notes, previews, project names, and Jira keys; filter by provider/state and browse the archive.
+- Search across names, notes, previews, project names, and Jira keys; filter by provider/state and browse the archive. Quick filters highlight running chats, chats needing input, and finished turns. A finished turn is an idle observation, not a claim that the work is complete.
 - Archive/restore without losing history. Incoming events never overwrite local names, notes, references, project assignments, or archive state.
 - Separate Codex, Claude Code, and Cursor hook adapters; ended sessions remain available.
 - Recent activity (100 entries per chat), Markdown previews (500 characters), and last-observed timestamps. A completed turn means idle, not completed work. Preview links and images are displayed without navigation or remote loading.
 - Source setup, diagnostic events, pause/resume, and workspace aliases to group Windows/WSL paths into one project.
 
-The three-pane workspace uses an app-rendered, draggable title bar with integrated navigation. macOS keeps its traffic lights and system menu; Windows uses native window buttons without a separate title or menu bar. Broader visual polish and task/Jira workflows come later.
+The blue Operations workspace keeps projects on the left, compact chat records in the center, and the selected chat’s notes, ticket, and activity in the right sidebar. Chat organization controls are available in a collapsed section below the activity. The app-rendered, draggable title bar integrates navigation. macOS keeps its traffic lights and system menu; Windows uses native window buttons without a separate title or menu bar.
 
 ## Connect live sources
 
@@ -48,7 +49,7 @@ Keep the deck running while using your agents. New and existing/resumed chats ap
 
 ## Local storage
 
-SQLite databases live under Electron’s OS application-data directory, with separate `workspace/` and `demo/` subdirectories. The exact active path appears in the app footer. Hook files stay local. There is no cloud sync, telemetry, or Jira API access.
+SQLite databases live under Electron’s OS application-data directory, with separate `workspace/` and `demo/` subdirectories. Jira settings are saved separately in each database. The exact active path appears in the app footer. Hook files stay local. There is no cloud sync, telemetry, or Jira API access.
 
 The app backs up an existing database before schema migrations. For a manual backup, quit the app and copy the displayed data directory. Keep backups private: they contain your notes and previews.
 
