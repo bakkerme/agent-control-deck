@@ -166,8 +166,8 @@ export default function Sources({
             <p>
               Use paths exactly as the provider reports them. Add aliases to
               group Windows and WSL locations into one repository project.
-              Repository mappings are permanent. Use custom projects in chat
-              details to group work across repositories.
+              These mappings set the default for new chats. Move individual
+              chats using Project in chat details; their choices are preserved.
             </p>
             <form
               className="mapping-form"

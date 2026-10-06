@@ -174,10 +174,10 @@ test("v4 migration preserves user data and backs up once without fabricating obs
   const f = fixture(t);
   f.store.command({ type: "updateChat", id: f.id, patch: { name: "Keep", notes: "Personal", archived: true } });
   const before = f.chat;
-  f.store.db.exec("DROP TABLE subagents; ALTER TABLE chats DROP COLUMN subagentBaselineAt; ALTER TABLE projects DROP COLUMN priority; PRAGMA user_version=4;");
+  f.store.db.exec("DROP TABLE subagents; ALTER TABLE chats DROP COLUMN subagentBaselineAt; ALTER TABLE projects DROP COLUMN priority; ALTER TABLE projects DROP COLUMN mergedInto; ALTER TABLE projects DROP COLUMN repositoryPath; PRAGMA user_version=4;");
   f.reopen();
   assert.deepEqual(f.chat, before);
-  assert.equal(f.store.db.pragma("user_version", { simple: true }), 6);
+  assert.equal(f.store.db.pragma("user_version", { simple: true }), 7);
   assert.deepEqual(f.store.db.pragma("foreign_key_check"), []);
   f.reopen();
   assert.equal(readdirSync(f.dir).filter(name => name.includes(".bak-")).length, 1);

@@ -10,8 +10,8 @@ const chat = (patch: Partial<Chat> = {}): Chat => ({
 });
 const project = (id: string, priority: boolean): Project => ({ id, name: id, createdAt: "", kind: id === "repo" ? "repo" : "custom", priority });
 
-test("either priority grouping draws attention to finished, waiting, error, and ended chats", () => {
-  for (const projects of [[project("repo", true)], [project("custom", true)], [project("repo", true), project("custom", true)]]) {
+test("the selected priority project draws attention to finished, waiting, error, and ended chats", () => {
+  for (const projects of [[project("custom", true)], [project("repo", true), project("custom", true)]]) {
     assert.equal(priorityAttention(chat(), projects), "Turn finished");
     assert.equal(priorityAttention(chat({ state: "waiting" }), projects), "Needs input");
     assert.equal(priorityAttention(chat({ state: "error" }), projects), "Error");
@@ -19,10 +19,13 @@ test("either priority grouping draws attention to finished, waiting, error, and 
   }
   assert.equal(priorityAttention(chat(), [project("repo", false), project("custom", false)]), null);
   assert.equal(priorityAttention(chat(), [project("unrelated", true)]), null);
+  assert.equal(priorityAttention(chat(), [project("repo", true)]), null);
+  assert.equal(priorityAttention(chat({ projectId: null }), [project("repo", true)]), null);
+  assert.equal(priorityAttention(chat({ projectId: "repo" }), [project("repo", true)]), "Turn finished");
 });
 
 test("priority does not infer completion for running, unobserved, or unfinished subagent work", () => {
-  const projects = [project("repo", true)];
+  const projects = [project("custom", true)];
   const worker = { id: "child", type: "Explore", state: "running" as const, lastEventAt: "2026-01-01T00:00:00Z" };
   for (const patch of [
     { state: "running" as const }, { state: "unknown" as const }, { archived: true },

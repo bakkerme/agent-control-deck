@@ -97,7 +97,7 @@ const ChatEditor = forwardRef<EditorHandle, {
   let ticketDestination = "";
   try { ticketDestination = resolveTicketUrl(draft, settings); } catch { /* Settings action supplies the missing base URL. */ }
   return <section className="details" aria-label="Chat details">
-    <div className="eyebrow">{projects.filter(p => p.id === draft.projectId || p.id === chat.repoProjectId).map(p => p.name).join(" · ") || "No project"} / {providerLabel(chat.provider)}{chat.archived && " · Archived"}</div>
+    <div className="eyebrow">{projects.find(p => p.id === draft.projectId)?.name || "No project"} / {providerLabel(chat.provider)}{chat.archived && " · Archived"}</div>
     <div className="detail-title">
       <h2>{displayName({ ...chat, name: draft.name })}</h2>
       {ticketEditing ? <form className={`ticket-inline ${ticketInput.includes("://") ? "has-url" : ""}`} aria-label="Edit ticket" onSubmit={e => { e.preventDefault(); void saveTicket(); }}>
@@ -130,9 +130,8 @@ const ChatEditor = forwardRef<EditorHandle, {
     <section className="organization" aria-label="Chat organization">
       <div className="organization-heading"><h3>Chat organization</h3><button onClick={archive}>{chat.archived ? "Restore chat" : "Archive chat"}</button></div>
       <label>Chat name<input value={draft.name} maxLength={200} placeholder={automaticName(chat)} onChange={e => edit({ name: e.target.value })} onBlur={() => void flush()} /></label>
-      {chat.repoProjectId && <div className="repo-project"><small>Repository project · permanent</small><strong>{projects.find(p => p.id === chat.repoProjectId)?.name}</strong></div>}
-      <label>{chat.repoProjectId ? "Additional project" : "Project"}<select value={draft.projectId === chat.repoProjectId ? "" : draft.projectId ?? ""} onChange={e => { if (e.target.value === "add-project") createProject(); else edit({ projectId: e.target.value || null }); }} onBlur={() => void flush()}><option value="">{chat.repoProjectId ? "None" : "No project"}</option>{projects.filter(p => p.id !== chat.repoProjectId && (!chat.repoProjectId || p.kind === "custom" || p.id === draft.projectId)).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}<option value="add-project">Add a new project</option></select></label>
-      <div className="project-actions"><small>{chat.repoProjectId ? "Adding a project keeps this chat in its repository project." : "Group chats by the work they belong to."}</small>{projects.some(p => p.id === draft.projectId && p.kind === "custom") && <button title="Rename this project for all its chats" onClick={() => renameProject(draft.projectId!)}><Icon name="pencil" /> Rename project</button>}</div>
+      <label>Project<select value={draft.projectId ?? ""} onChange={e => { if (e.target.value === "add-project") createProject(); else edit({ projectId: e.target.value || null }); }} onBlur={() => void flush()}><option value="">No project</option>{projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}<option value="add-project">Add a new project</option></select></label>
+      <div className="project-actions"><small>Moving a chat changes its project. New chats use their detected repository by default.</small>{draft.projectId && <button title="Rename this project for all its chats" onClick={() => renameProject(draft.projectId!)}><Icon name="pencil" /> Rename project</button>}</div>
       {chat.provider !== "manual" && <small className="name-hint">Leave the chat name blank to use the first prompt’s title.</small>}
     </section>
     <section className="notes-section" aria-label="Chat notes">
@@ -151,6 +150,7 @@ const ChatEditor = forwardRef<EditorHandle, {
       {activities.length ? <ol>{activities.map(a => <li key={a.id}><span>{a.summary}</span><small title={a.observedAt}>{age(a.observedAt)} · {a.kind}</small></li>)}</ol> : <p className="muted">{chat.provider === "manual" ? "This chat is tracked manually." : "No activity recorded yet."}</p>}
     </section>
     <details className="source-details"><summary>{chat.provider === "manual" ? "Manual status" : "Source identity"}</summary>
+      {chat.repoProjectId && <div className="repo-project"><small>Detected repository · used for new chats by default</small><strong>{projects.find(p => p.id === chat.repoProjectId)?.name}</strong></div>}
       {chat.provider === "manual" && <div className="form-row"><label>Manual state<select value={draft.state} onChange={e => edit({ state: e.target.value as State })}>{states.map(s => <option key={s}>{s}</option>)}</select></label><label>Session<select value={draft.lifecycle} onChange={e => edit({ lifecycle: e.target.value as Chat["lifecycle"] })}><option value="open">Open</option><option value="ended">Ended</option></select></label></div>}
       {chat.externalId && <code>{chat.externalId}</code>}
     </details>

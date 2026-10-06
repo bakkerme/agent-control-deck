@@ -61,6 +61,9 @@ function App() {
   };
   const chat = snapshot?.chats.find((c) => c.id === selected);
   useEffect(() => {
+    if (snapshot && project !== "all" && project !== "unassigned" && !snapshot.projects.some(p => p.id === project)) setProject("all");
+  }, [snapshot, project]);
+  useEffect(() => {
     let active = true;
     if (!chat) {
       setActivities([]);
@@ -90,8 +93,8 @@ function App() {
     );
   const activeChats = snapshot.chats.filter((c) => !c.archived);
   const viewChats = snapshot.chats.filter((c) => c.archived === archived);
-  const inProject = (c: Chat, id: string) => id === "all" || (id === "unassigned" ? !c.projectId && !c.repoProjectId : c.projectId === id || c.repoProjectId === id);
-  const projectNames = (c: Chat) => snapshot.projects.filter(p => p.id === c.projectId || p.id === c.repoProjectId).map(p => p.name).join(" · ") || "No project";
+  const inProject = (c: Chat, id: string) => id === "all" || (id === "unassigned" ? !c.projectId : c.projectId === id);
+  const projectNames = (c: Chat) => snapshot.projects.find(p => p.id === c.projectId)?.name || "No project";
   const projectChats = snapshot.chats.filter(c => inProject(c, project));
   const changeArchiveView = (value: boolean) => {
     setArchived(value);
@@ -259,7 +262,7 @@ function App() {
                 const attention = p.priority ? activeChats.filter(c => inProject(c, p.id) && attentionReason(c)).length : 0;
                 const description = p.priority
                   ? `Priority project · ${attention} chat${attention === 1 ? "" : "s"} finished or needing attention`
-                  : p.kind === "repo" ? "Permanent repository project" : "Custom project";
+                  : p.kind === "repo" ? "Default repository project · name is editable" : "Custom project";
                 return <div key={p.id} className={`project-row ${attention ? "has-attention" : ""}`}>
                   <button
                     className={project === p.id ? "selected" : ""}
@@ -271,11 +274,11 @@ function App() {
                     <span className="project-count">{viewChats.filter((c) => inProject(c, p.id)).length}</span>
                   </button>
                   <div className="project-tools">
-                    {p.kind === "custom" && <button
+                    <button
                       aria-label={`Rename project ${p.name}`}
                       title={`Rename project ${p.name}`}
                       onClick={() => openModal("rename", p.id)}
-                    ><Icon name="pencil" /></button>}
+                    ><Icon name="pencil" /></button>
                     <button
                       className={p.priority ? "priority-flag flagged" : "priority-flag"}
                       aria-label={`Priority project ${p.name}`}
@@ -427,7 +430,7 @@ function App() {
                   });
                   if (chat.archived) {
                     changeArchiveView(false);
-                    setProject(chat.projectId ?? chat.repoProjectId ?? "unassigned");
+                    setProject(chat.projectId ?? "unassigned");
                   }
                 })
               }

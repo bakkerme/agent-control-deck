@@ -35,6 +35,7 @@ export interface Source {
 export interface Chat {
   id: string;
   projectId: string | null;
+  // Detected repository origin; projectId alone controls current membership.
   repoProjectId: string | null;
   provider: Provider;
   sourceId: string | null;

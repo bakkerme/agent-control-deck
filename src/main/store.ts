@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync } from "node:fs";
-import { dirname, basename, win32, posix, join } from "node:path";
+import { dirname, basename, join } from "node:path";
 import type {
   Activity,
   Chat,
@@ -14,36 +14,15 @@ import type {
 } from "../shared/types";
 import { commandSchema, envelopeSchema } from "../shared/validation";
 import { normalize, type Observation } from "./providers";
+import { canonicalPath, repositoryLocation, repositoryRoot } from "./repositories";
+export { canonicalPath } from "./repositories";
 
 type ChatRow = Omit<Chat, "subagents"> & { subagentBaselineAt: string | null };
 type SubagentRow = Subagent & { chatId: string };
+type ProjectRow = Project & { repositoryPath: string | null; mergedInto: string | null };
 
 const now = () => new Date().toISOString();
 const uuid = () => randomUUID();
-export function canonicalPath(value: string): string {
-  if (/^[a-z]:[\\/]/i.test(value) || value.startsWith("\\\\"))
-    return win32
-      .normalize(value)
-      .replace(/\\/g, "/")
-      .replace(/\/$/, "")
-      .toLowerCase();
-  if (!value.startsWith("/"))
-    throw new Error("Workspace paths must be absolute");
-  return posix.normalize(value).replace(/\/$/, "") || "/";
-}
-// Inspect only repository markers on the local host. Remote/WSL paths use
-// source-scoped workspace aliases instead of host filesystem guesses.
-function repositoryRoot(path: string, source: Source): string | null {
-  if (source.environment !== "native" || (process.platform !== "win32" && !path.startsWith("/"))) return null;
-  if (process.platform === "win32" && !/^(?:[a-z]:\/|\/\/)/i.test(path)) return null;
-  let current = path;
-  while (true) {
-    if (existsSync(join(current, ".git"))) return canonicalPath(current);
-    const parent = dirname(current);
-    if (parent === current) return null;
-    current = parent;
-  }
-}
 export class Store {
   readonly db: Database.Database;
   constructor(readonly filename: string) {
@@ -56,11 +35,11 @@ export class Store {
       const version = this.db.pragma("user_version", {
         simple: true,
       }) as number;
-      if (version > 6)
+      if (version > 7)
         throw new Error(
           "This database was created by a newer version of Agent Control Deck",
         );
-      if (version < 6 && existed) {
+      if (version < 7 && existed) {
         this.db.pragma("wal_checkpoint(TRUNCATE)");
         copyFileSync(filename, `${filename}.bak-${Date.now()}`);
       }
@@ -158,6 +137,21 @@ export class Store {
           `);
         })();
       }
+      if (version < 7) {
+        this.db.transaction(() => {
+          this.db.exec(`
+            ALTER TABLE projects ADD COLUMN repositoryPath TEXT;
+            ALTER TABLE projects ADD COLUMN mergedInto TEXT REFERENCES projects(id);
+            PRAGMA user_version = 7;
+          `);
+        })();
+      }
+      this.reconcileRepositories(() => {
+        if (version >= 7 && existed) {
+          this.db.pragma("wal_checkpoint(TRUNCATE)");
+          copyFileSync(filename, `${filename}.bak-${Date.now()}`);
+        }
+      });
     } catch (error) {
       this.db.close();
       throw error;
@@ -168,7 +162,7 @@ export class Store {
   }
   projects(): Project[] {
     return (this.db
-      .prepare("SELECT * FROM projects ORDER BY name COLLATE NOCASE, id")
+      .prepare("SELECT id,name,createdAt,kind,priority FROM projects WHERE mergedInto IS NULL ORDER BY name COLLATE NOCASE, id")
       .all() as Project[]).map(p => ({ ...p, priority: !!p.priority }));
   }
   settings(): Settings {
@@ -218,7 +212,7 @@ export class Store {
       .all(id) as Activity[];
   }
   private requireProject(id: string): void {
-    if (!this.db.prepare("SELECT id FROM projects WHERE id=?").get(id))
+    if (!this.db.prepare("SELECT id FROM projects WHERE id=? AND mergedInto IS NULL").get(id))
       throw new Error("Choose an existing project");
   }
   createProject(name: string, kind: Project["kind"] = "custom"): string {
@@ -241,8 +235,6 @@ export class Store {
         break;
       case "renameProject":
         this.requireProject(c.id);
-        if (this.projects().find(p => p.id === c.id)?.kind === "repo")
-          throw new Error("Repository projects have a permanent name");
         this.db
           .prepare("UPDATE projects SET name=? WHERE id=?")
           .run(c.name, c.id);
@@ -268,8 +260,6 @@ export class Store {
         )
           throw new Error("Live chat state is reported by its provider");
         if (c.patch.projectId) this.requireProject(c.patch.projectId);
-        if (old.repoProjectId && c.patch.projectId && c.patch.projectId !== old.projectId && c.patch.projectId !== old.repoProjectId && this.projects().find(p => p.id === c.patch.projectId)?.kind === "repo")
-          throw new Error("Choose a custom project to group this chat");
         if (old.provider === "manual" && c.patch.name === "")
           throw new Error("A manual chat needs a name");
         const entries = Object.entries(c.patch).filter(
@@ -306,9 +296,14 @@ export class Store {
         const source = this.source(c.sourceId);
         this.requireProject(c.projectId);
         const reported = canonicalPath(c.path);
-        const root = repositoryRoot(reported, source);
+        const location = repositoryLocation(reported, source);
+        const root = location?.root;
         const path = root ?? reported;
         this.db.transaction(() => {
+          this.reconcileRepositories();
+          const established = location?.identity ? this.repositoryProject(location.identity) : undefined;
+          if (established && established.id !== c.projectId)
+            throw new Error("Use the existing repository project for this path");
           const existing = this.workspaces().find(w => w.path === path &&
             (w.sourceId === c.sourceId || (root && this.source(w.sourceId).environment === "native")));
           if (existing && existing.projectId !== c.projectId)
@@ -319,6 +314,7 @@ export class Store {
               "INSERT INTO workspaces VALUES (?,?,?,?) ON CONFLICT(sourceId,path) DO NOTHING",
             )
             .run(uuid(), c.sourceId, c.projectId, path);
+          this.reconcileRepositories();
         })();
         break;
       }
@@ -330,9 +326,66 @@ export class Store {
         throw new Error("This command is handled by the application");
     }
   }
+  private repositoryProject(identity: string): ProjectRow | undefined {
+    return this.db.prepare("SELECT * FROM projects WHERE repositoryPath=? AND mergedInto IS NULL ORDER BY createdAt,id LIMIT 1").get(identity) as ProjectRow | undefined;
+  }
+  private reconcileRepositories(beforeChange?: () => void): void {
+    const projects = this.db.prepare("SELECT * FROM projects WHERE mergedInto IS NULL ORDER BY createdAt,id").all() as ProjectRow[];
+    const sources = new Map(this.sources().map(s => [s.id, s]));
+    const groups = new Map<string, { workspaces: Workspace[]; ids: Set<string> }>();
+    const identities = new Map<string, Set<string>>();
+    for (const workspace of this.workspaces()) {
+      const source = sources.get(workspace.sourceId);
+      const location = source && repositoryLocation(workspace.path, source);
+      if (!location?.identity) continue;
+      const group = groups.get(location.identity) ?? { workspaces: [], ids: new Set<string>() };
+      group.workspaces.push(workspace);
+      group.ids.add(workspace.projectId);
+      groups.set(location.identity, group);
+      const keys = identities.get(workspace.projectId) ?? new Set<string>();
+      keys.add(location.identity);
+      identities.set(workspace.projectId, keys);
+    }
+    const plans: { identity: string; primary: ProjectRow; duplicates: ProjectRow[] }[] = [];
+    for (const [identity, group] of groups) {
+      // Explicit aliases can span separate clones. Keep those choices; neither
+      // folder names nor a shared assignment prove Git identity.
+      if ([...group.ids].some(id => (identities.get(id)?.size ?? 0) > 1)) continue;
+      const eligible = (p: ProjectRow) => !identities.has(p.id) || identities.get(p.id)!.has(identity);
+      const established = projects.filter(p => p.repositoryPath === identity && eligible(p));
+      const candidates = projects.filter(p => group.ids.has(p.id));
+      const mainPath = identity.endsWith("/.git") ? dirname(identity) : null;
+      const mainId = [...group.workspaces].sort((a, b) => a.path.length - b.path.length)
+        .find(w => repositoryRoot(w.path, sources.get(w.sourceId)!) === mainPath)?.projectId;
+      const primary = established[0] ?? candidates.find(p => p.id === mainId) ?? candidates[0];
+      if (!primary) continue;
+      const duplicates = projects.filter(p => p.id !== primary.id && (group.ids.has(p.id) || (p.repositoryPath === identity && eligible(p))));
+      if (duplicates.length || primary.repositoryPath !== identity) plans.push({ identity, primary, duplicates });
+    }
+    if (!plans.length) return;
+    beforeChange?.();
+    this.db.transaction(() => {
+      for (const { identity, primary, duplicates } of plans) {
+        this.db.prepare("UPDATE projects SET repositoryPath=?,priority=? WHERE id=?")
+          .run(identity, Number(!!primary.priority || duplicates.some(p => !!p.priority)), primary.id);
+        for (const duplicate of duplicates) {
+          // Consolidate repository defaults, keeping unrelated custom choices
+          // and all chat content, activity, subagents, and archive state intact.
+          this.db.prepare("UPDATE chats SET repoProjectId=? WHERE repoProjectId=?").run(primary.id, duplicate.id);
+          this.db.prepare("UPDATE chats SET projectId=? WHERE projectId=?").run(primary.id, duplicate.id);
+          this.db.prepare("UPDATE workspaces SET projectId=? WHERE projectId=?").run(primary.id, duplicate.id);
+          this.db.prepare("UPDATE projects SET mergedInto=? WHERE mergedInto=?").run(primary.id, duplicate.id);
+          // Retain the old record/name for recovery without a duplicate sidebar row.
+          this.db.prepare("UPDATE projects SET mergedInto=? WHERE id=?").run(primary.id, duplicate.id);
+        }
+      }
+    })();
+  }
   private projectFor(sourceId: string, workspace: string | null): string | null {
     const reported = workspace ? canonicalPath(workspace) : null;
-    const root = reported ? repositoryRoot(reported, this.source(sourceId)) : null;
+    const location = reported ? repositoryLocation(reported, this.source(sourceId)) : null;
+    const root = location?.root;
+    if (location?.identity) this.reconcileRepositories();
     const path = root ?? reported;
     const matches = this.workspaces()
       .filter(
@@ -347,8 +400,14 @@ export class Store {
     if (!path) return null;
     // An accessible Git root establishes identity across native providers;
     // other paths stay source-scoped and can be joined by explicit aliases.
-    const shared = root ? this.workspaces().find(w => w.path === root && this.source(w.sourceId).environment === "native") : undefined;
-    const id = shared?.projectId ?? this.createProject(basename(path) || path, "repo");
+    const established = location?.identity ? this.repositoryProject(location.identity) : undefined;
+    const shared = !established && root ? this.workspaces().find(w => {
+      const source = this.source(w.sourceId);
+      return source.environment === "native" && (w.path === root || (location?.identity && repositoryLocation(w.path, source)?.identity === location.identity));
+    }) : undefined;
+    const id = established?.id ?? shared?.projectId ?? this.createProject(location?.name || basename(path) || path, "repo");
+    if (location?.identity && !established && !shared)
+      this.db.prepare("UPDATE projects SET repositoryPath=? WHERE id=?").run(location.identity, id);
     this.db
       .prepare("INSERT INTO workspaces VALUES (?,?,?,?)")
       .run(uuid(), sourceId, id, path);

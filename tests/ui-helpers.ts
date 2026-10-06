@@ -9,8 +9,7 @@ export async function organizationField(page: Page, name: string) {
   if (name === "Manual state" || name === "Session") {
     if (await section.getAttribute("open") === null) await section.locator("summary").first().click();
   }
-  const label = name === "Project" && await section.getByRole("combobox", { name: "Additional project", exact: true }).count() ? "Additional project" : name;
-  return section.getByRole(name === "Chat name" ? "textbox" : "combobox", { name: label, exact: true });
+  return section.getByRole(name === "Chat name" ? "textbox" : "combobox", { name, exact: true });
 }
 export async function organizationButton(page: Page, name: string) {
   const section = page.locator(".organization");

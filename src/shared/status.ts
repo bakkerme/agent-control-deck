@@ -26,7 +26,7 @@ export function attentionReason(chat: Chat): string | null {
   return finishedTurn(chat) ? "Turn finished" : null;
 }
 export function priorityAttention(chat: Chat, projects: Project[]): string | null {
-  return projects.some(p => p.priority && (p.id === chat.projectId || p.id === chat.repoProjectId))
+  return projects.some(p => p.priority && p.id === chat.projectId)
     ? attentionReason(chat) : null;
 }
 export function statusLabel(chat: Chat, time = Date.now()): string {

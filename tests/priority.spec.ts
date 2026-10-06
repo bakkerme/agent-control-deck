@@ -36,7 +36,7 @@ test("sidebar priority flags highlight actionable chats across filters and persi
     await expect(repoFlag()).toHaveAttribute("aria-pressed", "true");
     await expect(task()).not.toHaveClass(/priority-attention/);
     await expect(repoRow().locator(".priority-lamp")).toHaveCount(0);
-    await expect(repoRow().getByRole("button", { name: /^Rename project/ })).toHaveCount(0);
+    await expect(repoRow().getByRole("button", { name: "Rename project priority-repo", exact: true })).toBeVisible();
 
     emit("SubagentStart", "priority", { agent_id: "worker", agent_type: "Explore" });
     emit("Stop", "priority", { last_assistant_message: "Parent finished" });
