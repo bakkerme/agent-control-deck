@@ -541,10 +541,9 @@ summary {
 .project-tools { display: flex; flex-shrink: 0; gap: 1px; }
 .projects nav .project-tools button { align-items: center; justify-content: center; padding: 6px; width: 26px; height: 28px; color: var(--muted); }
 .projects nav .project-tools button:hover { background: var(--selection); color: var(--accent); }
-.projects nav .project-tools .flagged { color: var(--accent); background: var(--selection); }
+.projects nav .project-tools .flagged { color: var(--accent); }
 .priority-flag.flagged svg { fill: currentColor; fill-opacity: .16; }
 .priority-lamp { display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: #c63243; box-shadow: 0 0 0 3px #c6324318, 0 0 7px #c6324340; vertical-align: middle; }
-.project-row.has-attention .project-name { color: #a42636; font-weight: 600; }
 .chat-list { display: flex; flex-direction: column; overflow: hidden; padding: 24px 20px 0; }
 .chat-list .section-heading { margin-bottom: 10px; }
 .chat-list h2 { font-size: 22px; letter-spacing: -.4px; }
@@ -562,15 +561,11 @@ summary {
 .record-heading span:last-child { text-align: right; }
 .chat-items { flex: 1; min-height: 0; overflow: auto; gap: 0; padding-bottom: 15px; }
 .chat-item { padding: 15px 10px; border: 0; border-bottom: 1px solid var(--border); border-radius: 5px; background: transparent; }
+.chat-item:hover, .chat-item.selected { background: var(--selection); }
 .chat-record-title { min-width: 0; }
 .chat-record-title strong { display: block; font-size: 13px; font-weight: 600; }
 .chat-record-title small { display: block; margin-top: 4px; font-size: 11px; }
-.chat-item.priority-attention { background: #fff1f2; box-shadow: inset 3px 0 #c63243; }
-.chat-item.priority-attention:hover { background: #ffe8eb; }
-.chat-item.priority-attention.selected { background: #f8e2e8; outline: 1px solid #c6324350; outline-offset: -1px; }
-.priority-caption { display: flex; align-items: center; gap: 4px; margin-top: 5px; color: #a42636; font-size: 11px; font-weight: 600; }
-.priority-caption svg { width: 11px; height: 11px; flex-shrink: 0; }
-.chat-item.priority-attention .status::before { background: #c63243; box-shadow: 0 0 0 3px #c6324318, 0 0 7px #c6324340; }
+.chat-item.priority-attention { box-shadow: inset 3px 0 #c63243; }
 .record-age { text-align: right; font-size: 11px; font-variant-numeric: tabular-nums; }
 .status { display: inline-flex; gap: 5px; align-items: center; border: 0; padding: 0; background: transparent; color: var(--muted); text-transform: none; font-weight: 500; font-size: 11px; }
 .status::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex-shrink: 0; }

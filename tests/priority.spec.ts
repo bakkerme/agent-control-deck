@@ -44,7 +44,7 @@ test("sidebar priority flags highlight actionable chats across filters and persi
     await expect(task()).not.toHaveClass(/priority-attention/);
     emit("SubagentStop", "priority", { agent_id: "worker" });
     await expect(task()).toHaveClass(/priority-attention/);
-    await expect(task().locator(".priority-caption")).toHaveText("Priority · Turn finished");
+    await expect(task()).toHaveAttribute("aria-description", "Priority project · Turn finished");
     await expect(repoRow().locator(".priority-lamp")).toBeVisible();
     await expect(repoRow().getByRole("button", { name: /^priority-repo 1$/ })).toHaveAttribute("aria-description", /1 chat finished/);
     await expect(page.getByRole("button", { name: "Select chat Other task", exact: true })).not.toHaveClass(/priority-attention/);
@@ -56,7 +56,7 @@ test("sidebar priority flags highlight actionable chats across filters and persi
     const snapshot = await page.evaluate(() => window.deck.load());
     const chat = snapshot.chats.find(c => c.externalId === "priority")!;
     emit("Notification", "priority", { notification_type: "permission_prompt", message: "Needs input" });
-    await expect(task().locator(".priority-caption")).toHaveText("Priority · Needs input");
+    await expect(task()).toHaveAttribute("aria-description", "Priority project · Needs input");
     await task().click();
     await page.screenshot({ path: "test-results/project-priority.png" });
     await sidebar().getByRole("button", { name: "+ Add a new project", exact: true }).click();
@@ -97,7 +97,7 @@ test("sidebar priority flags highlight actionable chats across filters and persi
     await expect(task()).not.toHaveClass(/priority-attention/);
     await expect(sidebar().locator(".priority-lamp")).toHaveCount(0);
     emit("SessionEnd");
-    await expect(task().locator(".priority-caption")).toHaveText("Priority · Session ended");
+    await expect(task()).toHaveAttribute("aria-description", "Priority project · Session ended");
     await page.evaluate(id => window.deck.command({ type: "updateChat", id, patch: { archived: true } }), chat.id);
     await expect(sidebar().locator(".priority-lamp")).toHaveCount(0);
     await page.getByRole("button", { name: /^Archived chats 1$/ }).click();

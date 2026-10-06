@@ -283,7 +283,7 @@ function App() {
                       className={p.priority ? "priority-flag flagged" : "priority-flag"}
                       aria-label={`Priority project ${p.name}`}
                       aria-pressed={p.priority}
-                      title={p.priority ? "Remove priority flag" : "Flag as priority: highlight chats that finish or need attention"}
+                      title={p.priority ? "Remove priority flag" : "Flag as priority: mark chats that finish or need attention"}
                       onClick={() => void navigate(() => mutate({ type: "setProjectPriority", id: p.id, priority: !p.priority }))}
                     ><Icon name="flag" /></button>
                   </div>
@@ -372,7 +372,6 @@ function App() {
                 >
                   <div className="chat-record-title">
                     <strong>{displayName(c)}</strong>
-                    {priorityReason && <span className="priority-caption"><Icon name="flag" />Priority · {priorityReason}</span>}
                   <small>
                     {projectNames(c)}{" "}
                     · {providerLabel(c.provider)}
