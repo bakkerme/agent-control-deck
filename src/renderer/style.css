@@ -591,9 +591,17 @@ summary {
 .history h3 { margin: 0 0 10px; }
 .preview { background: transparent; padding: 0; margin: 8px 0 14px; color: var(--muted); font-size: 12px; }
 .history li { font-size: 12px; }
-.organization { border-top: 1px solid var(--border); padding-top: 16px; color: var(--muted); font-size: 12px; }
+.organization { border-top: 1px solid var(--border); padding: 14px 0 18px; color: var(--muted); font-size: 12px; }
 .organization label { color: var(--text); }
-.organization .form-row { grid-template-columns: 1fr 1fr; }
+.organization-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.organization-heading h3 { margin: 0; }
+.organization-heading button { font-size: 11px; padding: 5px 8px; }
+.project-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.project-actions button { display: inline-flex; align-items: center; gap: 4px; border: 0; background: transparent; color: var(--accent); padding: 3px 0; font-size: 12px; }
+.name-hint { display: block; margin-top: 8px; }
+.source-details { border-top: 1px solid var(--border); padding-top: 16px; color: var(--muted); font-size: 12px; }
+.source-details .form-row { grid-template-columns: 1fr 1fr; }
+.source-details code { display: block; margin-top: 12px; }
 .settings-page { flex: 1; min-height: 0; overflow: auto; padding: 28px; }
 .settings-page form, .ticket-example { max-width: 600px; }
 .page-heading h2 { font-size: 22px; margin-top: 5px; }

@@ -24,6 +24,7 @@ function App() {
     null,
   );
   const [modalError, setModalError] = useState("");
+  const [renameProjectId, setRenameProjectId] = useState("");
   const [activities, setActivities] = useState<Activity[]>([]);
   const editor = useRef<EditorHandle>(null);
   const settingsEditor = useRef<EditorHandle>(null);
@@ -116,9 +117,10 @@ function App() {
         ) ||
         a.id.localeCompare(b.id),
     );
-  const openModal = (kind: "project" | "chat" | "rename") =>
+  const openModal = (kind: "project" | "chat" | "rename", targetProject = project) =>
     void navigate(() => {
       setModalError("");
+      setRenameProjectId(targetProject);
       setModal(kind);
     });
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -131,7 +133,7 @@ function App() {
         modal === "project"
           ? { type: "createProject", name }
           : modal === "rename"
-            ? { type: "renameProject", id: project, name }
+            ? { type: "renameProject", id: renameProjectId, name }
             : {
                 type: "createChat",
                 projectId: String(data.get("projectId") ?? "") || null,
@@ -380,6 +382,7 @@ function App() {
               configureJira={() => void navigate(() => setPage("settings"))}
               activities={activities}
               mutate={mutate}
+              renameProject={(id) => openModal("rename", id)}
               report={setError}
               archive={() =>
                 void navigate(() =>
@@ -434,6 +437,7 @@ function App() {
           close={() => setModal(null)}
         >
           <form onSubmit={submit}>
+            {modal === "rename" && <p className="muted">This changes the project name for every chat assigned to it.</p>}
             {modalError && (
               <p className="error" role="alert">
                 {modalError}
@@ -448,7 +452,7 @@ function App() {
                 maxLength={200}
                 defaultValue={
                   modal === "rename"
-                    ? snapshot.projects.find((p) => p.id === project)?.name
+                    ? snapshot.projects.find((p) => p.id === renameProjectId)?.name
                     : ""
                 }
               />

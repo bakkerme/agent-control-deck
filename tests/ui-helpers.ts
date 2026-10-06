@@ -5,12 +5,13 @@ export async function notesField(page: Page) {
   return field;
 }
 export async function organizationField(page: Page, name: string) {
-  const section = page.locator(".organization");
-  if (await section.getAttribute("open") === null) await section.locator("summary").first().click();
+  const section = page.locator(name === "Manual state" || name === "Session" ? ".source-details" : ".organization");
+  if (name === "Manual state" || name === "Session") {
+    if (await section.getAttribute("open") === null) await section.locator("summary").first().click();
+  }
   return section.getByRole(name === "Chat name" ? "textbox" : "combobox", { name, exact: true });
 }
 export async function organizationButton(page: Page, name: string) {
   const section = page.locator(".organization");
-  if (await section.getAttribute("open") === null) await section.locator("summary").first().click();
   return section.getByRole("button", { name, exact: true });
 }

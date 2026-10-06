@@ -33,7 +33,9 @@ Use **Try demo** in the app to explore sample projects, a standalone chat, and l
 - Recent activity (100 entries per chat), Markdown previews (500 characters), and last-observed timestamps. A completed turn means idle, not completed work. Preview links and images are displayed without navigation or remote loading.
 - Source setup, diagnostic events, pause/resume, and workspace aliases to group Windows/WSL paths into one project.
 
-The blue Operations workspace keeps projects on the left, compact chat records in the center, and the selected chat’s notes, ticket, and activity in the right sidebar. Chat organization controls are available in a collapsed section below the activity. The app-rendered, draggable title bar integrates navigation. macOS keeps its traffic lights and system menu; Windows uses native window buttons without a separate title or menu bar.
+The blue Operations workspace keeps projects on the left, compact chat records in the center, and the selected chat’s notes, ticket, and activity in the right sidebar. Chat name, project assignment, project renaming, and Archive/Restore are visible near the top of chat details. Projects can represent any body of work; folder mappings only supply the initial assignment. Renaming a project changes its name for all associated chats. Names, assignments, and archives survive provider updates and restarts.
+
+An orange lamp appears on the Windows taskbar icon or macOS Dock icon while any open, unarchived chat reports **Needs input**. It clears when those chats resume, end, or are archived, regardless of list filters or window focus. The indicator reflects the last reported event. The app-rendered, draggable title bar integrates navigation. macOS keeps its traffic lights and system menu; Windows uses native window buttons without a separate title or menu bar.
 
 ## Connect live sources
 

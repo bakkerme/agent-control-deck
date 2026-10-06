@@ -4,6 +4,7 @@ import {
   clipboard,
   dialog,
   ipcMain,
+  nativeImage,
   shell,
 } from "electron";
 import { join, resolve } from "node:path";
@@ -18,6 +19,8 @@ import { Inbox } from "./inbox";
 import { sourceSetup, writeHookSetup, type HookConnection } from "./setup";
 import { HookReceiver } from "./http";
 import { advanceDemo, seedDemo } from "./demo";
+import { InputIndicator } from "./attention";
+import { dockIconWithLamp, inputLamp } from "./attention-image";
 
 app.setName("Agent Control Deck");
 const argument = process.argv.find((a) => a.startsWith("--data-dir="));
@@ -34,9 +37,35 @@ let timer: NodeJS.Timeout | undefined;
 let ingestionError: string | null = null;
 let connection: HookConnection;
 let receiver: HookReceiver | undefined;
+let inputIndicator: InputIndicator | undefined;
 const base = app.getPath("userData");
 const dataRoot = () => (demo ? join(base, "demo") : join(base, "workspace"));
-const changed = () => window?.webContents.send("deck:changed");
+function updateInputIndicator(force = false): void {
+  try {
+    inputIndicator?.update(store.chats(), force);
+  } catch (error) {
+    // OS decoration failures must not interrupt ingestion or user edits.
+    console.warn("Could not update the input indicator", error);
+  }
+}
+const changed = () => {
+  updateInputIndicator();
+  window?.webContents.send("deck:changed");
+};
+function initializeInputIndicator(): void {
+  if (process.platform === "win32") {
+    const lamp = inputLamp();
+    inputIndicator = new InputIndicator(count => {
+      window?.setOverlayIcon(count ? lamp : null, count ? `${count} ${count === 1 ? "chat needs" : "chats need"} input` : "");
+    });
+  } else if (process.platform === "darwin") {
+    // AppKit supplies the actual application icon at its native resolution.
+    const original = nativeImage.createFromNamedImage("NSApplicationIcon");
+    if (original.isEmpty()) throw new Error("The application's Dock icon is unavailable");
+    const lit = dockIconWithLamp(original);
+    inputIndicator = new InputIndicator(count => app.dock?.setIcon(count ? lit : original));
+  }
+}
 function openStore(): void {
   store = new Store(join(dataRoot(), "workspace.sqlite"));
   if (demo) seedDemo(store);
@@ -219,6 +248,7 @@ function createWindow(): void {
   window.on("closed", () => {
     window = null;
   });
+  updateInputIndicator(true);
   if (devUrl) void window.loadURL(devUrl);
   else void window.loadFile(renderer);
 }
@@ -234,6 +264,11 @@ else {
       receiver = new HookReceiver(() => ({ store, inbox, root: dataRoot(), demo }));
       connection = await receiver.listen();
       openStore();
+      try {
+        initializeInputIndicator();
+      } catch (error) {
+        console.warn("Could not initialize the input indicator", error);
+      }
       registerIpc();
       createWindow();
       timer = setInterval(pollInbox, 1000);

@@ -10,8 +10,8 @@ type Editable = Partial<Pick<Chat, "name" | "notes" | "jiraKey" | "jiraUrl" | "p
 export interface EditorHandle { flush: () => Promise<boolean>; }
 const ChatEditor = forwardRef<EditorHandle, {
   chat: Chat; projects: Project[]; activities: Activity[]; settings: Settings;
-  mutate: (c: Command) => Promise<void>; archive: () => void; report: (s: string) => void; configureJira: () => void;
-}>(function ChatEditor({ chat, projects, activities, settings, mutate, archive, report, configureJira }, ref) {
+  mutate: (c: Command) => Promise<void>; archive: () => void; renameProject: (id: string) => void; report: (s: string) => void; configureJira: () => void;
+}>(function ChatEditor({ chat, projects, activities, settings, mutate, archive, renameProject, report, configureJira }, ref) {
   const [draft, setDraft] = useState(chat);
   const [saving, setSaving] = useState("Saved");
   const [error, setError] = useState("");
@@ -114,6 +114,13 @@ const ChatEditor = forwardRef<EditorHandle, {
       </span> : <button className="add-ticket" onClick={beginTicket}>Add ticket</button>}
     </div>
     <div className="activity-heading"><Status chat={chat} /><span title={chat.lastEventAt ?? chat.updatedAt}>{chat.provider === "manual" ? "Manually reported" : `Last event ${age(chat.lastEventAt)}`}</span></div>
+    <section className="organization" aria-label="Chat organization">
+      <div className="organization-heading"><h3>Chat organization</h3><button onClick={archive}>{chat.archived ? "Restore chat" : "Archive chat"}</button></div>
+      <label>Chat name<input value={draft.name} maxLength={200} placeholder={automaticName(chat)} onChange={e => edit({ name: e.target.value })} onBlur={() => void flush()} /></label>
+      <label>Project<select value={draft.projectId ?? ""} onChange={e => edit({ projectId: e.target.value || null })} onBlur={() => void flush()}><option value="">No project</option>{projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+      <div className="project-actions"><small>Group chats by the work they belong to.</small>{draft.projectId && <button title="Rename this project for all its chats" onClick={() => renameProject(draft.projectId!)}><Icon name="pencil" /> Rename project</button>}</div>
+      {chat.provider !== "manual" && <small className="name-hint">Leave the chat name blank to use the first prompt’s title.</small>}
+    </section>
     <section className="notes-section" aria-label="Chat notes">
       <div className="notes-heading"><h3>Your notes</h3><button onClick={() => setNotesEditing(true)} aria-label="Edit notes"><Icon name="pencil" /> Edit</button></div>
       {notesEditing ? <div className="notes-editor">
@@ -129,13 +136,9 @@ const ChatEditor = forwardRef<EditorHandle, {
       {chat.preview && <div className="preview"><MarkdownPreview text={displayPreview(chat)} /></div>}
       {activities.length ? <ol>{activities.map(a => <li key={a.id}><span>{a.summary}</span><small title={a.observedAt}>{age(a.observedAt)} · {a.kind}</small></li>)}</ol> : <p className="muted">{chat.provider === "manual" ? "This chat is tracked manually." : "No activity recorded yet."}</p>}
     </section>
-    <details className="organization"><summary>Chat organization</summary>
-      <label>Chat name<input value={draft.name} maxLength={200} placeholder={automaticName(chat)} onChange={e => edit({ name: e.target.value })} onBlur={() => void flush()} /></label>
-      {chat.provider !== "manual" && <small>Names apply only here. Leave blank to use the first prompt’s title.</small>}
-      <label>Project<select value={draft.projectId ?? ""} onChange={e => edit({ projectId: e.target.value || null })}><option value="">No project</option>{projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+    <details className="source-details"><summary>{chat.provider === "manual" ? "Manual status" : "Source identity"}</summary>
       {chat.provider === "manual" && <div className="form-row"><label>Manual state<select value={draft.state} onChange={e => edit({ state: e.target.value as State })}>{states.map(s => <option key={s}>{s}</option>)}</select></label><label>Session<select value={draft.lifecycle} onChange={e => edit({ lifecycle: e.target.value as Chat["lifecycle"] })}><option value="open">Open</option><option value="ended">Ended</option></select></label></div>}
-      <button onClick={archive}>{chat.archived ? "Restore chat" : "Archive chat"}</button>
-      {chat.externalId && <details><summary>Source identity</summary><code>{chat.externalId}</code></details>}
+      {chat.externalId && <code>{chat.externalId}</code>}
     </details>
   </section>;
 });
