@@ -187,6 +187,37 @@ test("queued HTTP events survive database failure and a full queue refuses accep
   assert.equal(readdirSync(f.setups.claude.inbox).length, 1000);
 });
 
+test("subagent HTTP events observe each provider without changing the parent response", async t => {
+  const f = await fixture(t);
+  for (const provider of ["claude", "cursor", "codex"] as const) {
+    const cursor = provider === "cursor";
+    const prompt = cursor ? "beforeSubmitPrompt" : "UserPromptSubmit";
+    const start = cursor ? "subagentStart" : "SubagentStart";
+    const stop = cursor ? "subagentStop" : "SubagentStop";
+    const identity = cursor ? { subagent_id: "worker", parent_conversation_id: "already-existing-chat", conversation_id: "child" } : { agent_id: "worker" };
+    assert.equal((await f.send(provider, prompt, { prompt: "Parent request" })).status, 200);
+    f.inbox.poll();
+    const startResponse = await f.send(provider, start, identity);
+    assert.equal(startResponse.status, 200);
+    assert.equal(await startResponse.text(), cursor ? '{"permission":"allow"}' : "");
+    f.inbox.poll();
+    const chat = () => f.store.chats().find(c => c.provider === provider)!;
+    assert.equal(chat().subagents.length, 1);
+    assert.equal((await f.send(provider, cursor ? "stop" : "Stop", { last_assistant_message: "Main response" })).status, 200);
+    f.inbox.poll();
+    assert.equal(chat().state, "idle");
+    assert.equal(chat().subagents.length, 1);
+    const stopResponse = await f.send(provider, stop, { ...identity, last_assistant_message: "Child response", ...(provider === "claude" ? { background_tasks: [] } : {}) });
+    assert.equal(stopResponse.status, 200);
+    assert.equal(await stopResponse.text(), provider === "codex" ? "{}" : "");
+    f.inbox.poll();
+    assert.equal(chat().subagents.length, 0);
+    assert.equal(chat().preview, "Main response");
+    assert.equal((await f.send(provider, start, { ...identity, agent_id: "", subagent_id: "" })).status, 400);
+  }
+  assert.equal(f.store.chats().length, 3);
+});
+
 test("command hooks remain quiet and neutral when delivery fails; diagnostics still report failure", async t => {
   const f = await fixture(t);
   for (const provider of ["claude", "cursor", "codex"] as const) {
@@ -199,7 +230,7 @@ test("command hooks remain quiet and neutral when delivery fails; diagnostics st
     for (const [event, groups] of Object.entries(config.hooks) as [string, { command?: string; hooks?: { command: string }[] }[]][]) {
       const hook = provider === "cursor" ? groups[0] : groups[0].hooks![0];
       const command = hook.command!.replace('"/mnt/c/Windows/System32/curl.exe"', "curl");
-      const neutral = provider === "cursor" && event === "beforeSubmitPrompt" ? '{"continue":true}' : provider === "codex" && event === "Stop" ? "{}" : "";
+      const neutral = provider === "cursor" && event === "beforeSubmitPrompt" ? '{"continue":true}' : provider === "cursor" && event === "subagentStart" ? '{"permission":"allow"}' : provider === "codex" && (event === "Stop" || event === "SubagentStop") ? "{}" : "";
       const assertNeutral = (result: Awaited<ReturnType<typeof runCommand>>) => {
         assert.equal(result.code, 0);
         assert.equal(result.stdout.trim(), neutral);
@@ -226,7 +257,7 @@ test("Windows WSL hooks use Windows curl and receiver address, preserving creden
   const source = f.sources.find(s => s.provider === "claude")!;
   const setup = sourceSetup(f.root, source, "win32", f.connection);
   const config = JSON.parse(setup.config);
-  assert.deepEqual(Object.keys(config.hooks), ["UserPromptSubmit", "Stop", "StopFailure", "SessionEnd", "Notification", "PostToolUse", "PostToolUseFailure", "ElicitationResult"]);
+  assert.deepEqual(Object.keys(config.hooks), ["UserPromptSubmit", "Stop", "StopFailure", "SessionEnd", "Notification", "PostToolUse", "PostToolUseFailure", "ElicitationResult", "SubagentStart", "SubagentStop"]);
   for (const groups of Object.values(config.hooks) as { hooks: { type: string; command: string; url?: string }[] }[][]) {
     const hook = groups[0].hooks[0];
     assert.equal(hook.type, "command");

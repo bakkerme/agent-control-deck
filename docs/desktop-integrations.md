@@ -12,7 +12,7 @@ Native Claude uses documented `type: "http"` hooks and POSTs its JSON input dire
 
 All sources discover chats on `UserPromptSubmit` / `beforeSubmitPrompt`. `SessionStart` / `sessionStart` are not registered. This lets you enable monitoring and return to an existing chat: its next prompt carries the stable conversation ID and workspace, creates an entry, and opens its lifecycle. Completion, notification, error, and end events update known chats but do not create unused chats. Existing deck chats and all user-owned edits remain intact.
 
-Keep the deck running to receive events. Requests sent while it is closed are not captured or assumed to replay. Once accepted, events are queued durably before ingestion, including when ingestion is paused. HTTP responses contain no provider text, approvals, prompts, or context. Command hooks discard transport output and finish successfully even when the deck is closed, curl is missing, or the receiver refuses delivery. They always emit the fixed neutral response expected by Cursor beforeSubmitPrompt or Codex Stop, and otherwise no output. Native Claude HTTP hooks remain non-blocking on connection failure, but Claude may display an error notice for that transport. Command forwarding has a two-second delivery limit and hooks have a three-second timeout.
+Keep the deck running to receive events. Requests sent while it is closed are not captured or assumed to replay. Once accepted, events are queued durably before ingestion, including when ingestion is paused. HTTP responses contain no provider text, prompts, or context. Command hooks discard transport output and finish successfully even when the deck is closed, curl is missing, or the receiver refuses delivery. They always emit the fixed neutral response expected by Cursor beforeSubmitPrompt (`{"continue":true}`), Cursor subagentStart (`{"permission":"allow"}`), or Codex Stop/SubagentStop (`{}`), and otherwise no output. These responses never depend on provider content or delivery success. Native Claude HTTP hooks remain non-blocking on connection failure, but Claude may display an error notice for that transport. Command forwarding has a two-second delivery limit and hooks have a three-second timeout.
 
 ### Replacing old file collectors
 
@@ -56,10 +56,11 @@ Codex adapter (native lifecycle hooks, separate from Cursor):
 
 - UserPromptSubmit reports running and uses the first observed prompt as the default title.
 - Stop reports idle and captures the last assistant message when supplied; it does not mark the session ended.
+- SubagentStart and SubagentStop track each observed worker by agent ID in its parent session, independently of the main turn. Subagent responses do not overwrite the main chat preview.
 - Interrupt reports idle with an interruption entry.
 - SessionEnd retains the chat and marks the session ended. Changing the selected Codex chat does not necessarily end its session.
 
-Configuration uses Codex's nested command-hook schema in `.codex/hooks.json`, not Cursor's `.cursor/hooks.json`. The HTTP receiver returns `{}` for Stop, and otherwise an empty body; it never blocks, approves, injects context, or asks the agent to continue. End/interrupt hooks use a three-second timeout. Existing hooks must be preserved when merging. Codex requires review and trust of new or changed hook definitions; the app does not bypass that check. If `CODEX_HOME` is customized, use that location instead of `~/.codex`.
+Configuration uses Codex's nested command-hook schema in `.codex/hooks.json`, not Cursor's `.cursor/hooks.json`. The HTTP receiver returns `{}` for Stop and SubagentStop, and otherwise an empty body; it never blocks, injects context, or asks the agent to continue. End/interrupt hooks use a three-second timeout. Existing hooks must be preserved when merging. Codex requires review and trust of new or changed hook definitions; the app does not bypass that check. If `CODEX_HOME` is customized, use that location instead of `~/.codex`.
 
 This adapter intentionally uses lifecycle events only. It has no approval-wait or dedicated failure signal, does not read transcripts, and does not import old conversations. It has HTTP forwarding and UI fixture coverage; real events require a trusted hook installation. See the [official Codex hooks reference](https://learn.chatgpt.com/docs/hooks).
 
@@ -72,11 +73,12 @@ Claude Code adapter:
 - UserPromptSubmit reports running and captures a bounded prompt preview.
 - PostToolUse and PostToolUseFailure report running after a tool returns, including when you answer AskUserQuestion or approve a permission prompt without submitting another prompt. A tool error does not imply that the turn failed; an explicit interrupted tool failure reports idle. ElicitationResult reports running after an MCP input response.
 - Stop reports idle and uses the last assistant message when present.
+- SubagentStart and SubagentStop observe worker activity separately. When Stop or SubagentStop includes the documented `background_tasks` array, its subagent entries provide a fresh snapshot of background work. An empty array clears previous observations; an absent array does not imply that background work finished. Registry task IDs and lifecycle agent IDs are treated as separate identities.
 - StopFailure reports an error.
 - Notification reports waiting for `permission_prompt` or `elicitation_dialog`; `idle_prompt` reports idle. Other notifications add activity without guessing a state.
 - SessionEnd marks the session ended without deleting its chat.
 
-Replace the deck's Claude hook entries with the updated fragment from Sources to capture these resume events, preserving unrelated hooks. See the [official Claude hooks reference](https://code.claude.com/docs/en/hooks#posttooluse).
+Replace the deck's Claude hook entries with the updated fragment from Sources to capture resume and subagent events, preserving unrelated hooks. See the [official Claude hooks reference](https://code.claude.com/docs/en/hooks#posttooluse).
 
 Cursor adapter:
 
@@ -84,10 +86,19 @@ Cursor adapter:
 - afterAgentResponse updates the preview without declaring that the turn ended.
 - stop reports idle or error according to its status; an aborted turn is idle with an explanatory activity entry.
 - sessionEnd marks the session ended without deleting its chat.
+- subagentStart links a worker to its parent conversation. subagentStop ends the matching worker when an instance ID is supplied. Cursor's documented stop payload can omit that ID; the deck then marks outstanding observations uncertain instead of guessing which parallel worker stopped.
 
 Cursor has no attention signal in this registered hook set, so the app does not infer one. Cursor tool hooks and all providers' permission-control, reasoning, and transcript-reading hooks are deliberately absent. Claude tool-return hooks observe resumed work only. No receiver response submits follow-up prompts or approval decisions. Forwarding errors do not request intervention or block the agent.
 
 References: [Claude Code hooks](https://code.claude.com/docs/en/hooks), [Cursor hooks](https://cursor.com/docs/hooks).
+
+### Main turns and subagent observations
+
+The main turn state and worker observations are stored separately. The UI can show **Running · 2 subagents working** or **Main turn finished · 2 subagents working**. Chats with recently observed workers appear in Running, including the footer count, and do not appear in Finished turns. Waiting/error states retain priority when the main agent needs attention. Once all observed workers finish responding, an idle main chat returns to Turn finished; this is not a claim that the user's entire task is complete.
+
+Subagent observations survive restarts, archiving, and provider updates without changing names, notes, tickets, or project assignments. Delayed events are ordered per worker independently of main-chat events. SessionEnd marks outstanding workers uncertain; Interrupt affects the main turn without assuming it stopped the workers. Unidentified stop events and snapshots without enough identity information also retain uncertainty. The UI marks a worker uncertain after five minutes without a fresh observation, displays observation age in Subagent observations, and never infers completion from silence. Providers do not supply a subagent heartbeat through this hook set, so even a healthy long-running worker may become uncertain.
+
+Merge the updated fragment from Sources for each existing source to enable these events, preserving unrelated provider hooks; review/trust the new Codex entries. Events before installation or while the deck was closed cannot be reconstructed from hooks. Provider-version compatibility and actual background completion delivery require a real run on the target host; macOS fixtures do not establish Windows/WSL behavior. No transcripts or provider storage are read. Storage retains at most 1,000 outstanding worker observations and 1,000 completed identities per chat; exceeding outstanding capacity leaves accepted inbox events queued for retry.
 
 ## Archiving and restoring chats
 

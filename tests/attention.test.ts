@@ -6,7 +6,7 @@ import type { Chat } from "../src/shared/types";
 const chat = (patch: Partial<Chat> = {}): Chat => ({
   id: "chat", projectId: null, repoProjectId: null, provider: "claude", sourceId: "source", externalId: "session",
   name: "", providerTitle: "A task", notes: "", jiraKey: "", jiraUrl: "", archived: false,
-  state: "waiting", lifecycle: "open", preview: "", lastEventAt: null, createdAt: "", updatedAt: "", ...patch,
+  state: "waiting", lifecycle: "open", preview: "", lastEventAt: null, createdAt: "", updatedAt: "", subagents: [], ...patch,
 });
 
 test("only open, unarchived chats waiting for input light the indicator", () => {

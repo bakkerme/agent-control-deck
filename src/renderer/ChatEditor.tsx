@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useImperativeHandle, useRef, useState, forwardRef } from "react";
 import type { Chat, Activity, Project, Command, State, Settings } from "../shared/types";
 import { states } from "../shared/types";
+import { SUBAGENT_OBSERVATION_AGE } from "../shared/status";
 import { parseTicket, resolveTicketUrl } from "../shared/tickets";
 import { providerLabel, displayName, automaticName, displayPreview, message, age, Status } from "./components";
 import MarkdownPreview from "./MarkdownPreview";
@@ -118,6 +119,14 @@ const ChatEditor = forwardRef<EditorHandle, {
       </span> : <button className="add-ticket" onClick={beginTicket}>Add ticket</button>}
     </div>
     <div className="activity-heading"><Status chat={chat} /><span title={chat.lastEventAt ?? chat.updatedAt}>{chat.provider === "manual" ? "Manually reported" : `Last event ${age(chat.lastEventAt)}`}</span></div>
+    {!!chat.subagents.length && <details className="subagent-details">
+      <summary>Subagent observations</summary>
+      <p className="muted">Based on received events. After five minutes without an observation, status is uncertain.</p>
+      <ul>{chat.subagents.map(agent => <li key={agent.id}>
+        <span>{agent.type || "Subagent"} · {agent.state === "running" && Date.now() - Date.parse(agent.lastEventAt) < SUBAGENT_OBSERVATION_AGE ? "Working" : "Status uncertain"}</span>
+        <small title={agent.lastEventAt}>Last observation {age(agent.lastEventAt)}</small>
+      </li>)}</ul>
+    </details>}
     <section className="organization" aria-label="Chat organization">
       <div className="organization-heading"><h3>Chat organization</h3><button onClick={archive}>{chat.archived ? "Restore chat" : "Archive chat"}</button></div>
       <label>Chat name<input value={draft.name} maxLength={200} placeholder={automaticName(chat)} onChange={e => edit({ name: e.target.value })} onBlur={() => void flush()} /></label>

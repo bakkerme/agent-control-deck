@@ -13,6 +13,7 @@ export interface Project {
   name: string;
   createdAt: string;
   kind: "repo" | "custom";
+  priority: boolean;
 }
 export interface Workspace {
   id: string;
@@ -50,6 +51,13 @@ export interface Chat {
   lastEventAt: string | null;
   createdAt: string;
   updatedAt: string;
+  subagents: Subagent[];
+}
+export interface Subagent {
+  id: string;
+  type: string;
+  state: "running" | "unknown";
+  lastEventAt: string;
 }
 export interface Activity {
   id: string;
@@ -84,6 +92,7 @@ export type Command =
   | { type: "updateSettings"; jiraBaseUrl: string }
   | { type: "createProject"; name: string; chatId?: string }
   | { type: "renameProject"; id: string; name: string }
+  | { type: "setProjectPriority"; id: string; priority: boolean }
   | { type: "createChat"; projectId: string | null; name: string }
   | {
       type: "updateChat";

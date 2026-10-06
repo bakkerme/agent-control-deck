@@ -10,9 +10,13 @@ import type {
   Source,
   Workspace,
   Settings,
+  Subagent,
 } from "../shared/types";
 import { commandSchema, envelopeSchema } from "../shared/validation";
-import { normalize } from "./providers";
+import { normalize, type Observation } from "./providers";
+
+type ChatRow = Omit<Chat, "subagents"> & { subagentBaselineAt: string | null };
+type SubagentRow = Subagent & { chatId: string };
 
 const now = () => new Date().toISOString();
 const uuid = () => randomUUID();
@@ -52,11 +56,11 @@ export class Store {
       const version = this.db.pragma("user_version", {
         simple: true,
       }) as number;
-      if (version > 4)
+      if (version > 6)
         throw new Error(
           "This database was created by a newer version of Agent Control Deck",
         );
-      if (version < 4 && existed) {
+      if (version < 6 && existed) {
         this.db.pragma("wal_checkpoint(TRUNCATE)");
         copyFileSync(filename, `${filename}.bak-${Date.now()}`);
       }
@@ -133,6 +137,27 @@ export class Store {
           this.db.prepare("UPDATE projects SET kind='custom' WHERE id NOT IN (SELECT projectId FROM workspaces)").run();
         })();
       }
+      if (version < 5) {
+        this.db.transaction(() => {
+          this.db.exec(`
+            ALTER TABLE chats ADD COLUMN subagentBaselineAt TEXT;
+            CREATE TABLE subagents (
+              chatId TEXT NOT NULL REFERENCES chats(id), id TEXT NOT NULL,
+              type TEXT NOT NULL, state TEXT NOT NULL CHECK(state IN ('running','unknown','finished')),
+              lastEventAt TEXT NOT NULL, PRIMARY KEY(chatId,id)
+            );
+            PRAGMA user_version = 5;
+          `);
+        })();
+      }
+      if (version < 6) {
+        this.db.transaction(() => {
+          this.db.exec(`
+            ALTER TABLE projects ADD COLUMN priority INTEGER NOT NULL DEFAULT 0 CHECK(priority IN (0,1));
+            PRAGMA user_version = 6;
+          `);
+        })();
+      }
     } catch (error) {
       this.db.close();
       throw error;
@@ -142,20 +167,23 @@ export class Store {
     this.db.close();
   }
   projects(): Project[] {
-    return this.db
+    return (this.db
       .prepare("SELECT * FROM projects ORDER BY name COLLATE NOCASE, id")
-      .all() as Project[];
+      .all() as Project[]).map(p => ({ ...p, priority: !!p.priority }));
   }
   settings(): Settings {
     const row = this.db.prepare("SELECT value FROM settings WHERE key='jiraBaseUrl'").get() as { value: string } | undefined;
     return { jiraBaseUrl: row?.value ?? "" };
   }
   chats(): Chat[] {
-    return (
-      this.db
-        .prepare("SELECT * FROM chats ORDER BY createdAt,id")
-        .all() as Chat[]
-    ).map((c) => ({ ...c, archived: !!c.archived }));
+    const agents = new Map<string, Subagent[]>();
+    for (const { chatId, ...agent } of this.db.prepare("SELECT * FROM subagents WHERE state!='finished' ORDER BY id").all() as SubagentRow[]) {
+      const group = agents.get(chatId) ?? [];
+      group.push(agent);
+      agents.set(chatId, group);
+    }
+    return (this.db.prepare("SELECT * FROM chats ORDER BY createdAt,id").all() as ChatRow[])
+      .map(({ subagentBaselineAt, ...c }) => ({ ...c, archived: !!c.archived, subagents: agents.get(c.id) ?? [] }));
   }
   sources(): Source[] {
     return (
@@ -170,10 +198,12 @@ export class Store {
       .all() as Workspace[];
   }
   chat(id: string): Chat {
-    const row = this.db.prepare("SELECT * FROM chats WHERE id=?").get(id) as
-      Chat | undefined;
+    const row = this.db.prepare("SELECT * FROM chats WHERE id=?").get(id) as ChatRow | undefined;
     if (!row) throw new Error("Chat no longer exists");
-    return { ...row, archived: !!row.archived };
+    const { subagentBaselineAt, ...chat } = row;
+    const subagents = (this.db.prepare("SELECT * FROM subagents WHERE chatId=? AND state!='finished' ORDER BY id").all(id) as SubagentRow[])
+      .map(({ chatId, ...agent }) => agent);
+    return { ...chat, archived: !!chat.archived, subagents };
   }
   source(id: string): Source {
     const source = this.sources().find((s) => s.id === id);
@@ -216,6 +246,10 @@ export class Store {
         this.db
           .prepare("UPDATE projects SET name=? WHERE id=?")
           .run(c.name, c.id);
+        break;
+      case "setProjectPriority":
+        this.requireProject(c.id);
+        this.db.prepare("UPDATE projects SET priority=? WHERE id=?").run(c.priority ? 1 : 0, c.id);
         break;
       case "createChat": {
         if (c.projectId !== null) this.requireProject(c.projectId);
@@ -372,6 +406,7 @@ export class Store {
         this.db.prepare("UPDATE chats SET repoProjectId=? WHERE id=?")
           .run(this.projectFor(sourceId, observation.workspace), chat.id);
       }
+      this.observeSubagents(chat.id, observation, observedAt);
       this.db
         .prepare("INSERT INTO activities VALUES (?,?,?,?,?)")
         .run(
@@ -412,6 +447,46 @@ export class Store {
         .run(observedAt, observedAt, sourceId);
       return true;
     })();
+  }
+  private observeSubagents(chatId: string, observation: Observation, observedAt: string): void {
+    const { subagent, backgroundSubagents } = observation;
+    if (!subagent && backgroundSubagents === undefined && observation.lifecycle !== "ended") return;
+    const baseline = (this.db.prepare("SELECT subagentBaselineAt FROM chats WHERE id=?").get(chatId) as ChatRow).subagentBaselineAt;
+    if (baseline && observedAt < baseline) return;
+    const upsert = (id: string, type: string, state: "running" | "finished") => {
+      this.db.prepare(`INSERT INTO subagents VALUES (?,?,?,?,?) ON CONFLICT(chatId,id) DO UPDATE SET
+        type=CASE WHEN excluded.type='' THEN subagents.type ELSE excluded.type END,
+        state=excluded.state,lastEventAt=excluded.lastEventAt WHERE excluded.lastEventAt>=subagents.lastEventAt`)
+        .run(chatId, id, type, state, observedAt);
+    };
+    if (backgroundSubagents !== undefined) {
+      // Claude's task registry IDs are not necessarily lifecycle agent IDs.
+      // Replace observations at this boundary; a later registry snapshot resolves
+      // completions without guessing how the two ID namespaces relate.
+      this.db.prepare("UPDATE subagents SET state='finished',lastEventAt=? WHERE chatId=? AND lastEventAt<=?")
+        .run(observedAt, chatId, observedAt);
+      for (const agent of backgroundSubagents) upsert(`background:${agent.id}`, agent.type, "running");
+      this.db.prepare("UPDATE chats SET subagentBaselineAt=? WHERE id=?").run(observedAt, chatId);
+    } else if (observation.lifecycle === "ended") {
+      this.db.prepare("UPDATE subagents SET state='unknown',lastEventAt=? WHERE chatId=? AND state!='finished' AND lastEventAt<=?")
+        .run(observedAt, chatId, observedAt);
+      this.db.prepare("UPDATE chats SET subagentBaselineAt=? WHERE id=?").run(observedAt, chatId);
+    } else if (subagent && (!baseline || observedAt >= baseline)) {
+      if (subagent.id) upsert(`agent:${subagent.id}`, subagent.type, subagent.running ? "running" : "finished");
+      if (!subagent.running) {
+        // Cursor's documented stop payload may omit the instance ID. Likewise,
+        // a Claude stop without a registry snapshot cannot identify registry IDs.
+        this.db.prepare(`UPDATE subagents SET state='unknown',lastEventAt=? WHERE chatId=? AND state!='finished'
+          AND lastEventAt<=? AND (? OR id LIKE 'background:%')`)
+          .run(observedAt, chatId, observedAt, Number(!subagent.id));
+        if (!subagent.id) this.db.prepare("UPDATE chats SET subagentBaselineAt=? WHERE id=?").run(observedAt, chatId);
+      }
+    }
+    this.db.prepare(`DELETE FROM subagents WHERE chatId=? AND state='finished' AND id NOT IN
+      (SELECT id FROM subagents WHERE chatId=? AND state='finished' ORDER BY lastEventAt DESC,rowid DESC LIMIT 1000)`)
+      .run(chatId, chatId);
+    const count = this.db.prepare("SELECT COUNT(*) AS total FROM subagents WHERE chatId=? AND state!='finished'").get(chatId) as { total: number };
+    if (count.total > 1000) throw Object.assign(new Error("Subagent observation capacity reached; pending event retained"), { code: "ACD_SUBAGENT_CAPACITY" });
   }
   sourceError(id: string, message: string, rejected = false): void {
     this.db

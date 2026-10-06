@@ -7,10 +7,17 @@ export const DEFAULT_HTTP_PORT = 43821;
 export interface HookConnection { url: string }
 export const hookEvents = (provider: Source["provider"]): string[] =>
   provider === "claude"
-    ? ["UserPromptSubmit", "Stop", "StopFailure", "SessionEnd", "Notification", "PostToolUse", "PostToolUseFailure", "ElicitationResult"]
+    ? ["UserPromptSubmit", "Stop", "StopFailure", "SessionEnd", "Notification", "PostToolUse", "PostToolUseFailure", "ElicitationResult", "SubagentStart", "SubagentStop"]
     : provider === "codex"
-      ? ["UserPromptSubmit", "Stop", "Interrupt", "SessionEnd"]
-      : ["beforeSubmitPrompt", "afterAgentResponse", "stop", "sessionEnd"];
+      ? ["UserPromptSubmit", "Stop", "Interrupt", "SessionEnd", "SubagentStart", "SubagentStop"]
+      : ["beforeSubmitPrompt", "afterAgentResponse", "stop", "sessionEnd", "subagentStart", "subagentStop"];
+
+export function neutralHookResponse(provider: Source["provider"], event: string): string {
+  if (provider === "cursor" && event === "beforeSubmitPrompt") return '{"continue":true}';
+  if (provider === "cursor" && event === "subagentStart") return '{"permission":"allow"}';
+  if (provider === "codex" && (event === "Stop" || event === "SubagentStop")) return "{}";
+  return "";
+}
 
 // HTTP origins also remain safe literal arguments in the provider hook shells.
 export function hookOrigin(value: string): string {
@@ -48,8 +55,7 @@ export function sourceSetup(
   const curl = windowsWSL ? '"/mnt/c/Windows/System32/curl.exe"' : platform === "win32" ? "curl.exe" : "curl";
   const request = (event: string) => `${curl} --silent --fail --noproxy "*" --connect-timeout 1 --max-time 2 -H "Content-Type: application/json" -H "Authorization: Bearer ${token}" --data-binary "@-" "${endpoint}/${event}"`;
   const command = (event: string) => {
-    const response = source.provider === "cursor" && event === "beforeSubmitPrompt"
-      ? '{"continue":true}' : source.provider === "codex" && event === "Stop" ? "{}" : "";
+    const response = neutralHookResponse(source.provider, event);
     // Hooks observe only. Ignore transport output and finish successfully even
     // when the deck is closed, curl is missing, or delivery is refused. Keep
     // the separate diagnostic command strict so setup failures stay testable.
@@ -79,7 +85,7 @@ export function sourceSetup(
         : "Command hooks forward events with curl; no collector script, Node, or Python is needed. ") +
       (source.environment === "wsl"
         ? "Configure hooks inside your WSL distro, with a separate source per distro. Use the Windows deck to generate the real WSL configuration. With the receiver on Windows loopback, no WSL host-IP, mirrored-networking setup, or inbound firewall exception is needed for this route. " : "") +
-      "Keep the deck running. A chat appears on its next submitted prompt, including an existing resumed chat. Command hooks finish quietly and successfully if the deck is unavailable; the diagnostic command still reports delivery failures. Events emitted while the deck is closed are not captured. Replace the deck's old hook entries and preserve unrelated hooks.",
+      "Keep the deck running. A chat appears on its next submitted prompt, including an existing resumed chat. Subagent start/stop hooks keep worker observations separate from the main turn; merge these entries for existing sources too. Command hooks finish quietly and successfully if the deck is unavailable; the diagnostic command still reports delivery failures. Events emitted while the deck is closed are not captured. Replace the deck's old hook entries and preserve unrelated hooks.",
   };
 }
 export function writeHookSetup(root: string, source: Source, connection?: HookConnection): Setup {

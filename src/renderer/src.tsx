@@ -2,11 +2,13 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { Activity, Chat, Command, Snapshot } from "../shared/types";
 import { states } from "../shared/types";
+import { attentionReason, effectiveState, finishedTurn, priorityAttention } from "../shared/status";
 import ChatEditor, { type EditorHandle } from "./ChatEditor";
 import Sources from "./Sources";
 import { providerLabel, displayName, message, age, Status, Modal } from "./components";
 import Settings from "./Settings";
 import TitleBar from "./TitleBar";
+import Icon from "./Icon";
 import "./style.css";
 const api = window.deck;
 
@@ -100,7 +102,7 @@ function App() {
   const rank = (c: Chat) =>
     c.lifecycle === "ended"
       ? 5
-      : { error: 0, waiting: 1, running: 2, idle: 3, unknown: 4 }[c.state];
+      : { error: 0, waiting: 1, running: 2, idle: 3, unknown: 4 }[effectiveState(c)];
   const scoped = snapshot.chats
     .filter(
       (c) =>
@@ -118,7 +120,7 @@ function App() {
           .toLowerCase()
           .includes(search.toLowerCase()),
     );
-  const matchesState = (c: Chat, value: string) => value === "all" || (value === "ended" ? c.lifecycle === "ended" : c.lifecycle === "open" && (value === "finished" ? c.provider !== "manual" && c.state === "idle" && !!c.lastEventAt : c.state === value));
+  const matchesState = (c: Chat, value: string) => value === "all" || (value === "ended" ? c.lifecycle === "ended" : c.lifecycle === "open" && (value === "finished" ? finishedTurn(c) : effectiveState(c) === value));
   const visible = scoped.filter(c => matchesState(c, state))
     .sort(
       (a, b) =>
@@ -253,31 +255,41 @@ function App() {
               >
                 No project <span>{viewChats.filter((c) => inProject(c, "unassigned")).length}</span>
               </button>
-              {snapshot.projects.map((p) => (
-                <button
-                  key={p.id}
-                  className={project === p.id ? "selected" : ""}
-                  title={p.kind === "repo" ? "Permanent repository project" : "Custom project"}
-                  onClick={() => void navigate(() => setProject(p.id))}
-                >
-                  <span>{p.name}</span>
-                  <span>
-                    {viewChats.filter((c) => inProject(c, p.id)).length}
-                  </span>
-                </button>
-              ))}
+              {snapshot.projects.map((p) => {
+                const attention = p.priority ? activeChats.filter(c => inProject(c, p.id) && attentionReason(c)).length : 0;
+                const description = p.priority
+                  ? `Priority project · ${attention} chat${attention === 1 ? "" : "s"} finished or needing attention`
+                  : p.kind === "repo" ? "Permanent repository project" : "Custom project";
+                return <div key={p.id} className={`project-row ${attention ? "has-attention" : ""}`}>
+                  <button
+                    className={project === p.id ? "selected" : ""}
+                    title={description}
+                    aria-description={description}
+                    onClick={() => void navigate(() => setProject(p.id))}
+                  >
+                    <span className="project-name">{attention > 0 && <span className="priority-lamp" aria-hidden="true" />}{p.name}</span>
+                    <span className="project-count">{viewChats.filter((c) => inProject(c, p.id)).length}</span>
+                  </button>
+                  <div className="project-tools">
+                    {p.kind === "custom" && <button
+                      aria-label={`Rename project ${p.name}`}
+                      title={`Rename project ${p.name}`}
+                      onClick={() => openModal("rename", p.id)}
+                    ><Icon name="pencil" /></button>}
+                    <button
+                      className={p.priority ? "priority-flag flagged" : "priority-flag"}
+                      aria-label={`Priority project ${p.name}`}
+                      aria-pressed={p.priority}
+                      title={p.priority ? "Remove priority flag" : "Flag as priority: highlight chats that finish or need attention"}
+                      onClick={() => void navigate(() => mutate({ type: "setProjectPriority", id: p.id, priority: !p.priority }))}
+                    ><Icon name="flag" /></button>
+                  </div>
+                </div>;
+              })}
               <button className="add-project" onClick={() => openModal("project")}>
                 <span>+ Add a new project</span>
               </button>
             </nav>
-            {snapshot.projects.some((p) => p.id === project && p.kind === "custom") && (
-              <button
-                className="text-button"
-                onClick={() => openModal("rename")}
-              >
-                Rename project
-              </button>
-            )}
             <div className="project-note">
               {snapshot.sources.length
                 ? `${snapshot.sources.filter((s) => s.enabled).length} sources enabled`
@@ -343,16 +355,21 @@ function App() {
             </nav>
             <div className="record-heading" aria-hidden="true"><span>Chat / project / provider</span><span>Reported</span><span>Event age</span></div>
             <div className="chat-items">
-              {visible.map((c) => (
+              {visible.map((c) => {
+                const priorityReason = priorityAttention(c, snapshot.projects);
+                return (
                 <button
                   key={c.id}
-                  className={`chat-item ${selected === c.id ? "selected" : ""}`}
+                  className={`chat-item ${selected === c.id ? "selected" : ""} ${priorityReason ? "priority-attention" : ""}`}
                   aria-label={`Select chat ${displayName(c)}`}
+                  aria-description={priorityReason ? `Priority project · ${priorityReason}` : undefined}
+                  title={priorityReason ? `Priority project · ${priorityReason}` : undefined}
                   aria-pressed={selected === c.id}
                   onClick={() => void navigate(() => setSelected(c.id))}
                 >
                   <div className="chat-record-title">
                     <strong>{displayName(c)}</strong>
+                    {priorityReason && <span className="priority-caption"><Icon name="flag" />Priority · {priorityReason}</span>}
                   <small>
                     {projectNames(c)}{" "}
                     · {providerLabel(c.provider)}
@@ -366,7 +383,7 @@ function App() {
                       : age(c.lastEventAt)}
                   </small>
                 </button>
-              ))}
+              ); })}
               {!visible.length && (
                 <div className="empty">
                   <h3>
@@ -432,7 +449,7 @@ function App() {
         <span>
           {
             activeChats.filter(
-              (c) => c.state === "running" && c.lifecycle === "open",
+              (c) => effectiveState(c) === "running" && c.lifecycle === "open",
             ).length
           }{" "}
           running ·{" "}

@@ -4,7 +4,7 @@ import { randomUUID, timingSafeEqual } from "node:crypto";
 import type { Store } from "./store";
 import type { Inbox } from "./inbox";
 import { normalize } from "./providers";
-import { DEFAULT_HTTP_PORT, hookEvents, sourceToken, type HookConnection } from "./setup";
+import { DEFAULT_HTTP_PORT, hookEvents, neutralHookResponse, sourceToken, type HookConnection } from "./setup";
 
 interface Context { store: Store; inbox: Inbox; root: string; demo: boolean }
 export function receiverOptions(env: NodeJS.ProcessEnv = process.env) {
@@ -109,8 +109,7 @@ export class HookReceiver {
         return reply(503);
       }
       // Fixed neutral responses only. Provider/user content never enters output.
-      reply(200, source.provider === "cursor" && event === "beforeSubmitPrompt"
-        ? '{"continue":true}' : source.provider === "codex" && event === "Stop" ? "{}" : "");
+      reply(200, neutralHookResponse(source.provider, event));
     });
   }
 }

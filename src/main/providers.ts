@@ -1,5 +1,6 @@
 import type { Source, State } from "../shared/types";
 import { codexPrompt, promptTitle } from "../shared/presentation";
+import { hookEvents } from "./setup";
 
 export interface Observation {
   externalId: string;
@@ -10,6 +11,8 @@ export interface Observation {
   preview?: string;
   title?: string;
   summary: string;
+  subagent?: { id: string | null; type: string; running: boolean };
+  backgroundSubagents?: { id: string; type: string }[];
 }
 const text = (p: Record<string, unknown>, key: string): string =>
   typeof p[key] === "string" ? (p[key] as string) : "";
@@ -25,37 +28,17 @@ export function normalize(
   payload: Record<string, unknown>,
 ): Observation | null {
   const event = text(payload, "hook_event_name");
+  const subagentEvent = /^(Subagent|subagent)(Start|Stop)$/.test(event);
   const externalId =
     source.provider !== "cursor"
       ? text(payload, "session_id")
-      : text(payload, "conversation_id") || text(payload, "session_id");
+      : (subagentEvent ? text(payload, "parent_conversation_id") : "") || text(payload, "conversation_id") || text(payload, "session_id");
   const roots = payload.workspace_roots;
   const workspace =
     text(payload, "cwd") ||
     (Array.isArray(roots) && typeof roots[0] === "string" ? roots[0] : "") ||
     null;
-  const known =
-    source.provider === "codex"
-      ? ["SessionStart", "UserPromptSubmit", "Stop", "Interrupt", "SessionEnd"]
-      : source.provider === "claude"
-      ? [
-          "SessionStart",
-          "UserPromptSubmit",
-          "Stop",
-          "StopFailure",
-          "SessionEnd",
-          "Notification",
-          "PostToolUse",
-          "PostToolUseFailure",
-          "ElicitationResult",
-        ]
-      : [
-          "sessionStart",
-          "beforeSubmitPrompt",
-          "afterAgentResponse",
-          "stop",
-          "sessionEnd",
-        ];
+  const known = [...hookEvents(source.provider), source.provider === "cursor" ? "sessionStart" : "SessionStart"];
   if (!known.includes(event)) return null;
   if (!externalId || externalId.length > 2000)
     throw new Error("Event is missing a valid conversation/session ID");
@@ -65,6 +48,31 @@ export function normalize(
     kind: event,
     summary: event,
   };
+  if (source.provider === "claude" && (event === "Stop" || event === "SubagentStop") && payload.background_tasks !== undefined) {
+    if (!Array.isArray(payload.background_tasks) || payload.background_tasks.length > 1000)
+      throw new Error("Invalid background task snapshot");
+    result.backgroundSubagents = [];
+    for (const task of payload.background_tasks) {
+      if (!task || typeof task !== "object" || Array.isArray(task)) throw new Error("Invalid background task");
+      const fields = task as Record<string, unknown>;
+      if (fields.type !== "subagent") continue;
+      const id = text(fields, "id");
+      if (!id || id.length > 2000) throw new Error("Background subagent is missing a valid ID");
+      result.backgroundSubagents.push({ id, type: preview(text(fields, "agent_type")).slice(0, 200) });
+    }
+  }
+  if (subagentEvent) {
+    const id = text(payload, source.provider === "cursor" ? "subagent_id" : "agent_id");
+    const running = event.endsWith("Start");
+    if (id.length > 2000 || (running && !id)) throw new Error("Subagent is missing a valid ID");
+    const type = preview(text(payload, source.provider === "cursor" ? "subagent_type" : "agent_type")).slice(0, 200);
+    return {
+      ...result,
+      subagent: { id: id || null, type, running },
+      summary: running ? `Subagent started${type ? `: ${type}` : ""}`
+        : `Subagent finished responding${type ? `: ${type}` : ""}${!id ? " — identity unavailable" : ""}`,
+    };
+  }
   if (source.provider !== "cursor" && event === "SessionStart" && text(payload, "source") === "compact") {
     // Compaction can occur mid-turn; it is not evidence that work stopped.
     return { ...result, lifecycle: "open", summary: "Session context compacted" };

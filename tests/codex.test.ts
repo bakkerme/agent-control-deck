@@ -23,7 +23,7 @@ async function fixture(t: { after: (fn: () => void | Promise<void>) => void }) {
   const collect = async (hook: string, input: string, status = 200) => {
     const response = await fetch(`${setup.endpoint}/${hook}`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: input });
     assert.equal(response.status, status);
-    assert.equal(await response.text(), status === 200 && hook === "Stop" ? "{}" : "");
+    assert.equal(await response.text(), status === 200 && (hook === "Stop" || hook === "SubagentStop") ? "{}" : "");
     inbox.poll();
   };
   const emit = (hook: string, extra: Record<string, unknown> = {}) => collect(hook, JSON.stringify({
@@ -70,7 +70,7 @@ test("Codex lifecycle travels through HTTP without steering the agent", async (t
 test("Codex configuration uses its own schema, locations, timeouts, and neutral failure output", async (t) => {
   const f = await fixture(t);
   const config = JSON.parse(f.setup.config);
-  assert.deepEqual(Object.keys(config.hooks), ["UserPromptSubmit", "Stop", "Interrupt", "SessionEnd"]);
+  assert.deepEqual(Object.keys(config.hooks), ["UserPromptSubmit", "Stop", "Interrupt", "SessionEnd", "SubagentStart", "SubagentStop"]);
   assert.equal(config.version, undefined);
   assert.ok(f.setup.configFile.includes("~/.codex/hooks.json"));
   assert.ok(f.setup.instructions.includes("/hooks"));
