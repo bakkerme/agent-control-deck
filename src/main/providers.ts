@@ -45,6 +45,9 @@ export function normalize(
           "StopFailure",
           "SessionEnd",
           "Notification",
+          "PostToolUse",
+          "PostToolUseFailure",
+          "ElicitationResult",
         ]
       : [
           "sessionStart",
@@ -68,6 +71,22 @@ export function normalize(
   }
   if (event === "Interrupt") {
     return { ...result, state: "idle", summary: "Turn interrupted" };
+  }
+  if (event === "PostToolUse" || event === "PostToolUseFailure" || event === "ElicitationResult") {
+    // Answers and permission decisions resume the current turn without a new
+    // UserPromptSubmit. A tool failure also returns control to Claude; only
+    // StopFailure is evidence that the whole turn failed.
+    if (event === "PostToolUseFailure" && payload.is_interrupt === true)
+      return { ...result, state: "idle", summary: "Tool interrupted" };
+    return {
+      ...result,
+      state: "running",
+      summary: event === "ElicitationResult"
+        ? "Input received — work resumed"
+        : event === "PostToolUseFailure"
+          ? "Tool returned an error — turn continuing"
+          : "Tool completed — turn continuing",
+    };
   }
   if (event === "SessionStart" || event === "sessionStart") {
     return {

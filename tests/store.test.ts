@@ -93,6 +93,32 @@ test("user records, archive, and references survive live events, restart, and se
   assert.equal(chat.preview, "Ready for review");
   assert.equal(f.store.activity(id).length, 3);
 });
+test("new conversation in an archived chat's project stays separate; resuming and restoring preserve the old record", t => {
+  const f = fixture(t);
+  f.store.ingest(f.source.id, event("first", "UserPromptSubmit", { prompt: "Original task" }));
+  const original = f.store.chats()[0];
+  f.store.command({ type: "updateChat", id: original.id, patch: { archived: true, name: "My original task", notes: "Keep this", jiraKey: "APP-42" } });
+  f.reopen();
+  f.store.ingest(f.source.id, event("new", "UserPromptSubmit", { session_id: "session-2", prompt: "New task" }));
+  const next = f.store.chats().find(c => c.externalId === "session-2")!;
+  assert.notEqual(next.id, original.id);
+  assert.equal(next.projectId, original.projectId);
+  assert.equal(next.archived, false);
+  f.store.ingest(f.source.id, event("resume", "UserPromptSubmit", { prompt: "Resume original task" }));
+  assert.equal(f.store.chat(original.id).archived, true);
+  assert.equal(f.store.chat(original.id).state, "running");
+  f.store.command({ type: "updateChat", id: original.id, patch: { archived: false } });
+  const restored = f.reopen().chat(original.id);
+  assert.equal(restored.archived, false);
+  assert.equal(restored.name, "My original task");
+  assert.equal(restored.notes, "Keep this");
+  assert.equal(restored.jiraKey, "APP-42");
+  assert.equal(restored.projectId, original.projectId);
+  assert.equal(f.store.activity(original.id).length, 2);
+  assert.equal(f.store.activity(next.id).length, 1);
+  assert.equal(f.store.chats().length, 2);
+});
+
 test("events deduplicate across restart and delayed observations cannot regress status", (t) => {
   const f = fixture(t);
   f.store.ingest(f.source.id, event("first", "UserPromptSubmit"));

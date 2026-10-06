@@ -86,6 +86,14 @@ function App() {
       </div>
     );
   const activeChats = snapshot.chats.filter((c) => !c.archived);
+  const viewChats = snapshot.chats.filter((c) => c.archived === archived);
+  const projectChats = snapshot.chats.filter(c => project === "all" || c.projectId === (project === "unassigned" ? null : project));
+  const changeArchiveView = (value: boolean) => {
+    setArchived(value);
+    setSearch("");
+    setState("all");
+    setProvider("all");
+  };
   const rank = (c: Chat) =>
     c.lifecycle === "ended"
       ? 5
@@ -231,13 +239,13 @@ function App() {
                 className={project === "all" ? "selected" : ""}
                 onClick={() => void navigate(() => setProject("all"))}
               >
-                All projects <span>{activeChats.length}</span>
+                All projects <span>{viewChats.length}</span>
               </button>
               <button
                 className={project === "unassigned" ? "selected" : ""}
                 onClick={() => void navigate(() => setProject("unassigned"))}
               >
-                No project <span>{activeChats.filter((c) => c.projectId === null).length}</span>
+                No project <span>{viewChats.filter((c) => c.projectId === null).length}</span>
               </button>
               {snapshot.projects.map((p) => (
                 <button
@@ -247,7 +255,7 @@ function App() {
                 >
                   <span>{p.name}</span>
                   <span>
-                    {activeChats.filter((c) => c.projectId === p.id).length}
+                    {viewChats.filter((c) => c.projectId === p.id).length}
                   </span>
                 </button>
               ))}
@@ -314,14 +322,12 @@ function App() {
                 <option value="ended">ended</option>
               </select>
             </div>
-            <label className="checkbox">
-              <input
-                type="checkbox"
-                checked={archived}
-                onChange={(e) => setArchived(e.target.checked)}
-              />
-              Show archived chats
-            </label>
+            <nav className="status-filters chat-views" aria-label="Chat visibility">
+              {[false, true].map(value => <button key={String(value)} aria-pressed={archived === value} className={archived === value ? "selected" : ""} onClick={() => void navigate(() => changeArchiveView(value))}>
+                {value ? "Archived chats" : "Active chats"} <span>{projectChats.filter(c => c.archived === value).length}</span>
+              </button>)}
+            </nav>
+            {archived && <p className="archive-note">Archived chats are hidden, with notes and history preserved. Select a chat to restore it. New chats appear in Active chats.</p>}
             <nav className="status-filters" aria-label="Quick status filters">
               {[["all", "All"], ["running", "Running"], ["waiting", "Needs input"], ["finished", "Finished turns"]].map(([value, label]) => <button key={value} aria-pressed={state === value} className={state === value ? "selected" : ""} onClick={() => setState(value)}>{label} <span>{scoped.filter(c => matchesState(c, value)).length}</span></button>)}
             </nav>
@@ -360,7 +366,7 @@ function App() {
                   </h3>
                   <p>
                     {snapshot.chats.length
-                      ? "Adjust the filters or look in the archive."
+                      ? archived ? "No archived chats match this view. New chats appear in Active chats." : "Adjust the filters or look in Archived chats."
                       : "Track something manually, connect a source, or try the demo."}
                   </p>
                   {!snapshot.chats.length && (
@@ -385,13 +391,17 @@ function App() {
               renameProject={(id) => openModal("rename", id)}
               report={setError}
               archive={() =>
-                void navigate(() =>
-                  mutate({
+                void navigate(async () => {
+                  await mutate({
                     type: "updateChat",
                     id: chat.id,
                     patch: { archived: !chat.archived },
-                  }),
-                )
+                  });
+                  if (chat.archived) {
+                    changeArchiveView(false);
+                    setProject(chat.projectId ?? "unassigned");
+                  }
+                })
               }
             />
           ) : (

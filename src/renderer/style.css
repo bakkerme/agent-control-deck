@@ -544,6 +544,8 @@ summary {
 .status-filters { display: flex; flex-wrap: wrap; gap: 5px; margin: 0 0 16px; }
 .status-filters button { padding: 5px 8px; font-size: 12px; border-radius: 6px; }
 .status-filters span { margin-left: 4px; font-variant-numeric: tabular-nums; color: var(--muted); }
+.chat-views { margin: 12px 0 8px; }
+.archive-note { font-size: 12px; color: var(--muted); line-height: 1.5; margin: 0 0 12px; }
 .record-heading, .chat-item { display: grid; grid-template-columns: minmax(100px, 1fr) 92px 70px; gap: 12px; align-items: center; }
 .record-heading { padding: 11px 10px; font-size: 11px; color: var(--muted); border-top: 1px solid var(--border); }
 .record-heading span:last-child { text-align: right; }

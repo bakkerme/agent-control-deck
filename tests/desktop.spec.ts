@@ -63,10 +63,10 @@ test("desktop CRUD, live events, archive, search, demo isolation, and restart pe
     await expect((await notesField(page))).toHaveValue("Keep my standalone notes");
     await (await organizationButton(page, "Archive chat")).click();
     await expect(page.getByRole("button", { name: /^No project 0$/ })).toBeVisible();
-    await page.getByLabel("Show archived chats").check();
+    await page.getByRole("button", { name: /^Archived chats \d+$/ }).click();
     await expect(page.getByRole("button", { name: "Select chat Standalone task" })).toBeVisible();
     await (await organizationButton(page, "Restore chat")).click();
-    await page.getByLabel("Show archived chats").uncheck();
+    await page.getByRole("button", { name: /^Active chats \d+$/ }).click();
     await page.getByRole("button", { name: /^Work project 0$/ }).click();
     await page.getByRole("button", { name: "New chat", exact: true }).click();
     await expect(page.getByRole("dialog").getByRole("combobox", { name: "Project", exact: true })).not.toHaveValue("");
@@ -112,13 +112,13 @@ test("desktop CRUD, live events, archive, search, demo isolation, and restart pe
     await expect(
       page.getByRole("button", { name: "Select chat Investigate retries" }),
     ).toHaveCount(0);
-    await page.getByLabel("Show archived chats").check();
+    await page.getByRole("button", { name: /^Archived chats \d+$/ }).click();
     await expect(
       page.getByRole("button", { name: "Select chat Investigate retries" }),
     ).toBeVisible();
     await (await organizationButton(page, "Restore chat"))
       .click();
-    await page.getByLabel("Show archived chats").uncheck();
+    await page.getByRole("button", { name: /^Active chats \d+$/ }).click();
     await page.getByLabel("Search chats").fill("");
     await page.getByRole("button", { name: "Sources", exact: true }).click();
     await page.getByRole("button", { name: "Add source", exact: true }).click();

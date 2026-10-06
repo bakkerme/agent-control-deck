@@ -10,6 +10,19 @@ import { Store } from "../src/main/store";
 import { Inbox } from "../src/main/inbox";
 import { sourceSetup, writeHookSetup, sourceToken, hookOrigin } from "../src/main/setup";
 
+function runCommand(command: string, payload = "{}") {
+  return new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve, reject) => {
+    const child = spawn(process.platform === "win32" ? "cmd.exe" : "sh", process.platform === "win32" ? ["/d", "/s", "/c", command] : ["-c", command]);
+    let stdout = "", stderr = "";
+    child.stdout.on("data", data => stdout += data);
+    child.stderr.on("data", data => stderr += data);
+    child.on("error", reject);
+    child.on("close", code => resolve({ code, stdout, stderr }));
+    child.stdin.on("error", error => { if ((error as NodeJS.ErrnoException).code !== "EPIPE") reject(error); });
+    child.stdin.end(payload);
+  });
+}
+
 async function fixture(t: { after: (fn: () => Promise<void>) => void }) {
   const root = mkdtempSync(join(tmpdir(), "acd-http with 'spaces "));
   let store = new Store(join(root, "workspace.sqlite"));
@@ -72,6 +85,42 @@ test("HTTP discovers existing chats on first prompt and preserves edits through 
   assert.equal(f.store.chat(chat.id).jiraKey, "WORK-1");
 });
 
+test("Claude answers and tool returns resume the same turn without another prompt", async t => {
+  const f = await fixture(t);
+  const emit = async (event: string, extra: Record<string, unknown> = {}) => {
+    const response = await f.send("claude", event, extra);
+    assert.equal(response.status, 200);
+    assert.equal(await response.text(), ""); // Observation never directs Claude.
+    f.inbox.poll();
+  };
+  await emit("PostToolUse", { tool_name: "Read" });
+  assert.equal(f.store.chats().length, 0); // Tool events don't discover chats.
+  await emit("UserPromptSubmit", { prompt: "Build the API" });
+  const chat = f.store.chats()[0];
+  for (const [event, extra] of [
+    ["PostToolUse", { tool_name: "AskUserQuestion", tool_response: { answers: { "Which option?": "First" } } }],
+    ["PostToolUse", { tool_name: "Bash" }],
+    ["PostToolUseFailure", { tool_name: "Bash", error: "Exit code 1", is_interrupt: false }],
+    ["ElicitationResult", { action: "accept", content: { answer: "First" } }],
+  ] as const) {
+    await emit("Notification", { notification_type: "permission_prompt", message: "Needs input" });
+    assert.equal(f.store.chat(chat.id).state, "waiting");
+    f.reopen(); // Waiting state and the subsequent resume survive restart.
+    await emit(event, extra);
+    assert.equal(f.store.chat(chat.id).state, "running");
+    assert.equal(f.store.chat(chat.id).lifecycle, "open");
+    assert.equal(f.store.chat(chat.id).providerTitle, "Build the API");
+    assert.equal(f.store.chat(chat.id).preview, "Build the API");
+    assert.equal(f.store.chats().length, 1);
+  }
+  await emit("PostToolUseFailure", { tool_name: "Bash", is_interrupt: true });
+  assert.equal(f.store.chat(chat.id).state, "idle");
+  await emit("Stop");
+  assert.equal(f.store.chat(chat.id).state, "idle");
+  await emit("StopFailure", { error: "API failed" });
+  assert.equal(f.store.chat(chat.id).state, "error");
+});
+
 test("HTTP rejects unauthorized, cross-source, browser, mismatched and oversized requests; isolates demo", async t => {
   const f = await fixture(t);
   assert.equal((await f.send("claude", "UserPromptSubmit", {}, { Authorization: "" })).status, 401);
@@ -101,15 +150,13 @@ test("HTTP rejects unauthorized, cross-source, browser, mismatched and oversized
 test("generated curl commands deliver stdin through the real shell and return neutral responses", async t => {
   const f = await fixture(t);
   for (const provider of ["claude", "cursor", "codex"] as const) {
-    // Check Windows WSL configuration while exercising payload delivery with
-    // the host's curl. This is not a claim of real WSL interoperability coverage.
+    // Exercise payload delivery with the host-native command. WSL path
+    // generation is checked separately; this does not exercise interoperability.
     const source = f.sources.find(s => s.provider === provider)!;
-    const setup = provider === "claude" ? sourceSetup(f.root, source, "win32", f.connection) : f.setups[provider];
-    const config = JSON.parse(setup.config);
+    const setup = sourceSetup(f.root, { ...source, environment: "native" }, process.platform, f.connection);
     const event = provider === "cursor" ? "beforeSubmitPrompt" : "UserPromptSubmit";
-    const hook = provider === "cursor" ? config.hooks[event][0] : config.hooks[event][0].hooks[0];
     const result = await new Promise<{ code: number | null; stdout: string }>((resolve, reject) => {
-      const command = process.platform === "win32" ? hook.command : hook.command.replace(/^curl\.exe /, "curl ");
+      const command = setup.testCommand;
       const child = spawn(process.platform === "win32" ? "cmd.exe" : "sh", process.platform === "win32" ? ["/d", "/s", "/c", command] : ["-c", command]);
       let stdout = ""; child.stdout.on("data", data => stdout += data);
       child.on("error", reject); child.on("close", code => resolve({ code, stdout }));
@@ -140,23 +187,58 @@ test("queued HTTP events survive database failure and a full queue refuses accep
   assert.equal(readdirSync(f.setups.claude.inbox).length, 1000);
 });
 
+test("command hooks remain quiet and neutral when delivery fails; diagnostics still report failure", async t => {
+  const f = await fixture(t);
+  for (const provider of ["claude", "cursor", "codex"] as const) {
+    // WSL's POSIX wrapper is exercised on macOS using host curl. Native Windows
+    // command hooks are exercised by cmd.exe; actual WSL interoperability is not.
+    if (process.platform === "win32" && provider === "claude") continue;
+    const source = f.sources.find(s => s.provider === provider)!;
+    const setup = sourceSetup(f.root, { ...source, environment: provider === "claude" ? "wsl" : "native" }, provider === "claude" ? "win32" : process.platform, f.connection);
+    const config = JSON.parse(setup.config);
+    for (const [event, groups] of Object.entries(config.hooks) as [string, { command?: string; hooks?: { command: string }[] }[]][]) {
+      const hook = provider === "cursor" ? groups[0] : groups[0].hooks![0];
+      const command = hook.command!.replace('"/mnt/c/Windows/System32/curl.exe"', "curl");
+      const neutral = provider === "cursor" && event === "beforeSubmitPrompt" ? '{"continue":true}' : provider === "codex" && event === "Stop" ? "{}" : "";
+      const assertNeutral = (result: Awaited<ReturnType<typeof runCommand>>) => {
+        assert.equal(result.code, 0);
+        assert.equal(result.stdout.trim(), neutral);
+        assert.equal(result.stderr, "");
+      };
+      // A live receiver refusing the payload must not affect the agent.
+      assertNeutral(await runCommand(command));
+      // Missing curl (including a wrong WSL mount path) is also fail-open.
+      assertNeutral(await runCommand(command.replace(/^curl(?:\.exe)? /, "acd-no-such-curl ")));
+      // Use an unbound loopback port to exercise a closed deck without changing
+      // the fixture's live receiver or depending on an arbitrary port number.
+      const closed = new HookReceiver(() => ({ store: f.store, inbox: f.inbox, root: f.root, demo: false }));
+      const address = await closed.listen({ host: "127.0.0.1", port: 0 });
+      await closed.close();
+      assertNeutral(await runCommand(command.replace(f.connection.url, address.url)));
+      assert.notEqual((await runCommand(setup.testCommand.replace('"/mnt/c/Windows/System32/curl.exe"', "curl").replace(f.connection.url, address.url))).code, 0);
+    }
+  }
+  assert.equal(f.store.chats().length, 0);
+});
+
 test("Windows WSL hooks use Windows curl and receiver address, preserving credentials across restart", async t => {
   const f = await fixture(t);
   const source = f.sources.find(s => s.provider === "claude")!;
   const setup = sourceSetup(f.root, source, "win32", f.connection);
   const config = JSON.parse(setup.config);
-  assert.deepEqual(Object.keys(config.hooks), ["UserPromptSubmit", "Stop", "StopFailure", "SessionEnd", "Notification"]);
+  assert.deepEqual(Object.keys(config.hooks), ["UserPromptSubmit", "Stop", "StopFailure", "SessionEnd", "Notification", "PostToolUse", "PostToolUseFailure", "ElicitationResult"]);
   for (const groups of Object.values(config.hooks) as { hooks: { type: string; command: string; url?: string }[] }[][]) {
     const hook = groups[0].hooks[0];
     assert.equal(hook.type, "command");
-    assert.ok(hook.command.startsWith("curl.exe "));
+    assert.ok(hook.command.startsWith('"/mnt/c/Windows/System32/curl.exe" '));
     assert.ok(hook.command.includes(`${f.connection.url}/hooks/${source.id}/`));
     assert.ok(hook.command.includes('--data-binary "@-"'));
     assert.equal(hook.url, undefined);
   }
   assert.ok(setup.endpoint.startsWith(f.connection.url));
   assert.ok(!setup.config.includes("powershell") && !setup.config.includes("wslpath"));
-  assert.ok(setup.testCommand.startsWith("curl.exe "));
+  assert.ok(setup.testCommand.startsWith('"/mnt/c/Windows/System32/curl.exe" '));
+  assert.ok(setup.instructions.includes("without requiring Windows directories on your WSL PATH"));
   f.reopen();
   assert.equal(sourceSetup(f.root, source, "win32", f.connection).config, setup.config);
   // Native Claude keeps direct HTTP. Other Windows WSL providers use the same
@@ -167,7 +249,7 @@ test("Windows WSL hooks use Windows curl and receiver address, preserving creden
     const other = f.sources.find(s => s.provider === provider)!;
     const configured = JSON.parse(sourceSetup(f.root, { ...other, environment: "wsl" }, "win32", f.connection).config);
     const groups = configured.hooks[provider === "cursor" ? "beforeSubmitPrompt" : "UserPromptSubmit"];
-    assert.ok((provider === "cursor" ? groups[0] : groups[0].hooks[0]).command.startsWith("curl.exe "));
+    assert.ok((provider === "cursor" ? groups[0] : groups[0].hooks[0]).command.startsWith('"/mnt/c/Windows/System32/curl.exe" '));
   }
   assert.throws(() => hookOrigin('http://host/$(danger)'));
   assert.throws(() => hookOrigin("https://example.com"));

@@ -81,7 +81,7 @@ test("Codex configuration uses its own schema, locations, timeouts, and neutral 
   const windows = sourceSetup(f.dir, f.source, "win32", f.connection);
   assert.ok(windows.config.includes("curl.exe"));
   const wsl = sourceSetup(f.dir, { ...f.source, environment: "wsl" }, "win32", f.connection);
-  assert.ok(wsl.config.includes("curl.exe "));
+  assert.ok(JSON.parse(wsl.config).hooks.UserPromptSubmit[0].hooks[0].command.startsWith('"/mnt/c/Windows/System32/curl.exe" '));
   await f.collect("Stop", "{", 400);
   assert.equal(f.store.chats().length, 0);
   await f.collect("Stop", "x".repeat(270000), 413);

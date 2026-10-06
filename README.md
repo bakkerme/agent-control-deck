@@ -43,9 +43,11 @@ Open **Sources → Add source**. Choose the provider and native or WSL environme
 
 Native Claude Code uses HTTP hooks directly. WSL sources configured by the Windows deck use command hooks that invoke Windows `curl.exe`, keeping HTTP on the Windows side. Cursor and Codex also use command hooks that POST stdin with curl. No PowerShell or Bash collector scripts, separate Node installation, or Python are required.
 
-For Claude Code in WSL, run the **Windows app**, create a WSL source per distro, and configure Claude inside that distro. The receiver defaults to `http://127.0.0.1:43821`. WSL hooks launch `curl.exe` through Windows executable interoperability and POST to Windows localhost. This route needs no WSL host-IP, mirrored-networking configuration, or inbound firewall exception. Windows interoperability must be enabled and `curl.exe` available on the WSL PATH. See [WSL setup and diagnostics](docs/desktop-integrations.md#wsl-networking).
+For Claude Code in WSL, run the **Windows app**, create a WSL source per distro, and configure Claude inside that distro. The receiver defaults to `http://127.0.0.1:43821`. WSL hooks launch `"/mnt/c/Windows/System32/curl.exe"` through Windows executable interoperability and POST to Windows localhost, without requiring Windows directories on the Linux PATH. This route needs no WSL host-IP, mirrored-networking configuration, or inbound firewall exception. Windows interoperability must be enabled. Adjust the executable path in your hook commands if the Windows drive or WSL mount root differs. See [WSL setup and diagnostics](docs/desktop-integrations.md#wsl-networking).
 
 Keep the deck running while using your agents. New and existing/resumed chats appear on their next submitted prompt; merely opening or closing an unused chat does not add it. Historical conversations are not scanned. Events sent while the deck is closed are not captured. Accepted requests are queued on disk before ingestion; pause/resume and storage retries retain that queue.
+
+Command hooks finish quietly and successfully when the deck is unavailable, without interrupting the agent. The Sources diagnostic command still reports delivery failures so you can test the connection. Native Claude HTTP hooks allow execution to continue on connection failure, but Claude may display a hook error notice.
 
 **Send diagnostic event** checks local inbox ingestion only. The Sources page also provides an HTTP test command to run in the provider environment. Submit a real prompt in an existing chat to verify the complete hook installation.
 

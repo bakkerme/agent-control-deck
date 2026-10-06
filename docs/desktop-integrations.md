@@ -8,17 +8,17 @@ Create a source in the app for each provider/environment. A source owns its auth
 - Claude Code: `~/.claude/settings.json` (inside WSL for a WSL source).
 - Cursor: `~/.cursor/hooks.json` in the native Windows/macOS user profile.
 
-Native Claude uses documented `type: "http"` hooks and POSTs its JSON input directly. For WSL sources configured by the Windows deck, Claude instead uses `type: "command"` hooks invoking Windows `curl.exe` through WSL interoperability. Cursor and Codex do not document a native HTTP hook type; their command hooks forward stdin with curl (`curl.exe` for all sources configured by the Windows deck). No generated collector scripts or separate Node/Python runtime are needed. Command hooks need curl on the provider's PATH.
+Native Claude uses documented `type: "http"` hooks and POSTs its JSON input directly. For WSL sources configured by the Windows deck, Claude instead uses `type: "command"` hooks invoking `"/mnt/c/Windows/System32/curl.exe"` through WSL interoperability. Cursor and Codex do not document a native HTTP hook type; their command hooks forward stdin with curl (the same absolute executable path for Windows/WSL sources, `curl.exe` for native Windows sources). No generated collector scripts or separate Node/Python runtime are needed. WSL command hooks do not depend on Windows directories being on the provider's PATH; other command hooks need curl on PATH.
 
 All sources discover chats on `UserPromptSubmit` / `beforeSubmitPrompt`. `SessionStart` / `sessionStart` are not registered. This lets you enable monitoring and return to an existing chat: its next prompt carries the stable conversation ID and workspace, creates an entry, and opens its lifecycle. Completion, notification, error, and end events update known chats but do not create unused chats. Existing deck chats and all user-owned edits remain intact.
 
-Keep the deck running to receive events. Requests sent while it is closed are not captured or assumed to replay. Once accepted, events are queued durably before ingestion, including when ingestion is paused. HTTP responses contain no provider text, approvals, prompts, or context. Collector connection/HTTP errors are non-blocking under the documented provider behavior; command forwarding has a two-second delivery limit and hooks have a three-second timeout.
+Keep the deck running to receive events. Requests sent while it is closed are not captured or assumed to replay. Once accepted, events are queued durably before ingestion, including when ingestion is paused. HTTP responses contain no provider text, approvals, prompts, or context. Command hooks discard transport output and finish successfully even when the deck is closed, curl is missing, or the receiver refuses delivery. They always emit the fixed neutral response expected by Cursor beforeSubmitPrompt or Codex Stop, and otherwise no output. Native Claude HTTP hooks remain non-blocking on connection failure, but Claude may display an error notice for that transport. Command forwarding has a two-second delivery limit and hooks have a three-second timeout.
 
 ### Replacing old file collectors
 
 Replace only the deck's old hook entries with the new fragment, removing its SessionStart entries and script commands. Preserve unrelated hooks/settings. The app stops generating collector scripts but does not edit provider configuration or remove older user-data files automatically. Existing pending inbox files still drain through the normal reader. Credentials live under `hooks/<source-id>/http-token` and survive restarts; configuration fragments contain them, so keep these files private.
 
-First use **Send diagnostic event** to test the local inbox reader. The Sources page provides a curl command and labelled JSON input to test HTTP from the provider environment. Send a real prompt in an existing provider chat to confirm that the provider loaded the hooks. Reopen/restart the provider if configuration has not been reloaded. Pause/resume affects ingestion, not HTTP acceptance; remove the deck entries in the provider settings to uninstall hooks.
+First use **Send diagnostic event** to test the local inbox reader. The Sources page provides a curl command and labelled JSON input to test HTTP from the provider environment. This diagnostic command preserves curl's failure exit status; installed command hooks deliberately suppress delivery failures. Send a real prompt in an existing provider chat to confirm that the provider loaded the hooks. Reopen/restart the provider if configuration has not been reloaded. Pause/resume affects ingestion, not HTTP acceptance; remove the deck entries in the provider settings to uninstall hooks.
 
 ### WSL networking
 
@@ -31,13 +31,13 @@ The receiver defaults to `127.0.0.1:43821`. The HTTP request originates from a W
 From the same WSL environment used by the provider:
 
 ```bash
-curl.exe --version
-curl.exe --noproxy "*" --max-time 3 -i http://127.0.0.1:43821/
+"/mnt/c/Windows/System32/curl.exe" --version
+"/mnt/c/Windows/System32/curl.exe" --noproxy "*" --max-time 3 -i http://127.0.0.1:43821/
 ```
 
 With the deck running on the default address, **405 Method Not Allowed** confirms receiver reachability: GET is intentionally unsupported. Then use the authenticated test command and input shown in Sources, and submit a real prompt in an existing chat. The local **Send diagnostic event** button alone does not test interoperability or HTTP.
 
-If `curl.exe` is not found, check whether your WSL configuration imports the Windows PATH. With the standard Windows C-drive mount, `/mnt/c/Windows/System32/curl.exe --version` can distinguish a PATH problem from unavailable interoperability. If that executable works, restore/add its directory to the provider's WSL PATH or use its quoted absolute path in the command hooks. If Windows execution is blocked by workplace policy, this transport cannot be assumed to work; use an approved transport such as a shared-file inbox instead. The app does not change WSL or security settings automatically.
+The generated path assumes Windows is installed at `C:\Windows` and WSL mounts the C drive at `/mnt/c`. If the executable is not found, adjust the quoted absolute path in the hook commands for your Windows drive or WSL mount root. There is no need to import the Windows PATH into Linux. If Windows execution is blocked by workplace policy, this transport cannot be assumed to work; use an approved transport such as a shared-file inbox instead. The app does not change WSL or security settings automatically.
 
 ### Migrating an earlier NAT setup
 
@@ -70,10 +70,13 @@ New previews preserve Markdown line breaks within the 500-character limit. The r
 Claude Code adapter:
 
 - UserPromptSubmit reports running and captures a bounded prompt preview.
+- PostToolUse and PostToolUseFailure report running after a tool returns, including when you answer AskUserQuestion or approve a permission prompt without submitting another prompt. A tool error does not imply that the turn failed; an explicit interrupted tool failure reports idle. ElicitationResult reports running after an MCP input response.
 - Stop reports idle and uses the last assistant message when present.
 - StopFailure reports an error.
 - Notification reports waiting for `permission_prompt` or `elicitation_dialog`; `idle_prompt` reports idle. Other notifications add activity without guessing a state.
 - SessionEnd marks the session ended without deleting its chat.
+
+Replace the deck's Claude hook entries with the updated fragment from Sources to capture these resume events, preserving unrelated hooks. See the [official Claude hooks reference](https://code.claude.com/docs/en/hooks#posttooluse).
 
 Cursor adapter:
 
@@ -82,13 +85,17 @@ Cursor adapter:
 - stop reports idle or error according to its status; an aborted turn is idle with an explanatory activity entry.
 - sessionEnd marks the session ended without deleting its chat.
 
-Cursor has no attention signal in this registered hook set, so the app does not infer one. Tool, permission-control, reasoning, and transcript-reading hooks are deliberately absent. No receiver response submits follow-up prompts or approval decisions. Forwarding errors do not request intervention or block the agent.
+Cursor has no attention signal in this registered hook set, so the app does not infer one. Cursor tool hooks and all providers' permission-control, reasoning, and transcript-reading hooks are deliberately absent. Claude tool-return hooks observe resumed work only. No receiver response submits follow-up prompts or approval decisions. Forwarding errors do not request intervention or block the agent.
 
 References: [Claude Code hooks](https://code.claude.com/docs/en/hooks), [Cursor hooks](https://cursor.com/docs/hooks).
 
+## Archiving and restoring chats
+
+Archiving in the deck hides a chat from Active chats and preserves its name, notes, tickets, project, and recorded activity. Use Archived chats, select the chat, and choose Restore chat to return it to the active view. Provider events still update archived chats without restoring them automatically. New conversation IDs create separate active chats in the same project; resuming the same conversation ID updates its existing record. Project counts follow the selected active/archive view, and switching views clears search and status/provider filters.
+
 ## Inbox protocol
 
-The main process receives `POST /hooks/<source-id>/<event>` with that source's bearer token and `Content-Type: application/json`. Only registered lifecycle events are accepted. Event names must match the route and identities must validate. Request bodies and queued envelopes are limited to 256 KiB. Eight simultaneous bodies and sixteen connections bound receiver resource use. Responses never echo input or internal errors.
+The main process receives `POST /hooks/<source-id>/<event>` with that source's bearer token and `Content-Type: application/json`. Only registered observation events are accepted. Event names must match the route and identities must validate. Request bodies and queued envelopes are limited to 256 KiB. Eight simultaneous bodies and sixteen connections bound receiver resource use. Responses never echo input or internal errors.
 
 After validation, the receiver wraps the payload in a version-1 envelope with a unique `eventId` and server `observedAt`, fsyncs its queue file, and atomically renames it before acknowledging success. An optional `X-Deck-Event-Id` enables deduplication for clients deliberately retrying a request with the same ID. Provider HTTP delivery is not assumed to retry or supply that header. Inbox capacity is 1,000 pending events per source; unavailable/full storage refuses acceptance rather than reporting success.
 

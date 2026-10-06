@@ -35,7 +35,8 @@ test("Codex source setup, HTTP events, filtering and automatic chat fields", asy
         child.stdin.end(JSON.stringify({ hook_event_name: event, session_id: "ui-codex", cwd: "/work/codex-project", ...extra }));
       });
       expect(result.status, result.stderr).toBe(0);
-      expect(result.stdout).toBe(event === "Stop" ? "{}" : "");
+      if (event === "Stop") expect(JSON.parse(result.stdout)).toEqual({});
+      else expect(result.stdout).toBe("");
     };
     await emit("UserPromptSubmit", { turn_id: "t1", prompt: "Watch my Codex chat" });
     await page.getByRole("button", { name: "Workspace", exact: true }).click();

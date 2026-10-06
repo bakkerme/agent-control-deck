@@ -76,7 +76,8 @@ test("visible naming and organization controls persist; native input lamps clear
     emit("Notification", { notification_type: "permission_prompt", message: "Needs input in Claude" });
     await expect.poll(async () => (await page.evaluate(() => window.deck.load())).chats.find(c => c.externalId === "waiting-chat")?.state).toBe("waiting");
     if (process.platform === "darwin" || process.platform === "win32") await expect.poll(async () => (await icons()).length).toBe(5);
-    emit("UserPromptSubmit", { prompt: "Continue" });
+    // Answering Claude's question resumes a tool without submitting a prompt.
+    emit("PostToolUse", { tool_name: "AskUserQuestion", tool_response: { answers: { "Continue?": "Yes" } } });
     await expect.poll(async () => (await page.evaluate(() => window.deck.load())).chats.find(c => c.externalId === "waiting-chat")?.state).toBe("running");
     if (process.platform === "darwin" || process.platform === "win32") await expect.poll(async () => (await icons()).length).toBe(6);
     await page.getByRole("button", { name: "Try demo", exact: true }).click();
@@ -90,7 +91,7 @@ test("visible naming and organization controls persist; native input lamps clear
     await organization.getByRole("button", { name: "Archive chat", exact: true }).click();
     await app.close();
     app = await launch(); page = await app.firstWindow();
-    await page.getByLabel("Show archived chats").check();
+    await page.getByRole("button", { name: /^Archived chats \d+$/ }).click();
     await page.getByRole("button", { name: "Select chat Plan the rollout" }).click();
     await expect(page.getByLabel("Chat details").getByRole("combobox", { name: "Project", exact: true })).toHaveValue((await page.evaluate(() => window.deck.load())).projects.find(p => p.name === "Launch")!.id);
     await expect(page.getByRole("button", { name: "Restore chat", exact: true })).toBeVisible();

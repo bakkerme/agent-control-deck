@@ -7,7 +7,7 @@ export const DEFAULT_HTTP_PORT = 43821;
 export interface HookConnection { url: string }
 export const hookEvents = (provider: Source["provider"]): string[] =>
   provider === "claude"
-    ? ["UserPromptSubmit", "Stop", "StopFailure", "SessionEnd", "Notification"]
+    ? ["UserPromptSubmit", "Stop", "StopFailure", "SessionEnd", "Notification", "PostToolUse", "PostToolUseFailure", "ElicitationResult"]
     : provider === "codex"
       ? ["UserPromptSubmit", "Stop", "Interrupt", "SessionEnd"]
       : ["beforeSubmitPrompt", "afterAgentResponse", "stop", "sessionEnd"];
@@ -45,8 +45,19 @@ export function sourceSetup(
   const endpoint = `${origin}/hooks/${source.id}`;
   const token = sourceToken(root, source.id);
   const headers = { Authorization: `Bearer ${token}` };
-  const curl = platform === "win32" ? "curl.exe" : "curl";
-  const command = (event: string) => `${curl} --silent --fail --noproxy "*" --connect-timeout 1 --max-time 2 -H "Content-Type: application/json" -H "Authorization: Bearer ${token}" --data-binary "@-" "${endpoint}/${event}"`;
+  const curl = windowsWSL ? '"/mnt/c/Windows/System32/curl.exe"' : platform === "win32" ? "curl.exe" : "curl";
+  const request = (event: string) => `${curl} --silent --fail --noproxy "*" --connect-timeout 1 --max-time 2 -H "Content-Type: application/json" -H "Authorization: Bearer ${token}" --data-binary "@-" "${endpoint}/${event}"`;
+  const command = (event: string) => {
+    const response = source.provider === "cursor" && event === "beforeSubmitPrompt"
+      ? '{"continue":true}' : source.provider === "codex" && event === "Stop" ? "{}" : "";
+    // Hooks observe only. Ignore transport output and finish successfully even
+    // when the deck is closed, curl is missing, or delivery is refused. Keep
+    // the separate diagnostic command strict so setup failures stay testable.
+    const cmd = platform === "win32" && !windowsWSL;
+    return cmd
+      ? `${request(event)} >NUL 2>&1 & ${response ? `echo ${response}` : "exit /b 0"}`
+      : `${request(event)} >/dev/null 2>&1; ${response ? `printf '%s\\n' '${response}'` : "true"}`;
+  };
   const hooks = Object.fromEntries(hookEvents(source.provider).map((event) => {
     const hook = directHTTP
       ? { type: "http", url: `${endpoint}/${event}`, headers, timeout: 3 }
@@ -55,7 +66,7 @@ export function sourceSetup(
   }));
   return {
     inbox: join(root, "inbox", source.id), endpoint,
-    testCommand: command(source.provider === "cursor" ? "beforeSubmitPrompt" : "UserPromptSubmit"),
+    testCommand: request(source.provider === "cursor" ? "beforeSubmitPrompt" : "UserPromptSubmit"),
     config: JSON.stringify({ ...(source.provider === "cursor" ? { version: 1 } : {}), hooks }, null, 2),
     configFile: source.provider === "codex"
       ? "$CODEX_HOME/hooks.json (default: ~/.codex/hooks.json)"
@@ -63,12 +74,12 @@ export function sourceSetup(
     instructions: (source.provider === "codex"
       ? "Codex: review and trust these hooks in Codex before they can run (CLI: /hooks). " : "") +
       (windowsWSL
-        ? "WSL hooks invoke Windows curl.exe, which sends HTTP from Windows to the deck. No PowerShell or collector script is needed. Windows executable interoperability must be enabled and curl.exe available on your WSL PATH. "
+        ? "WSL hooks invoke /mnt/c/Windows/System32/curl.exe directly, which sends HTTP from Windows to the deck without requiring Windows directories on your WSL PATH. No PowerShell or collector script is needed. Windows executable interoperability must be enabled. If your Windows drive or WSL mount root differs, adjust the executable path in the hook commands. "
         : directHTTP ? "Claude sends HTTP events directly; no collector script is needed. "
         : "Command hooks forward events with curl; no collector script, Node, or Python is needed. ") +
       (source.environment === "wsl"
         ? "Configure hooks inside your WSL distro, with a separate source per distro. Use the Windows deck to generate the real WSL configuration. With the receiver on Windows loopback, no WSL host-IP, mirrored-networking setup, or inbound firewall exception is needed for this route. " : "") +
-      "Keep the deck running. A chat appears on its next submitted prompt, including an existing resumed chat. Events emitted while the deck is closed are not captured. Replace the deck's old hook entries and preserve unrelated hooks.",
+      "Keep the deck running. A chat appears on its next submitted prompt, including an existing resumed chat. Command hooks finish quietly and successfully if the deck is unavailable; the diagnostic command still reports delivery failures. Events emitted while the deck is closed are not captured. Replace the deck's old hook entries and preserve unrelated hooks.",
   };
 }
 export function writeHookSetup(root: string, source: Source, connection?: HookConnection): Setup {
