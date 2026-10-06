@@ -28,7 +28,7 @@ export const jiraBaseUrl = ticketUrl.refine((value) => {
   .transform((value) => value.replace(/\/+$/, ""));
 export const commandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("updateSettings"), jiraBaseUrl: jiraBaseUrl }).strict(),
-  z.object({ type: z.literal("createProject"), name }).strict(),
+  z.object({ type: z.literal("createProject"), name, chatId: id.optional() }).strict(),
   z.object({ type: z.literal("renameProject"), id, name }).strict(),
   z.object({ type: z.literal("createChat"), projectId: id.nullable(), name }).strict(),
   z

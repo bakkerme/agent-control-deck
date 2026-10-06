@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, readdirSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, readdirSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
@@ -189,6 +189,52 @@ test("same external ID in different providers/environments creates distinct chat
   });
   assert.equal(f.store.chats().length, 2);
 });
+test("repository projects remain permanent while custom grouping and new defaults persist", t => {
+  const f = fixture(t);
+  f.store.ingest(f.source.id, event("first", "UserPromptSubmit"));
+  const chat = f.store.chats()[0];
+  const repo = f.store.projects()[0];
+  assert.equal(repo.kind, "repo");
+  assert.equal(chat.repoProjectId, repo.id);
+  assert.throws(() => f.store.command({ type: "renameProject", id: repo.id, name: "Changed" }), /permanent/);
+  const custom = f.store.createProject("Release work");
+  assert.throws(() => f.store.command({ type: "addWorkspace", sourceId: f.source.id, projectId: custom, path: "/work/api" }), /cannot be changed/);
+  assert.throws(() => f.store.command({ type: "removeWorkspace", id: f.store.workspaces()[0].id }), /permanent/);
+  f.store.command({ type: "updateChat", id: chat.id, patch: { projectId: custom, notes: "Keep grouping" } });
+  f.store.ingest(f.source.id, event("new", "UserPromptSubmit", { session_id: "new-chat", cwd: "/work/api/src" }));
+  f.store.ingest(f.source.id, event("resume", "Stop"));
+  const saved = f.reopen().chat(chat.id);
+  assert.equal(saved.projectId, custom);
+  assert.equal(saved.repoProjectId, repo.id);
+  assert.equal(saved.notes, "Keep grouping");
+  assert.equal(f.store.chats().find(c => c.externalId === "new-chat")!.projectId, repo.id);
+  f.store.command({ type: "updateChat", id: chat.id, patch: { projectId: null } });
+  assert.equal(f.store.chat(chat.id).repoProjectId, repo.id);
+  assert.throws(() => f.store.command({ type: "updateChat", id: chat.id, patch: { repoProjectId: null } } as never));
+  assert.throws(() => f.store.command({ type: "createProject", name: "Invalid", chatId: "missing" }));
+  assert.equal(f.store.projects().length, 2);
+  f.store.command({ type: "createProject", name: "Launch", chatId: chat.id });
+  assert.equal(f.store.projects().find(p => p.id === f.store.chat(chat.id).projectId)!.name, "Launch");
+  assert.equal(f.store.chat(chat.id).repoProjectId, repo.id);
+});
+
+test("local Git roots share one project across subfolders and providers; nested repos stay separate", t => {
+  const f = fixture(t);
+  const root = join(f.dir, "repo");
+  mkdirSync(join(root, ".git"), { recursive: true });
+  mkdirSync(join(root, "src"), { recursive: true });
+  mkdirSync(join(root, "nested"), { recursive: true });
+  writeFileSync(join(root, "nested", ".git"), "gitdir: /worktree/metadata");
+  f.store.ingest(f.source.id, event("root", "UserPromptSubmit", { cwd: join(root, "src") }));
+  f.store.command({ type: "createSource", name: "Second provider", provider: "claude", environment: "native" });
+  const source = f.store.sources().find(s => s.id !== f.source.id)!;
+  f.store.ingest(source.id, event("second", "UserPromptSubmit", { cwd: root }));
+  assert.equal(f.store.projects().length, 1);
+  assert.equal(f.store.chats()[0].repoProjectId, f.store.chats()[1].repoProjectId);
+  f.store.ingest(f.source.id, event("nested", "UserPromptSubmit", { cwd: join(root, "nested"), session_id: "nested" }));
+  assert.equal(f.store.projects().length, 2);
+  assert.notEqual(f.store.chats()[0].repoProjectId, f.store.chats().find(c => c.externalId === "nested")!.repoProjectId);
+});
 test("bounds history and previews while rejecting invalid writes without partial mutations", (t) => {
   const f = fixture(t);
   for (let i = 0; i < 110; i++)
@@ -354,8 +400,15 @@ test("v1 migration backs up and preserves chats, relationships, history, and ded
   legacy.close();
   const store = new Store(filename);
   try {
-    assert.equal(store.db.pragma("user_version", { simple: true }), 3);
-    assert.deepEqual(tables.map((table) => store.db.prepare(`SELECT * FROM ${table}`).all()), before);
+    assert.equal(store.db.pragma("user_version", { simple: true }), 4);
+    assert.deepEqual(tables.map((table) => store.db.prepare(`SELECT * FROM ${table}`).all().map((row) => {
+      const original = { ...row as Record<string, unknown> };
+      if (table === "projects") delete original.kind;
+      if (table === "chats") delete original.repoProjectId;
+      return original;
+    })), before);
+    assert.equal(store.chat("c").repoProjectId, "p");
+    assert.equal(store.projects()[0].kind, "repo");
     assert.deepEqual(store.db.pragma("foreign_key_check"), []);
     assert.equal(store.db.pragma("foreign_keys", { simple: true }), 1);
     assert.throws(() => store.db.prepare("DELETE FROM chats WHERE id='c'").run(), /FOREIGN KEY/);
@@ -385,11 +438,11 @@ test("v2 settings migration preserves records, backs up once, and isolates demo 
   const chat = f.store.chats()[0];
   f.store.command({ type: "updateChat", id: chat.id, patch: { notes: "## Keep Markdown", jiraKey: "DECK-42", archived: true } });
   const before = f.store.chat(chat.id);
-  f.store.db.exec("DROP TABLE settings; PRAGMA user_version=2;");
+  f.store.db.exec("DROP TABLE settings; ALTER TABLE chats DROP COLUMN repoProjectId; ALTER TABLE projects DROP COLUMN kind; PRAGMA user_version=2;");
   const migrated = f.reopen();
   assert.deepEqual(migrated.chat(chat.id), before);
   assert.deepEqual(migrated.settings(), { jiraBaseUrl: "" });
-  assert.equal(migrated.db.pragma("user_version", { simple: true }), 3);
+  assert.equal(migrated.db.pragma("user_version", { simple: true }), 4);
   migrated.command({ type: "updateSettings", jiraBaseUrl: "https://company.example/jira/" });
   assert.deepEqual(f.reopen().settings(), { jiraBaseUrl: "https://company.example/jira" });
   assert.equal(readdirSync(f.dir).filter(n => n.startsWith("workspace.sqlite.bak-")).length, 1);
@@ -403,12 +456,46 @@ test("v2 settings migration preserves records, backs up once, and isolates demo 
   } finally { demo.close(); }
 });
 
+test("v3 repository migration joins proven local roots and preserves custom assignments", t => {
+  const f = fixture(t);
+  const root = join(f.dir, "repo");
+  mkdirSync(join(root, ".git"), { recursive: true });
+  mkdirSync(join(root, "src"), { recursive: true });
+  const original = f.store.createProject("Original repo name");
+  const duplicate = f.store.createProject("Second provider group");
+  const custom = f.store.createProject("My release");
+  f.store.db.prepare("INSERT INTO workspaces VALUES (?,?,?,?)").run("root", f.source.id, original, root);
+  f.store.db.prepare("INSERT INTO workspaces VALUES (?,?,?,?)").run("subdir", f.source.id, duplicate, join(root, "src"));
+  f.store.db.prepare("INSERT INTO chats (id,projectId,provider,sourceId,externalId,name,notes,jiraKey,archived,createdAt,updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?)")
+    .run("legacy", duplicate, "claude", f.source.id, "legacy", "My task", "Keep notes", "APP-42", 1, "2026-01-01", "2026-01-01");
+  f.store.db.prepare("INSERT INTO chats (id,projectId,provider,sourceId,externalId,name,createdAt,updatedAt) VALUES (?,?,?,?,?,?,?,?)")
+    .run("moved", custom, "claude", f.source.id, "moved", "Moved task", "2026-01-01", "2026-01-01");
+  f.store.db.exec("ALTER TABLE chats DROP COLUMN repoProjectId; ALTER TABLE projects DROP COLUMN kind; PRAGMA user_version=3;");
+  const migrated = f.reopen();
+  const chat = migrated.chat("legacy");
+  assert.equal(chat.repoProjectId, original);
+  assert.equal(chat.projectId, duplicate);
+  assert.equal(chat.name, "My task");
+  assert.equal(chat.notes, "Keep notes");
+  assert.equal(chat.jiraKey, "APP-42");
+  assert.equal(chat.archived, true);
+  assert.equal(migrated.projects().filter(p => p.kind === "repo").length, 1);
+  assert.equal(migrated.projects().find(p => p.id === duplicate)!.kind, "custom");
+  assert.equal(migrated.workspaces().every(w => w.projectId === original), true);
+  migrated.ingest(f.source.id, event("backfill", "Stop", { session_id: "moved", cwd: root }));
+  assert.equal(migrated.chat("moved").repoProjectId, original);
+  assert.equal(migrated.chat("moved").projectId, custom);
+  assert.deepEqual(migrated.db.pragma("foreign_key_check"), []);
+  assert.equal(readdirSync(f.dir).filter(n => n.startsWith("workspace.sqlite.bak-")).length, 1);
+  assert.equal(f.reopen().chat("legacy").repoProjectId, original);
+});
+
 test("a newer database is rejected without resetting it", (t) => {
   const dir = mkdtempSync(join(tmpdir(), "acd-newer-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const filename = join(dir, "workspace.sqlite");
   const db = new Database(filename);
-  db.exec("CREATE TABLE future_data(value TEXT); INSERT INTO future_data VALUES ('keep'); PRAGMA user_version=4;");
+  db.exec("CREATE TABLE future_data(value TEXT); INSERT INTO future_data VALUES ('keep'); PRAGMA user_version=5;");
   db.close();
   assert.throws(() => new Store(filename), /newer version/);
   const preserved = new Database(filename, { readonly: true });

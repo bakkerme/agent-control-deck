@@ -26,14 +26,15 @@ Use **Try demo** in the app to explore sample projects, a standalone chat, and l
 
 - Projects, manual chats, local chat names, and autosaved Markdown notes. Notes render inline in the details sidebar; click them or **Edit** to write, then use **Done** or Ctrl/Cmd+Enter to finish.
 - Jira tickets sit beside the chat title. Click a populated ticket to open it in your default browser; use the pencil to edit its number or full URL inline. Enter saves and Escape cancels. Configure **Settings → Jira base URL** for ticket numbers; full URLs use their own address.
-- Chats can exist without a project. Choose **No project** in a chat’s Project selector to remove its assignment; use the sidebar to find unassigned chats.
+- Each discovered repository has a permanent project; new chats join it automatically. Add a custom grouping with **Add a new project** at the end of the sidebar list or chat Project dropdown. Creating a project from the dropdown also adds the selected chat to it. Repo chats remain visible in their repository project when added to a custom project.
+- Manual chats and providers without a workspace can exist under **No project**. Remove an optional grouping with **None** or **No project** in chat details.
 - Search across names, notes, previews, project names, and Jira keys; filter by provider/state and browse the archive. Quick filters highlight running chats, chats needing input, and finished turns. A finished turn is an idle observation, not a claim that the work is complete.
 - Archive/restore without losing history. Incoming events never overwrite local names, notes, references, project assignments, or archive state.
 - Separate Codex, Claude Code, and Cursor hook adapters; ended sessions remain available.
 - Recent activity (100 entries per chat), Markdown previews (500 characters), and last-observed timestamps. A completed turn means idle, not completed work. Preview links and images are displayed without navigation or remote loading.
 - Source setup, diagnostic events, pause/resume, and workspace aliases to group Windows/WSL paths into one project.
 
-The blue Operations workspace keeps projects on the left, compact chat records in the center, and the selected chat’s notes, ticket, and activity in the right sidebar. Chat name, project assignment, project renaming, and Archive/Restore are visible near the top of chat details. Projects can represent any body of work; folder mappings only supply the initial assignment. Renaming a project changes its name for all associated chats. Names, assignments, and archives survive provider updates and restarts.
+The blue Operations workspace keeps projects on the left, compact chat records in the center, and the selected chat’s notes, ticket, and activity in the right sidebar. Chat name, project assignment, project renaming, and Archive/Restore are visible near the top of chat details. Repository projects have permanent names and path mappings. Custom projects can represent any body of work and can be renamed for all associated chats. Names, assignments, and archives survive provider updates and restarts.
 
 An orange lamp appears on the Windows taskbar icon or macOS Dock icon while any open, unarchived chat reports **Needs input**. It clears when those chats resume, end, or are archived, regardless of list filters or window focus. The indicator reflects the last reported event. The app-rendered, draggable title bar integrates navigation. macOS keeps its traffic lights and system menu; Windows uses native window buttons without a separate title or menu bar.
 

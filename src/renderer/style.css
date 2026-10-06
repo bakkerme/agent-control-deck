@@ -599,6 +599,10 @@ summary {
 .organization-heading h3 { margin: 0; }
 .organization-heading button { font-size: 11px; padding: 5px 8px; }
 .project-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.projects nav .add-project { margin-top: 8px; border-top: 1px solid var(--border); border-radius: 0; color: var(--accent); }
+.repo-project { display: grid; gap: 4px; padding: 8px 0; }
+.repo-project small { color: var(--muted); }
+.repo-project strong { font-size: 13px; overflow-wrap: anywhere; }
 .project-actions button { display: inline-flex; align-items: center; gap: 4px; border: 0; background: transparent; color: var(--accent); padding: 3px 0; font-size: 12px; }
 .name-hint { display: block; margin-top: 8px; }
 .source-details { border-top: 1px solid var(--border); padding-top: 16px; color: var(--muted); font-size: 12px; }

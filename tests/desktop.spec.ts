@@ -42,13 +42,16 @@ test("desktop CRUD, live events, archive, search, demo isolation, and restart pe
     await expect(page.getByRole("button", { name: /^No project 1$/ })).toBeVisible();
     await expect(page.getByRole("button", { name: "Rename project", exact: true })).toHaveCount(0);
     await page
-      .getByRole("button", { name: "Add project", exact: true })
+      .getByRole("button", { name: "+ Add a new project", exact: true })
       .click();
     await page.getByLabel("Project name", { exact: true }).fill("Work project");
     await page
       .getByRole("dialog")
       .getByRole("button", { name: "Create project", exact: true })
       .click();
+    await expect(page.getByRole("navigation", { name: "Projects", exact: true }).locator("button").last()).toHaveText("+ Add a new project");
+    await expect(page.getByRole("button", { name: /^Work project 0$/ })).toHaveClass("selected");
+    await page.getByRole("button", { name: /^No project 1$/ }).click();
     // Assigning and removing a project moves the same chat between filters.
     await (await organizationField(page, "Project")).selectOption({ label: "Work project" });
     await expect(page.getByRole("status")).toHaveText("Saved");

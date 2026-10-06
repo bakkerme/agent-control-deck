@@ -10,8 +10,8 @@ type Editable = Partial<Pick<Chat, "name" | "notes" | "jiraKey" | "jiraUrl" | "p
 export interface EditorHandle { flush: () => Promise<boolean>; }
 const ChatEditor = forwardRef<EditorHandle, {
   chat: Chat; projects: Project[]; activities: Activity[]; settings: Settings;
-  mutate: (c: Command) => Promise<void>; archive: () => void; renameProject: (id: string) => void; report: (s: string) => void; configureJira: () => void;
-}>(function ChatEditor({ chat, projects, activities, settings, mutate, archive, renameProject, report, configureJira }, ref) {
+  mutate: (c: Command) => Promise<void>; archive: () => void; renameProject: (id: string) => void; createProject: () => void; report: (s: string) => void; configureJira: () => void;
+}>(function ChatEditor({ chat, projects, activities, settings, mutate, archive, renameProject, createProject, report, configureJira }, ref) {
   const [draft, setDraft] = useState(chat);
   const [saving, setSaving] = useState("Saved");
   const [error, setError] = useState("");
@@ -70,6 +70,10 @@ const ChatEditor = forwardRef<EditorHandle, {
   useLayoutEffect(() => {
     if (notes.current) { notes.current.style.height = "auto"; notes.current.style.height = `${Math.max(240, notes.current.scrollHeight + 2)}px`; }
   }, [notesEditing, draft.notes]);
+  useEffect(() => {
+    if (pending.current.projectId === undefined && !flight.current)
+      setDraft(d => ({ ...d, projectId: chat.projectId, repoProjectId: chat.repoProjectId }));
+  }, [chat.projectId, chat.repoProjectId]);
   const edit = (patch: Editable) => {
     setDraft(d => ({ ...d, ...patch })); pending.current = { ...pending.current, ...patch };
     setSaving("Unsaved changes"); setError(""); clearTimeout(timer.current);
@@ -92,7 +96,7 @@ const ChatEditor = forwardRef<EditorHandle, {
   let ticketDestination = "";
   try { ticketDestination = resolveTicketUrl(draft, settings); } catch { /* Settings action supplies the missing base URL. */ }
   return <section className="details" aria-label="Chat details">
-    <div className="eyebrow">{projects.find(p => p.id === draft.projectId)?.name ?? "No project"} / {providerLabel(chat.provider)}{chat.archived && " · Archived"}</div>
+    <div className="eyebrow">{projects.filter(p => p.id === draft.projectId || p.id === chat.repoProjectId).map(p => p.name).join(" · ") || "No project"} / {providerLabel(chat.provider)}{chat.archived && " · Archived"}</div>
     <div className="detail-title">
       <h2>{displayName({ ...chat, name: draft.name })}</h2>
       {ticketEditing ? <form className={`ticket-inline ${ticketInput.includes("://") ? "has-url" : ""}`} aria-label="Edit ticket" onSubmit={e => { e.preventDefault(); void saveTicket(); }}>
@@ -117,8 +121,9 @@ const ChatEditor = forwardRef<EditorHandle, {
     <section className="organization" aria-label="Chat organization">
       <div className="organization-heading"><h3>Chat organization</h3><button onClick={archive}>{chat.archived ? "Restore chat" : "Archive chat"}</button></div>
       <label>Chat name<input value={draft.name} maxLength={200} placeholder={automaticName(chat)} onChange={e => edit({ name: e.target.value })} onBlur={() => void flush()} /></label>
-      <label>Project<select value={draft.projectId ?? ""} onChange={e => edit({ projectId: e.target.value || null })} onBlur={() => void flush()}><option value="">No project</option>{projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
-      <div className="project-actions"><small>Group chats by the work they belong to.</small>{draft.projectId && <button title="Rename this project for all its chats" onClick={() => renameProject(draft.projectId!)}><Icon name="pencil" /> Rename project</button>}</div>
+      {chat.repoProjectId && <div className="repo-project"><small>Repository project · permanent</small><strong>{projects.find(p => p.id === chat.repoProjectId)?.name}</strong></div>}
+      <label>{chat.repoProjectId ? "Additional project" : "Project"}<select value={draft.projectId === chat.repoProjectId ? "" : draft.projectId ?? ""} onChange={e => { if (e.target.value === "add-project") createProject(); else edit({ projectId: e.target.value || null }); }} onBlur={() => void flush()}><option value="">{chat.repoProjectId ? "None" : "No project"}</option>{projects.filter(p => p.id !== chat.repoProjectId && (!chat.repoProjectId || p.kind === "custom" || p.id === draft.projectId)).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}<option value="add-project">Add a new project</option></select></label>
+      <div className="project-actions"><small>{chat.repoProjectId ? "Adding a project keeps this chat in its repository project." : "Group chats by the work they belong to."}</small>{projects.some(p => p.id === draft.projectId && p.kind === "custom") && <button title="Rename this project for all its chats" onClick={() => renameProject(draft.projectId!)}><Icon name="pencil" /> Rename project</button>}</div>
       {chat.provider !== "manual" && <small className="name-hint">Leave the chat name blank to use the first prompt’s title.</small>}
     </section>
     <section className="notes-section" aria-label="Chat notes">

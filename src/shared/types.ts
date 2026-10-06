@@ -12,6 +12,7 @@ export interface Project {
   id: string;
   name: string;
   createdAt: string;
+  kind: "repo" | "custom";
 }
 export interface Workspace {
   id: string;
@@ -33,6 +34,7 @@ export interface Source {
 export interface Chat {
   id: string;
   projectId: string | null;
+  repoProjectId: string | null;
   provider: Provider;
   sourceId: string | null;
   externalId: string | null;
@@ -80,7 +82,7 @@ export interface Snapshot {
 }
 export type Command =
   | { type: "updateSettings"; jiraBaseUrl: string }
-  | { type: "createProject"; name: string }
+  | { type: "createProject"; name: string; chatId?: string }
   | { type: "renameProject"; id: string; name: string }
   | { type: "createChat"; projectId: string | null; name: string }
   | {

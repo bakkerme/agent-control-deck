@@ -25,6 +25,7 @@ function App() {
   );
   const [modalError, setModalError] = useState("");
   const [renameProjectId, setRenameProjectId] = useState("");
+  const [projectChatId, setProjectChatId] = useState<string | undefined>();
   const [activities, setActivities] = useState<Activity[]>([]);
   const editor = useRef<EditorHandle>(null);
   const settingsEditor = useRef<EditorHandle>(null);
@@ -87,7 +88,9 @@ function App() {
     );
   const activeChats = snapshot.chats.filter((c) => !c.archived);
   const viewChats = snapshot.chats.filter((c) => c.archived === archived);
-  const projectChats = snapshot.chats.filter(c => project === "all" || c.projectId === (project === "unassigned" ? null : project));
+  const inProject = (c: Chat, id: string) => id === "all" || (id === "unassigned" ? !c.projectId && !c.repoProjectId : c.projectId === id || c.repoProjectId === id);
+  const projectNames = (c: Chat) => snapshot.projects.filter(p => p.id === c.projectId || p.id === c.repoProjectId).map(p => p.name).join(" · ") || "No project";
+  const projectChats = snapshot.chats.filter(c => inProject(c, project));
   const changeArchiveView = (value: boolean) => {
     setArchived(value);
     setSearch("");
@@ -102,14 +105,14 @@ function App() {
     .filter(
       (c) =>
         c.archived === archived &&
-        (project === "all" || c.projectId === (project === "unassigned" ? null : project)) &&
+        inProject(c, project) &&
         (provider === "all" || c.provider === provider) &&
         [
           displayName(c),
           c.notes,
           c.jiraKey,
           c.preview,
-          (snapshot.projects.find((p) => p.id === c.projectId)?.name ?? "No project"),
+          projectNames(c),
         ]
           .join(" ")
           .toLowerCase()
@@ -125,10 +128,11 @@ function App() {
         ) ||
         a.id.localeCompare(b.id),
     );
-  const openModal = (kind: "project" | "chat" | "rename", targetProject = project) =>
+  const openModal = (kind: "project" | "chat" | "rename", targetProject = project, chatId?: string) =>
     void navigate(() => {
       setModalError("");
       setRenameProjectId(targetProject);
+      setProjectChatId(chatId);
       setModal(kind);
     });
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -137,9 +141,10 @@ function App() {
     const name = String(data.get("name"));
     try {
       const before = new Set(snapshot.chats.map((c) => c.id));
+      const beforeProjects = new Set(snapshot.projects.map(p => p.id));
       const next = await api.command(
         modal === "project"
-          ? { type: "createProject", name }
+          ? { type: "createProject", name, chatId: projectChatId }
           : modal === "rename"
             ? { type: "renameProject", id: renameProjectId, name }
             : {
@@ -150,6 +155,13 @@ function App() {
       );
       setSnapshot(next);
       setModal(null);
+      if (modal === "project") {
+        const created = next.projects.find(p => !beforeProjects.has(p.id));
+        if (created) {
+          setProject(created.id);
+          setSearch(""); setState("all"); setProvider("all"); setArchived(projectChatId ? archived : false);
+        }
+      }
       if (modal === "chat") {
         const created = next.chats.find((c) => !before.has(c.id));
         if (created) {
@@ -227,12 +239,6 @@ function App() {
           <aside className="projects">
             <div className="section-heading">
               <h2>Projects</h2>
-              <button
-                aria-label="Add project"
-                onClick={() => openModal("project")}
-              >
-                +
-              </button>
             </div>
             <nav aria-label="Projects">
               <button
@@ -245,22 +251,26 @@ function App() {
                 className={project === "unassigned" ? "selected" : ""}
                 onClick={() => void navigate(() => setProject("unassigned"))}
               >
-                No project <span>{viewChats.filter((c) => c.projectId === null).length}</span>
+                No project <span>{viewChats.filter((c) => inProject(c, "unassigned")).length}</span>
               </button>
               {snapshot.projects.map((p) => (
                 <button
                   key={p.id}
                   className={project === p.id ? "selected" : ""}
+                  title={p.kind === "repo" ? "Permanent repository project" : "Custom project"}
                   onClick={() => void navigate(() => setProject(p.id))}
                 >
                   <span>{p.name}</span>
                   <span>
-                    {viewChats.filter((c) => c.projectId === p.id).length}
+                    {viewChats.filter((c) => inProject(c, p.id)).length}
                   </span>
                 </button>
               ))}
+              <button className="add-project" onClick={() => openModal("project")}>
+                <span>+ Add a new project</span>
+              </button>
             </nav>
-            {snapshot.projects.some((p) => p.id === project) && (
+            {snapshot.projects.some((p) => p.id === project && p.kind === "custom") && (
               <button
                 className="text-button"
                 onClick={() => openModal("rename")}
@@ -344,7 +354,7 @@ function App() {
                   <div className="chat-record-title">
                     <strong>{displayName(c)}</strong>
                   <small>
-                    {(snapshot.projects.find((p) => p.id === c.projectId)?.name ?? "No project")}{" "}
+                    {projectNames(c)}{" "}
                     · {providerLabel(c.provider)}
                     {c.jiraKey && ` · ${c.jiraKey}`}
                   </small>
@@ -389,6 +399,7 @@ function App() {
               activities={activities}
               mutate={mutate}
               renameProject={(id) => openModal("rename", id)}
+              createProject={() => openModal("project", project, chat?.id)}
               report={setError}
               archive={() =>
                 void navigate(async () => {
@@ -399,7 +410,7 @@ function App() {
                   });
                   if (chat.archived) {
                     changeArchiveView(false);
-                    setProject(chat.projectId ?? "unassigned");
+                    setProject(chat.projectId ?? chat.repoProjectId ?? "unassigned");
                   }
                 })
               }

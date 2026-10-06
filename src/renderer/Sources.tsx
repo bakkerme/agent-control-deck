@@ -162,12 +162,12 @@ export default function Sources({
                 : { hook_event_name: "UserPromptSubmit", session_id: `http-diagnostic-${source.id}`, prompt: "Diagnostic chat — HTTP receiver test" })}</code>.
               Finish input with Ctrl+D in Bash or Ctrl+Z then Enter in Windows Command Prompt.
             </p>
-            <h3>3. Map workspace paths to projects</h3>
+            <h3>3. Add repository path aliases</h3>
             <p>
               Use paths exactly as the provider reports them. Add aliases to
-              group Windows and WSL locations into one project. Mappings apply
-              to newly discovered chats; existing chats can be moved in their
-              details.
+              group Windows and WSL locations into one repository project.
+              Repository mappings are permanent. Use custom projects in chat
+              details to group work across repositories.
             </p>
             <form
               className="mapping-form"
@@ -198,21 +198,21 @@ export default function Sources({
                 />
               </label>
               <label>
-                Target project
+                Repository project
                 <select name="project" required>
-                  {snapshot.projects.map((p) => (
+                  {snapshot.projects.filter(p => p.kind === "repo").map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.name}
                     </option>
                   ))}
                 </select>
               </label>
-              <button disabled={!snapshot.projects.length}>Add mapping</button>
+              <button disabled={!snapshot.projects.some(p => p.kind === "repo")}>Add alias</button>
             </form>
-            {!snapshot.projects.length && (
+            {!snapshot.projects.some(p => p.kind === "repo") && (
               <p>
-                Create a project in the workspace first, or let the first real
-                event discover one.
+                Let the first real event discover a repository project, then add
+                other paths for that repository here.
               </p>
             )}
             <ul className="mappings">
@@ -227,17 +227,7 @@ export default function Sources({
                           ?.name
                       }
                     </span>
-                    <button
-                      aria-label={`Remove mapping ${w.path}`}
-                      onClick={() =>
-                        void mutate({
-                          type: "removeWorkspace",
-                          id: w.id,
-                        }).catch((e) => report(message(e)))
-                      }
-                    >
-                      Remove
-                    </button>
+                    <small>Permanent</small>
                   </li>
                 ))}
             </ul>
