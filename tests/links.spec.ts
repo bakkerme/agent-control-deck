@@ -23,6 +23,9 @@ test("compact links, editable rules, source context and project membership survi
     emit("retry", "Stop", { last_assistant_message: '[Rollout](https://team.example/wiki/rollout) https://team.example/browse/PAY-142 [<img src=x>](https://example.org/context)' });
     const projectLinks = () => page.getByRole("region", { name: "Project links", exact: true });
     const chatLinks = () => page.getByRole("region", { name: "Chat links", exact: true });
+    await expect(page.locator(".projects").getByRole("button", { name: /^payments 2$/ })).toBeVisible();
+    await expect(projectLinks()).toHaveCount(0);
+    await page.locator(".projects").getByRole("button", { name: /^payments 2$/ }).click();
     await expect(projectLinks().getByRole("button", { name: /^Open link / })).toHaveCount(3);
     await expect(projectLinks().locator(".link-category").first()).toHaveText("Other");
     await page.getByRole("button", { name: "Settings", exact: true }).click();
@@ -45,6 +48,13 @@ test("compact links, editable rules, source context and project membership survi
     await projectLinks().locator(".link-sources summary").click();
     await projectLinks().locator(".link-sources").getByRole("button", { name: "Fix payment retries", exact: true }).click();
     await expect(chatLinks().getByRole("button", { name: /^Open link / })).toHaveCount(3);
+    await page.locator(".projects").getByRole("button", { name: /^All projects 2$/ }).click();
+    await expect(projectLinks()).toHaveCount(0);
+    await expect(chatLinks().getByRole("button", { name: /^Open link / })).toHaveCount(3);
+    await page.locator(".projects").getByRole("button", { name: /^No project 0$/ }).click();
+    await expect(projectLinks()).toHaveCount(0);
+    await expect(chatLinks().getByRole("button", { name: /^Open link / })).toHaveCount(3);
+    await page.locator(".projects").getByRole("button", { name: /^payments 2$/ }).click();
     await app.evaluate(({ shell }) => {
       (globalThis as unknown as { openedLinks: string[] }).openedLinks = [];
       shell.openExternal = async (url: string) => { (globalThis as unknown as { openedLinks: string[] }).openedLinks.push(url); };
@@ -80,6 +90,9 @@ test("compact links, editable rules, source context and project membership survi
     await expect(page.getByRole("status")).toHaveText("Saved");
     await page.screenshot({ path: "test-results/link-settings.png" });
     await app.close(); app = await launch(); page = await app.firstWindow();
+    await expect(page.locator(".projects").getByRole("button", { name: /^Release work 0$/ })).toBeVisible();
+    await expect(projectLinks()).toHaveCount(0);
+    await page.locator(".projects").getByRole("button", { name: /^Release work 0$/ }).click();
     await expect(projectLinks().getByRole("button", { name: /^Open link / })).toHaveCount(3);
     await expect(projectLinks().locator(".link-category").filter({ hasText: "Tickets" })).toHaveCount(0);
     await page.getByRole("button", { name: "Settings", exact: true }).click();

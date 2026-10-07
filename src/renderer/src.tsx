@@ -321,8 +321,8 @@ function App() {
                 New chat
               </button>
             </div>
-            <LinkStack links={projectLinks} rules={snapshot.settings.linkRules} chats={projectChats} scope="Project"
-              open={id => void api.openLink(id).catch(e => setError(message(e)))} selectChat={selectLinkChat} />
+            {project !== "all" && project !== "unassigned" && <LinkStack links={projectLinks} rules={snapshot.settings.linkRules} chats={projectChats} scope="Project"
+              open={id => void api.openLink(id).catch(e => setError(message(e)))} selectChat={selectLinkChat} />}
             <label className="search">
               Search chats
               <input
