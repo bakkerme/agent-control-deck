@@ -126,7 +126,13 @@ Version 7 also consolidates existing worktree defaults when accessible Git marke
 
 ## Persistence and boundaries
 
-SQLite stores projects, sources, path aliases, chats, bounded activity, and processed-event IDs. User fields are separate from provider observations. State is last reported activity, not process liveness. No timeout silently completes work. Archive state is always user-owned.
+SQLite stores projects, sources, path aliases, chats, detected links, bounded activity, and processed-event IDs. User fields are separate from provider observations. State is last reported activity, not process liveness. No timeout silently completes work. Archive state is always user-owned.
+
+Version 8 adds detected links without changing existing chat metadata. Codex and Claude `Stop` / `SubagentStop` observations scan `last_assistant_message` when supplied; Cursor `afterAgentResponse` scans `text` (and `stop` can supply `last_assistant_message`). Detection runs on the supplied text before its 500-character preview is created. Collection starts with new observations; old discarded response bodies cannot be recovered. Prompts and tool results are not scanned, and transcripts are not read.
+
+Only explicit HTTP/HTTPS URLs without embedded credentials are collected. Markdown labels are retained as plain text; otherwise the address is displayed. URLs are canonicalized using the URL parser and deduplicated per chat. Each observation collects at most 100 unique links; each chat retains its 1,000 most recently observed URLs. Link insertion, event deduplication and chat observation are one transaction, so storage failures remain retryable through the inbox. Late responses can add links without replacing a newer label or regressing observation times.
+
+**Settings → Link categories** stores up to 50 rules with an exact domain, optional path prefix and category name. Domain matching does not include subdomains. Paths match at directory boundaries; the longest matching path wins, and unmatched links use **Other**. Rules apply when links are displayed, so changing or removing a rule recategorizes saved URLs. The project stack includes links from all chats currently assigned to that project, independently of chat search, status and archive filters; the selected-chat stack shows its own links. Archived chat context remains reachable through source shortcuts. Overflow in the compact stack scrolls independently of the chat list. No metadata is fetched from linked sites. External opening accepts a stored link ID through trusted, validated IPC and revalidates the address in main before handing it to the default browser.
 
 `PRAGMA user_version` tracks schema migrations. Existing databases are checkpointed/backed up before migration. Databases from newer app versions are rejected instead of reset. Demo mode uses separate storage and inboxes.
 

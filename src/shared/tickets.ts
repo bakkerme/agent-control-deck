@@ -14,7 +14,7 @@ export function parseTicket(input: string): Pick<Chat, "jiraKey" | "jiraUrl"> {
   return { jiraKey: key.length <= 100 && keyPattern.test(key) ? key.toUpperCase() : "", jiraUrl: url.href };
 }
 
-export function resolveTicketUrl(chat: Pick<Chat, "jiraKey" | "jiraUrl">, settings: Settings): string {
+export function resolveTicketUrl(chat: Pick<Chat, "jiraKey" | "jiraUrl">, settings: Pick<Settings, "jiraBaseUrl">): string {
   if (chat.jiraUrl) return ticketUrl.parse(chat.jiraUrl);
   if (!chat.jiraKey) return "";
   if (!settings.jiraBaseUrl) throw new Error("Set the Jira base URL in Settings to open ticket numbers.");

@@ -72,9 +72,9 @@ test("v6 repair consolidates existing worktree rows, preserving names, flags, cu
   f.store.command({ type: "setProjectPriority", id: branch, priority: true });
   const moved = f.store.chat("moved");
   const history = f.store.activity("moved");
-  f.store.db.exec("ALTER TABLE projects DROP COLUMN mergedInto; ALTER TABLE projects DROP COLUMN repositoryPath; PRAGMA user_version=6;");
+  f.store.db.exec("DROP TABLE chat_links; ALTER TABLE projects DROP COLUMN mergedInto; ALTER TABLE projects DROP COLUMN repositoryPath; PRAGMA user_version=6;");
   f.reopen();
-  assert.equal(f.store.db.pragma("user_version", { simple: true }), 7);
+  assert.equal(f.store.db.pragma("user_version", { simple: true }), 8);
   assert.deepEqual(f.store.projects().map(p => p.id).sort(), [main, custom].sort());
   assert.equal(f.store.projects().find(p => p.id === main)!.priority, true);
   assert.equal(f.store.projects().find(p => p.id === main)!.name, "Previously renamed repository");
@@ -132,7 +132,7 @@ test("explicit aliases spanning clones keep their shared default for new linked 
   assert.equal(f.store.chats().find(c => c.externalId === "another clone worktree")!.projectId, project.id);
 });
 
-test("repository repair retries when Git markers become available and backs up the v7 data", t => {
+test("repository repair retries when Git markers become available and backs up current data", t => {
   const f = fixture(t);
   const main = f.store.createProject("Main repository", "repo"), branch = f.store.createProject("Worktree", "repo");
   f.store.db.prepare("INSERT INTO workspaces VALUES (?,?,?,?)").run("main", f.source.id, main, canonicalPath(f.root));
@@ -148,7 +148,7 @@ test("repository repair retries when Git markers become available and backs up t
   assert.equal(backups.length, 1);
   const backup = new Database(join(f.dir, backups[0]), { readonly: true });
   try {
-    assert.equal(backup.pragma("user_version", { simple: true }), 7);
+    assert.equal(backup.pragma("user_version", { simple: true }), 8);
     assert.equal((backup.prepare("SELECT COUNT(*) AS count FROM projects WHERE mergedInto IS NULL").get() as { count: number }).count, 2);
   } finally { backup.close(); }
   f.reopen();

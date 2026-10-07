@@ -77,9 +77,24 @@ export interface Setup {
 }
 export interface Settings {
   jiraBaseUrl: string;
+  linkRules: LinkRule[];
+}
+export interface LinkRule {
+  domain: string;
+  pathPrefix: string;
+  category: string;
+}
+export interface ChatLink {
+  id: string;
+  chatId: string;
+  url: string;
+  label: string;
+  firstSeenAt: string;
+  lastSeenAt: string;
 }
 export interface Snapshot {
   settings: Settings;
+  links: ChatLink[];
   projects: Project[];
   chats: Chat[];
   sources: Source[];
@@ -90,7 +105,7 @@ export interface Snapshot {
   setups: Record<string, Setup>;
 }
 export type Command =
-  | { type: "updateSettings"; jiraBaseUrl: string }
+  | { type: "updateSettings"; jiraBaseUrl?: string; linkRules?: LinkRule[] }
   | { type: "createProject"; name: string; chatId?: string }
   | { type: "renameProject"; id: string; name: string }
   | { type: "setProjectPriority"; id: string; priority: boolean }
@@ -130,6 +145,7 @@ export interface DeckApi {
   activity(chatId: string): Promise<Activity[]>;
   copy(text: string): Promise<void>;
   openTicket(chatId: string): Promise<void>;
+  openLink(linkId: string): Promise<void>;
   onChanged(callback: () => void): () => void;
 }
 declare global {

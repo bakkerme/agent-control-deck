@@ -13,7 +13,7 @@ import { mkdirSync } from "node:fs";
 import { z } from "zod";
 import { resolveTicketUrl } from "../shared/tickets";
 import type { Snapshot } from "../shared/types";
-import { commandSchema, idSchema } from "../shared/validation";
+import { commandSchema, idSchema, ticketUrl } from "../shared/validation";
 import { Store } from "./store";
 import { Inbox } from "./inbox";
 import { sourceSetup, writeHookSetup, type HookConnection } from "./setup";
@@ -95,6 +95,7 @@ function snapshot(): Snapshot {
   const sources = store.sources();
   return {
     settings: store.settings(),
+    links: store.links(),
     projects: store.projects(),
     chats: store.chats(),
     sources,
@@ -154,6 +155,9 @@ function registerIpc(): void {
   handle("deck:open-ticket", async (input) => {
     const url = resolveTicketUrl(store.chat(idSchema.parse(input)), store.settings());
     if (url) await shell.openExternal(url);
+  });
+  handle("deck:open-link", async (input) => {
+    await shell.openExternal(ticketUrl.parse(store.link(idSchema.parse(input)).url));
   });
   handle("deck:command", (input) => {
     const command = commandSchema.parse(input);

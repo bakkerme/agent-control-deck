@@ -1,18 +1,19 @@
 import { useCallback, useEffect, useLayoutEffect, useImperativeHandle, useRef, useState, forwardRef } from "react";
-import type { Chat, Activity, Project, Command, State, Settings } from "../shared/types";
+import type { Chat, Activity, Project, Command, State, Settings, ChatLink } from "../shared/types";
 import { states } from "../shared/types";
 import { SUBAGENT_OBSERVATION_AGE } from "../shared/status";
 import { parseTicket, resolveTicketUrl } from "../shared/tickets";
 import { providerLabel, displayName, automaticName, displayPreview, message, age, Status } from "./components";
 import MarkdownPreview from "./MarkdownPreview";
 import Icon from "./Icon";
+import LinkStack from "./LinkStack";
 const api = window.deck;
 type Editable = Partial<Pick<Chat, "name" | "notes" | "jiraKey" | "jiraUrl" | "projectId" | "state" | "lifecycle">>;
 export interface EditorHandle { flush: () => Promise<boolean>; }
 const ChatEditor = forwardRef<EditorHandle, {
-  chat: Chat; projects: Project[]; activities: Activity[]; settings: Settings;
+  chat: Chat; projects: Project[]; activities: Activity[]; settings: Settings; links: ChatLink[];
   mutate: (c: Command) => Promise<void>; archive: () => void; renameProject: (id: string) => void; createProject: () => void; report: (s: string) => void; configureJira: () => void;
-}>(function ChatEditor({ chat, projects, activities, settings, mutate, archive, renameProject, createProject, report, configureJira }, ref) {
+}>(function ChatEditor({ chat, projects, activities, settings, links, mutate, archive, renameProject, createProject, report, configureJira }, ref) {
   const [draft, setDraft] = useState(chat);
   const [saving, setSaving] = useState("Saved");
   const [error, setError] = useState("");
@@ -118,6 +119,8 @@ const ChatEditor = forwardRef<EditorHandle, {
         <button className="ticket-pencil" aria-label="Edit ticket" title="Edit ticket" onClick={beginTicket}><Icon name="pencil" /></button>
       </span> : <button className="add-ticket" onClick={beginTicket}>Add ticket</button>}
     </div>
+    <LinkStack links={links} rules={settings.linkRules} chats={[chat]} scope="Chat"
+      open={id => void flush().then(async ok => { if (ok) await api.openLink(id); }).catch(e => report(message(e)))} />
     <div className="activity-heading"><Status chat={chat} /><span title={chat.lastEventAt ?? chat.updatedAt}>{chat.provider === "manual" ? "Manually reported" : `Last event ${age(chat.lastEventAt)}`}</span></div>
     {!!chat.subagents.length && <details className="subagent-details">
       <summary>Subagent observations</summary>

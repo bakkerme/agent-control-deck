@@ -1,6 +1,7 @@
 import type { Source, State } from "../shared/types";
 import { codexPrompt, promptTitle } from "../shared/presentation";
 import { hookEvents } from "./setup";
+import { detectLinks } from "../shared/links";
 
 export interface Observation {
   externalId: string;
@@ -13,6 +14,7 @@ export interface Observation {
   summary: string;
   subagent?: { id: string | null; type: string; running: boolean };
   backgroundSubagents?: { id: string; type: string }[];
+  links?: ReturnType<typeof detectLinks>;
 }
 const text = (p: Record<string, unknown>, key: string): string =>
   typeof p[key] === "string" ? (p[key] as string) : "";
@@ -69,6 +71,7 @@ export function normalize(
     return {
       ...result,
       subagent: { id: id || null, type, running },
+      links: running ? undefined : detectLinks(text(payload, "last_assistant_message")),
       summary: running ? `Subagent started${type ? `: ${type}` : ""}`
         : `Subagent finished responding${type ? `: ${type}` : ""}${!id ? " — identity unavailable" : ""}`,
     };
@@ -124,6 +127,7 @@ export function normalize(
       ...result,
       preview: response || undefined,
       summary: response || "Assistant responded",
+      links: detectLinks(text(payload, "text")),
     };
   }
   if (event === "Stop" || event === "stop") {
@@ -133,6 +137,7 @@ export function normalize(
       ...result,
       state: failed ? "error" : "idle",
       preview: response || undefined,
+      links: detectLinks(text(payload, "last_assistant_message")),
       summary: failed
         ? "Turn failed"
         : text(payload, "status") === "aborted"

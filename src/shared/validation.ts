@@ -26,8 +26,21 @@ export const jiraBaseUrl = ticketUrl.refine((value) => {
   } catch { return false; }
 }, "Use a Jira base URL without query parameters or a fragment")
   .transform((value) => value.replace(/\/+$/, ""));
+export const linkRulesSchema = z.array(z.object({
+  domain: z.string().trim().min(1).max(253).transform(value => value.toLowerCase()).refine(value => {
+    try {
+      if (!value.split(".").every(label => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label))) return false;
+      const url = new URL(`https://${value}`);
+      return url.hostname === value && !url.port && !url.username && !url.password && url.pathname === "/" && !url.search && !url.hash && !value.endsWith(".");
+    } catch { return false; }
+  }, "Enter a domain only, such as docs.example.com"),
+  pathPrefix: z.string().trim().max(1000).refine(value => !value || (value.startsWith("/") && !/[\s?#\\]/.test(value)), "Use a path such as /wiki, without spaces, a query or fragment")
+    .transform(value => value.replace(/\/+$/, "")),
+  category: z.string().trim().min(1, "A category is required").max(100),
+}).strict()).max(50).refine(rules => new Set(rules.map(rule => `${rule.domain}\n${rule.pathPrefix}`)).size === rules.length, "Each domain and path combination needs just one category");
 export const commandSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("updateSettings"), jiraBaseUrl: jiraBaseUrl }).strict(),
+  z.object({ type: z.literal("updateSettings"), jiraBaseUrl: jiraBaseUrl.optional(), linkRules: linkRulesSchema.optional() }).strict()
+    .refine(value => value.jiraBaseUrl !== undefined || value.linkRules !== undefined, "Choose settings to update"),
   z.object({ type: z.literal("createProject"), name, chatId: id.optional() }).strict(),
   z.object({ type: z.literal("renameProject"), id, name }).strict(),
   z.object({ type: z.literal("setProjectPriority"), id, priority: z.boolean() }).strict(),

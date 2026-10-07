@@ -1,0 +1,90 @@
+import { test, expect, _electron as electron } from "@playwright/test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { randomUUID } from "node:crypto";
+
+test("compact links, editable rules, source context and project membership survive restart", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "acd-links-ui-"));
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key, value]) => key !== "ELECTRON_RUN_AS_NODE" && value !== undefined)) as Record<string, string>;
+  const launch = () => electron.launch({ executablePath: process.env.ACD_PACKAGED_EXECUTABLE, args: [...(process.env.ACD_PACKAGED_EXECUTABLE ? [] : [resolve(".")]), `--data-dir=${dir}`], env: { ...env, ACD_HTTP_PORT: "0" } });
+  let app = await launch();
+  try {
+    let page = await app.firstWindow();
+    const errors: string[] = [];
+    page.on("pageerror", e => errors.push(e.message));
+    const initial = await page.evaluate(() => window.deck.command({ type: "createSource", name: "Link source", provider: "claude", environment: "native" }));
+    const source = initial.sources[0];
+    let sequence = 0;
+    const emit = (session: string, kind: string, extra: Record<string, unknown>) => writeFileSync(join(initial.setups[source.id].inbox, `${randomUUID()}.json`), JSON.stringify({ version: 1, eventId: randomUUID(), observedAt: new Date(Date.now() + ++sequence).toISOString(), payload: { hook_event_name: kind, session_id: session, cwd: "/work/payments", ...extra } }));
+    emit("plan", "UserPromptSubmit", { prompt: "Write rollout plan" });
+    emit("retry", "UserPromptSubmit", { prompt: "Fix payment retries" });
+    emit("plan", "Stop", { last_assistant_message: `${"x".repeat(600)} [Rollout](https://team.example/wiki/rollout)` });
+    emit("retry", "Stop", { last_assistant_message: '[Rollout](https://team.example/wiki/rollout) https://team.example/browse/PAY-142 [<img src=x>](https://example.org/context)' });
+    const projectLinks = () => page.getByRole("region", { name: "Project links", exact: true });
+    const chatLinks = () => page.getByRole("region", { name: "Chat links", exact: true });
+    await expect(projectLinks().getByRole("button", { name: /^Open link / })).toHaveCount(3);
+    await expect(projectLinks().locator(".link-category").first()).toHaveText("Other");
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    for (const [index, path, category] of [[1, "/wiki", "Documents"], [2, "/browse", "Tickets"]] as const) {
+      await page.getByRole("button", { name: "Add category rule", exact: true }).click();
+      await page.getByLabel(`Rule ${index} domain`).fill("team.example");
+      await page.getByLabel(`Rule ${index} path prefix`).fill(path);
+      await page.getByLabel(`Rule ${index} category`).fill(category);
+    }
+    await page.getByRole("button", { name: "Save settings", exact: true }).click();
+    await expect(page.getByRole("status")).toHaveText("Saved");
+    await page.getByLabel("Rule 1 category").fill("Docs");
+    // Navigation drains unsaved settings rather than silently losing them.
+    await page.getByRole("button", { name: "Workspace", exact: true }).click();
+    await expect(projectLinks().locator(".link-category")).toHaveText(["Docs", "Tickets", "Other"]);
+    await expect(projectLinks().locator("img, script")).toHaveCount(0);
+    await page.locator(".projects").getByRole("button", { name: /^payments 2$/ }).click();
+    await expect(page.locator(".chat-list h2")).toHaveText("payments");
+    expect(await projectLinks().evaluate(el => el.getBoundingClientRect().bottom <= document.querySelector('.chat-list .search')!.getBoundingClientRect().top)).toBe(true);
+    await projectLinks().locator(".link-sources summary").click();
+    await projectLinks().locator(".link-sources").getByRole("button", { name: "Fix payment retries", exact: true }).click();
+    await expect(chatLinks().getByRole("button", { name: /^Open link / })).toHaveCount(3);
+    await app.evaluate(({ shell }) => {
+      (globalThis as unknown as { openedLinks: string[] }).openedLinks = [];
+      shell.openExternal = async (url: string) => { (globalThis as unknown as { openedLinks: string[] }).openedLinks.push(url); };
+    });
+    await chatLinks().getByRole("button", { name: "Open link team.example/browse/PAY-142", exact: true }).click();
+    await expect.poll(() => app.evaluate(() => (globalThis as unknown as { openedLinks: string[] }).openedLinks)).toEqual(["https://team.example/browse/PAY-142"]);
+    await expect(page.evaluate(() => window.deck.openLink("missing"))).rejects.toThrow(/no longer exists/);
+    await page.getByRole("region", { name: "Chat organization" }).getByRole("button", { name: "Archive chat", exact: true }).click();
+    await expect(projectLinks().getByRole("button", { name: /^Open link / })).toHaveCount(3);
+    await projectLinks().getByRole("button", { name: "Select source chat Fix payment retries", exact: true }).first().click();
+    await expect(page.getByRole("region", { name: "Chat organization" }).getByRole("button", { name: "Restore chat", exact: true })).toBeVisible();
+    const snapshot = await page.evaluate(() => window.deck.command({ type: "createProject", name: "Release work" }));
+    const moved = snapshot.projects.find(project => project.name === "Release work")!;
+    await page.getByRole("region", { name: "Chat organization" }).getByRole("combobox", { name: "Project", exact: true }).selectOption(moved.id);
+    await expect(page.getByRole("status")).toHaveText("Saved");
+    await expect(projectLinks().getByRole("button", { name: /^Open link / })).toHaveCount(1);
+    await page.locator(".projects").getByRole("button", { name: /^Release work 1$/ }).click();
+    await expect(projectLinks().getByRole("button", { name: /^Open link / })).toHaveCount(3);
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(980, 650));
+    expect(await projectLinks().locator(".detected-link").first().evaluate(el => el.getBoundingClientRect().height)).toBeLessThanOrEqual(28);
+    expect(await page.locator(".link-destination").evaluateAll(elements => elements.every(el => { const row=el.closest('.detected-link')!.getBoundingClientRect(), box=el.getBoundingClientRect();return box.left>=row.left && box.right<=row.right; }))).toBe(true);
+    await page.screenshot({ path: "test-results/links-minimum.png" });
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await expect(page.getByLabel("Rule 1 category")).toHaveValue("Docs");
+    await page.getByRole("button", { name: "Add category rule", exact: true }).click();
+    await page.getByLabel("Rule 3 domain").fill("https://bad.example");
+    await page.getByLabel("Rule 3 category").fill("Bad");
+    await page.getByRole("button", { name: "Workspace", exact: true }).click();
+    await expect(page.getByRole("alert")).toBeVisible();
+    await page.getByRole("button", { name: "Remove rule 3", exact: true }).click();
+    await page.getByRole("button", { name: "Remove rule 2", exact: true }).click();
+    await page.getByRole("button", { name: "Save settings", exact: true }).click();
+    await expect(page.getByRole("status")).toHaveText("Saved");
+    await page.screenshot({ path: "test-results/link-settings.png" });
+    await app.close(); app = await launch(); page = await app.firstWindow();
+    await expect(projectLinks().getByRole("button", { name: /^Open link / })).toHaveCount(3);
+    await expect(projectLinks().locator(".link-category").filter({ hasText: "Tickets" })).toHaveCount(0);
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await expect(page.getByLabel("Rule 1 category")).toHaveValue("Docs");
+    await expect(page.getByLabel("Rule 2 category")).toHaveCount(0);
+    expect(errors).toEqual([]);
+  } finally { await app.close(); rmSync(dir, { recursive: true, force: true }); }
+});

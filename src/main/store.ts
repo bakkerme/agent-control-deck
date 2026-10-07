@@ -11,10 +11,12 @@ import type {
   Workspace,
   Settings,
   Subagent,
+  ChatLink,
 } from "../shared/types";
 import { commandSchema, envelopeSchema } from "../shared/validation";
 import { normalize, type Observation } from "./providers";
 import { canonicalPath, repositoryLocation, repositoryRoot } from "./repositories";
+import { MAX_CHAT_LINKS } from "../shared/links";
 export { canonicalPath } from "./repositories";
 
 type ChatRow = Omit<Chat, "subagents"> & { subagentBaselineAt: string | null };
@@ -35,11 +37,11 @@ export class Store {
       const version = this.db.pragma("user_version", {
         simple: true,
       }) as number;
-      if (version > 7)
+      if (version > 8)
         throw new Error(
           "This database was created by a newer version of Agent Control Deck",
         );
-      if (version < 7 && existed) {
+      if (version < 8 && existed) {
         this.db.pragma("wal_checkpoint(TRUNCATE)");
         copyFileSync(filename, `${filename}.bak-${Date.now()}`);
       }
@@ -146,8 +148,21 @@ export class Store {
           `);
         })();
       }
+      if (version < 8) {
+        this.db.transaction(() => {
+          this.db.exec(`
+            CREATE TABLE chat_links (
+              id TEXT PRIMARY KEY, chatId TEXT NOT NULL REFERENCES chats(id),
+              url TEXT NOT NULL, label TEXT NOT NULL DEFAULT '', firstSeenAt TEXT NOT NULL,
+              lastSeenAt TEXT NOT NULL, UNIQUE(chatId,url)
+            );
+            CREATE INDEX chat_links_time ON chat_links(chatId,lastSeenAt DESC);
+            PRAGMA user_version = 8;
+          `);
+        })();
+      }
       this.reconcileRepositories(() => {
-        if (version >= 7 && existed) {
+        if (version >= 8 && existed) {
           this.db.pragma("wal_checkpoint(TRUNCATE)");
           copyFileSync(filename, `${filename}.bak-${Date.now()}`);
         }
@@ -167,7 +182,16 @@ export class Store {
   }
   settings(): Settings {
     const row = this.db.prepare("SELECT value FROM settings WHERE key='jiraBaseUrl'").get() as { value: string } | undefined;
-    return { jiraBaseUrl: row?.value ?? "" };
+    const rules = this.db.prepare("SELECT value FROM settings WHERE key='linkRules'").get() as { value: string } | undefined;
+    return { jiraBaseUrl: row?.value ?? "", linkRules: rules ? JSON.parse(rules.value) : [] };
+  }
+  links(): ChatLink[] {
+    return this.db.prepare("SELECT * FROM chat_links ORDER BY lastSeenAt DESC,id").all() as ChatLink[];
+  }
+  link(id: string): ChatLink {
+    const row = this.db.prepare("SELECT * FROM chat_links WHERE id=?").get(id) as ChatLink | undefined;
+    if (!row) throw new Error("Link no longer exists");
+    return row;
   }
   chats(): Chat[] {
     const agents = new Map<string, Subagent[]>();
@@ -224,7 +248,11 @@ export class Store {
     const c = commandSchema.parse(raw);
     switch (c.type) {
       case "updateSettings":
-        this.db.prepare("INSERT INTO settings (key,value) VALUES ('jiraBaseUrl',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(c.jiraBaseUrl);
+        this.db.transaction(() => {
+          const save = this.db.prepare("INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value");
+          if (c.jiraBaseUrl !== undefined) save.run("jiraBaseUrl", c.jiraBaseUrl);
+          if (c.linkRules !== undefined) save.run("linkRules", JSON.stringify(c.linkRules));
+        })();
         break;
       case "createProject":
         this.db.transaction(() => {
@@ -466,6 +494,16 @@ export class Store {
           .run(this.projectFor(sourceId, observation.workspace), chat.id);
       }
       this.observeSubagents(chat.id, observation, observedAt);
+      if (observation.links?.length) {
+        const save = this.db.prepare(`INSERT INTO chat_links VALUES (?,?,?,?,?,?)
+          ON CONFLICT(chatId,url) DO UPDATE SET
+            label=CASE WHEN excluded.label!='' AND (chat_links.label='' OR excluded.lastSeenAt>=chat_links.lastSeenAt) THEN excluded.label ELSE chat_links.label END,
+            firstSeenAt=MIN(chat_links.firstSeenAt,excluded.firstSeenAt), lastSeenAt=MAX(chat_links.lastSeenAt,excluded.lastSeenAt)`);
+        for (const link of observation.links) save.run(uuid(), chat.id, link.url, link.label, observedAt, observedAt);
+        this.db.prepare(`DELETE FROM chat_links WHERE chatId=? AND id NOT IN
+          (SELECT id FROM chat_links WHERE chatId=? ORDER BY lastSeenAt DESC,rowid DESC LIMIT ?)`)
+          .run(chat.id, chat.id, MAX_CHAT_LINKS);
+      }
       this.db
         .prepare("INSERT INTO activities VALUES (?,?,?,?,?)")
         .run(

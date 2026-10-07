@@ -9,6 +9,7 @@ import { providerLabel, displayName, message, age, Status, Modal } from "./compo
 import Settings from "./Settings";
 import TitleBar from "./TitleBar";
 import Icon from "./Icon";
+import LinkStack from "./LinkStack";
 import "./style.css";
 const api = window.deck;
 
@@ -96,6 +97,13 @@ function App() {
   const inProject = (c: Chat, id: string) => id === "all" || (id === "unassigned" ? !c.projectId : c.projectId === id);
   const projectNames = (c: Chat) => snapshot.projects.find(p => p.id === c.projectId)?.name || "No project";
   const projectChats = snapshot.chats.filter(c => inProject(c, project));
+  const projectChatIds = new Set(projectChats.map(c => c.id));
+  const projectLinks = snapshot.links.filter(link => projectChatIds.has(link.chatId));
+  const selectLinkChat = (target: Chat) => void navigate(() => {
+    setSelected(target.id);
+    setArchived(target.archived);
+    setSearch(""); setState("all"); setProvider("all");
+  });
   const changeArchiveView = (value: boolean) => {
     setArchived(value);
     setSearch("");
@@ -304,7 +312,7 @@ function App() {
           </aside>
           <section className="chat-list" aria-label="Chats">
             <div className="section-heading">
-              <div><span className="eyebrow">Operations</span><h2>{archived ? "Archived chats" : "All chats"}</h2></div>
+              <div><span className="eyebrow">Operations</span><h2>{project === "all" ? archived ? "Archived chats" : "All chats" : project === "unassigned" ? "No project" : snapshot.projects.find(p => p.id === project)?.name}</h2></div>
               <button
                 onClick={() =>
                   openModal("chat")
@@ -313,6 +321,8 @@ function App() {
                 New chat
               </button>
             </div>
+            <LinkStack links={projectLinks} rules={snapshot.settings.linkRules} chats={projectChats} scope="Project"
+              open={id => void api.openLink(id).catch(e => setError(message(e)))} selectChat={selectLinkChat} />
             <label className="search">
               Search chats
               <input
@@ -414,6 +424,7 @@ function App() {
               chat={chat}
               projects={snapshot.projects}
               settings={snapshot.settings}
+              links={snapshot.links.filter(link => link.chatId === chat.id)}
               configureJira={() => void navigate(() => setPage("settings"))}
               activities={activities}
               mutate={mutate}
