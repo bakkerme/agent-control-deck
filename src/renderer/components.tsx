@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from "react";
 import type { Chat } from "../shared/types";
 import { codexPrompt, promptTitle } from "../shared/presentation";
-import { effectiveState, statusLabel } from "../shared/status";
+import { effectiveState, statusLabel, hasBackgroundWork } from "../shared/status";
 
 export const providerLabel = (provider: string) =>
   ({ manual: "Manual", claude: "Claude Code", cursor: "Cursor", codex: "Codex" })[provider] ??
@@ -31,7 +31,7 @@ export function Status({ chat }: { chat: Chat }) {
   return (
     <span
       className={`status ${chat.lifecycle === "ended" ? "ended" : effectiveState(chat)}`}
-      title={chat.subagents.length ? "Subagent activity is based on received hooks. After five minutes without a subagent observation, its status is uncertain; silence does not prove completion." : undefined}
+      title={hasBackgroundWork(chat) ? "Based on received hooks, not process liveness. In-flight work becomes uncertain after five minutes. Scheduled checks remain pending until a newer snapshot clears them; see details for observation age." : undefined}
     >
       {statusLabel(chat)}
     </span>

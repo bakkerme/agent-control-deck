@@ -53,6 +53,23 @@ export interface Chat {
   createdAt: string;
   updatedAt: string;
   subagents: Subagent[];
+  backgroundTasks: BackgroundTask[];
+  scheduledChecks: ScheduledCheck[];
+}
+export interface BackgroundObservation {
+  id: string;
+  state: "observed" | "unknown";
+  lastEventAt: string;
+}
+export interface BackgroundTask extends BackgroundObservation {
+  type: string;
+  status: string;
+  description: string;
+}
+export interface ScheduledCheck extends BackgroundObservation {
+  schedule: string;
+  recurring: boolean;
+  prompt: string;
 }
 export interface Subagent {
   id: string;

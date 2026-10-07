@@ -112,8 +112,8 @@ function App() {
   };
   const rank = (c: Chat) =>
     c.lifecycle === "ended"
-      ? 5
-      : { error: 0, waiting: 1, running: 2, idle: 3, unknown: 4 }[effectiveState(c)];
+      ? 6
+      : { error: 0, waiting: 1, running: 2, monitoring: 3, idle: 4, unknown: 5 }[effectiveState(c)];
   const scoped = snapshot.chats
     .filter(
       (c) =>
@@ -351,6 +351,7 @@ function App() {
               >
                 <option value="all">All states</option>
                 <option value="finished">Finished turns</option>
+                <option value="monitoring">Monitoring</option>
                 {states.map((s) => (
                   <option key={s}>{s}</option>
                 ))}
@@ -364,7 +365,7 @@ function App() {
             </nav>
             {archived && <p className="archive-note">Archived chats are hidden, with notes and history preserved. Select a chat to restore it. New chats appear in Active chats.</p>}
             <nav className="status-filters" aria-label="Quick status filters">
-              {[["all", "All"], ["running", "Running"], ["waiting", "Needs input"], ["finished", "Finished turns"]].map(([value, label]) => <button key={value} aria-pressed={state === value} className={state === value ? "selected" : ""} onClick={() => setState(value)}>{label} <span>{scoped.filter(c => matchesState(c, value)).length}</span></button>)}
+              {[["all", "All"], ["running", "Running"], ["monitoring", "Monitoring"], ["waiting", "Needs input"], ["finished", "Finished turns"]].map(([value, label]) => <button key={value} aria-pressed={state === value} className={state === value ? "selected" : ""} onClick={() => setState(value)}>{label} <span>{scoped.filter(c => matchesState(c, value)).length}</span></button>)}
             </nav>
             <div className="record-heading" aria-hidden="true"><span>Chat / project / provider</span><span>Reported</span><span>Event age</span></div>
             <div className="chat-items">
@@ -466,6 +467,7 @@ function App() {
             ).length
           }{" "}
           running ·{" "}
+          {activeChats.filter(c => effectiveState(c) === "monitoring" && c.lifecycle === "open").length} monitoring ·{" "}
           {
             activeChats.filter(
               (c) =>

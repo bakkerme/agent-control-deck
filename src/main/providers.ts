@@ -1,4 +1,4 @@
-import type { Source, State } from "../shared/types";
+import type { Source, State, BackgroundTask, ScheduledCheck } from "../shared/types";
 import { codexPrompt, promptTitle } from "../shared/presentation";
 import { hookEvents } from "./setup";
 import { detectLinks } from "../shared/links";
@@ -15,6 +15,8 @@ export interface Observation {
   subagent?: { id: string | null; type: string; running: boolean };
   backgroundSubagents?: { id: string; type: string }[];
   links?: ReturnType<typeof detectLinks>;
+  backgroundTasks?: Omit<BackgroundTask, "state" | "lastEventAt">[];
+  scheduledChecks?: Omit<ScheduledCheck, "state" | "lastEventAt">[];
 }
 const text = (p: Record<string, unknown>, key: string): string =>
   typeof p[key] === "string" ? (p[key] as string) : "";
@@ -54,14 +56,32 @@ export function normalize(
     if (!Array.isArray(payload.background_tasks) || payload.background_tasks.length > 1000)
       throw new Error("Invalid background task snapshot");
     result.backgroundSubagents = [];
+    result.backgroundTasks = [];
+    const ids = new Set<string>();
     for (const task of payload.background_tasks) {
       if (!task || typeof task !== "object" || Array.isArray(task)) throw new Error("Invalid background task");
       const fields = task as Record<string, unknown>;
-      if (fields.type !== "subagent") continue;
       const id = text(fields, "id");
-      if (!id || id.length > 2000) throw new Error("Background subagent is missing a valid ID");
-      result.backgroundSubagents.push({ id, type: preview(text(fields, "agent_type")).slice(0, 200) });
+      const type = text(fields, "type");
+      if (!id || id.length > 2000 || !type || type.length > 200) throw new Error("Background task is missing a valid ID or type");
+      if (ids.has(id)) throw new Error("Duplicate background task ID");
+      ids.add(id);
+      if (type === "subagent") result.backgroundSubagents.push({ id, type: preview(text(fields, "agent_type")).slice(0, 200) });
+      else result.backgroundTasks.push({ id, type, status: text(fields, "status").slice(0, 200), description: text(fields, "description").slice(0, 1000) });
     }
+  }
+  if (source.provider === "claude" && (event === "Stop" || event === "SubagentStop") && payload.session_crons !== undefined) {
+    if (!Array.isArray(payload.session_crons) || payload.session_crons.length > 1000) throw new Error("Invalid scheduled check snapshot");
+    const ids = new Set<string>();
+    result.scheduledChecks = payload.session_crons.map(value => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid scheduled check");
+      const fields = value as Record<string, unknown>;
+      const id = text(fields, "id"), schedule = text(fields, "schedule");
+      if (!id || id.length > 2000 || !schedule || schedule.length > 200 || typeof fields.recurring !== "boolean") throw new Error("Scheduled check is missing a valid ID, schedule or recurrence");
+      if (ids.has(id)) throw new Error("Duplicate scheduled check ID");
+      ids.add(id);
+      return { id, schedule, recurring: fields.recurring, prompt: text(fields, "prompt").slice(0, 1000) };
+    });
   }
   if (subagentEvent) {
     const id = text(payload, source.provider === "cursor" ? "subagent_id" : "agent_id");

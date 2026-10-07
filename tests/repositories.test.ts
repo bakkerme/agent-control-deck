@@ -72,9 +72,9 @@ test("v6 repair consolidates existing worktree rows, preserving names, flags, cu
   f.store.command({ type: "setProjectPriority", id: branch, priority: true });
   const moved = f.store.chat("moved");
   const history = f.store.activity("moved");
-  f.store.db.exec("DROP TABLE chat_links; ALTER TABLE projects DROP COLUMN mergedInto; ALTER TABLE projects DROP COLUMN repositoryPath; PRAGMA user_version=6;");
+  f.store.db.exec("DROP TABLE background_snapshots; DROP TABLE chat_links; ALTER TABLE projects DROP COLUMN mergedInto; ALTER TABLE projects DROP COLUMN repositoryPath; PRAGMA user_version=6;");
   f.reopen();
-  assert.equal(f.store.db.pragma("user_version", { simple: true }), 8);
+  assert.equal(f.store.db.pragma("user_version", { simple: true }), 9);
   assert.deepEqual(f.store.projects().map(p => p.id).sort(), [main, custom].sort());
   assert.equal(f.store.projects().find(p => p.id === main)!.priority, true);
   assert.equal(f.store.projects().find(p => p.id === main)!.name, "Previously renamed repository");
@@ -148,7 +148,7 @@ test("repository repair retries when Git markers become available and backs up c
   assert.equal(backups.length, 1);
   const backup = new Database(join(f.dir, backups[0]), { readonly: true });
   try {
-    assert.equal(backup.pragma("user_version", { simple: true }), 8);
+    assert.equal(backup.pragma("user_version", { simple: true }), 9);
     assert.equal((backup.prepare("SELECT COUNT(*) AS count FROM projects WHERE mergedInto IS NULL").get() as { count: number }).count, 2);
   } finally { backup.close(); }
   f.reopen();

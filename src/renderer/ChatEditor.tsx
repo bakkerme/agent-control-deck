@@ -130,6 +130,17 @@ const ChatEditor = forwardRef<EditorHandle, {
         <small title={agent.lastEventAt}>Last observation {age(agent.lastEventAt)}</small>
       </li>)}</ul>
     </details>}
+    {!!(chat.backgroundTasks.length || chat.scheduledChecks.length) && <details className="subagent-details" aria-label="Background observations">
+      <summary>Background work and scheduled checks</summary>
+      <p className="muted">Based on received events, not a live connection. Scheduled checks remain pending until a newer snapshot clears them. In-flight tasks become uncertain after five minutes without an observation.</p>
+      <ul>{chat.backgroundTasks.map(task => <li key={`task:${task.id}`}>
+        <span>{task.type} · {task.state === "observed" && Date.now() - Date.parse(task.lastEventAt) < SUBAGENT_OBSERVATION_AGE ? task.status || "Observed" : "Status uncertain"}{task.description && ` · ${task.description}`}</span>
+        <small title={task.lastEventAt}>Last observation {age(task.lastEventAt)}</small>
+      </li>)}{chat.scheduledChecks.map(check => <li key={`check:${check.id}`}>
+        <span>{check.state === "observed" ? "Waiting for next check" : "Status uncertain"} · {check.recurring ? "Recurring" : "One-time"} · {check.schedule}{check.prompt && ` · ${check.prompt}`}</span>
+        <small title={check.lastEventAt}>Last observation {age(check.lastEventAt)}</small>
+      </li>)}</ul>
+    </details>}
     <section className="organization" aria-label="Chat organization">
       <div className="organization-heading"><h3>Chat organization</h3><button onClick={archive}>{chat.archived ? "Restore chat" : "Archive chat"}</button></div>
       <label>Chat name<input value={draft.name} maxLength={200} placeholder={automaticName(chat)} onChange={e => edit({ name: e.target.value })} onBlur={() => void flush()} /></label>

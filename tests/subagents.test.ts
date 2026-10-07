@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { Store } from "../src/main/store";
 import { normalize } from "../src/main/providers";
 import { Inbox } from "../src/main/inbox";
-import { effectiveState, finishedTurn, statusLabel, SUBAGENT_OBSERVATION_AGE } from "../src/shared/status";
+import { effectiveState, finishedTurn, statusLabel, priorityAttention, SUBAGENT_OBSERVATION_AGE } from "../src/shared/status";
 
 function fixture(t: { after: (fn: () => void) => void }, provider: "codex" | "claude" | "cursor" = "codex") {
   const dir = mkdtempSync(join(tmpdir(), "acd-subagents-"));
@@ -88,7 +88,7 @@ test("Claude background registry snapshots replace lifecycle IDs and resolve mis
     { id: "shell", type: "shell", status: "running" },
   ] }, 3, "snapshot");
   assert.equal(f.chat.subagents.length, 2);
-  assert.equal(statusLabel(f.chat), "Main turn finished · 2 subagents working");
+  assert.equal(statusLabel(f.chat), "Main turn finished · 2 subagents working · 1 background task working");
   f.emit("SubagentStop", { agent_id: "agent-one", background_tasks: [
     { id: "task-two", type: "subagent", agent_type: "Reviewer", status: "running" },
   ] }, 4, "one-stopped");
@@ -174,10 +174,130 @@ test("v4 migration preserves user data and backs up once without fabricating obs
   const f = fixture(t);
   f.store.command({ type: "updateChat", id: f.id, patch: { name: "Keep", notes: "Personal", archived: true } });
   const before = f.chat;
-  f.store.db.exec("DROP TABLE chat_links; DROP TABLE subagents; ALTER TABLE chats DROP COLUMN subagentBaselineAt; ALTER TABLE projects DROP COLUMN priority; ALTER TABLE projects DROP COLUMN mergedInto; ALTER TABLE projects DROP COLUMN repositoryPath; PRAGMA user_version=4;");
+  f.store.db.exec("DROP TABLE background_snapshots; DROP TABLE chat_links; DROP TABLE subagents; ALTER TABLE chats DROP COLUMN subagentBaselineAt; ALTER TABLE projects DROP COLUMN priority; ALTER TABLE projects DROP COLUMN mergedInto; ALTER TABLE projects DROP COLUMN repositoryPath; PRAGMA user_version=4;");
   f.reopen();
   assert.deepEqual(f.chat, before);
-  assert.equal(f.store.db.pragma("user_version", { simple: true }), 8);
+  assert.equal(f.store.db.pragma("user_version", { simple: true }), 9);
+  assert.deepEqual(f.store.db.pragma("foreign_key_check"), []);
+  f.reopen();
+  assert.equal(readdirSync(f.dir).filter(name => name.includes(".bak-")).length, 1);
+});
+
+test("Claude monitors and scheduled checks survive turns, restarts and user edits", t => {
+  const f = fixture(t, "claude");
+  f.store.command({ type: "updateChat", id: f.id, patch: { name: "Watch CI", notes: "Keep", jiraKey: "APP-9", archived: true } });
+  f.store.command({ type: "createProject", name: "Release", chatId: f.id });
+  const check = { id: "check", schedule: "*/10 * * * *", recurring: true, prompt: "Check CI" };
+  f.emit("Stop", { background_tasks: [{ id: "watcher", type: "monitor", status: "running", description: "Watch the build" }], session_crons: [check] }, 2, "watching");
+  assert.equal(effectiveState(f.chat), "monitoring");
+  assert.equal(statusLabel(f.chat), "Monitoring · 1 monitor observed · 1 scheduled check");
+  assert.equal(finishedTurn(f.chat), false);
+  f.reopen();
+  assert.equal(f.chat.backgroundTasks[0].description, "Watch the build");
+  assert.equal(f.chat.scheduledChecks[0].prompt, "Check CI");
+  assert.equal(f.chat.name, "Watch CI");
+  assert.equal(f.chat.notes, "Keep");
+  assert.equal(f.chat.jiraKey, "APP-9");
+  assert.equal(f.chat.archived, true);
+  f.emit("UserPromptSubmit", {}, 3, "new-turn");
+  assert.equal(effectiveState(f.chat), "running");
+  f.emit("Stop", { background_tasks: [], session_crons: [check] }, 4, "next-stop");
+  assert.equal(statusLabel(f.chat), "Monitoring · waiting for next check");
+  const tomorrow = f.base + 24 * 60 * 60 * 1000;
+  assert.equal(effectiveState(f.chat, tomorrow), "monitoring");
+  assert.equal(f.chat.scheduledChecks[0].lastEventAt, new Date(f.base + 4).toISOString());
+  f.store.command({ type: "updateChat", id: f.id, patch: { archived: false } });
+  const projects = [{ id: f.chat.projectId!, name: "Priority", kind: "custom" as const, priority: true, createdAt: "" }];
+  assert.equal(priorityAttention(f.chat, projects), null);
+  f.emit("Notification", { notification_type: "permission_prompt" }, 5, "attention");
+  assert.equal(effectiveState(f.chat), "waiting");
+  assert.match(statusLabel(f.chat), /^Needs input/);
+  assert.equal(priorityAttention(f.chat, projects), "Needs input");
+  f.emit("StopFailure", { error: "rate_limit" }, 6, "error");
+  assert.equal(effectiveState(f.chat), "error");
+  assert.match(statusLabel(f.chat), /^Error/);
+});
+
+test("background snapshots clear independently, retain absent fields and reject delayed resurrection", t => {
+  const f = fixture(t, "claude");
+  const background_tasks = [{ id: "monitor", type: "monitor" }];
+  const session_crons = [{ id: "cron", schedule: "0 9 * * *", recurring: false }];
+  f.emit("Stop", { background_tasks, session_crons }, 2, "initial");
+  f.emit("Stop", {}, 10, "absent");
+  assert.equal(f.chat.backgroundTasks.length, 1);
+  assert.equal(f.chat.scheduledChecks.length, 1);
+  f.emit("SubagentStop", { agent_id: "worker", background_tasks: [] }, 4, "tasks-clear");
+  assert.deepEqual(f.chat.backgroundTasks, []);
+  assert.equal(f.chat.scheduledChecks.length, 1);
+  f.emit("Stop", { background_tasks }, 3, "old-tasks");
+  assert.deepEqual(f.chat.backgroundTasks, []);
+  f.emit("Stop", { session_crons: [] }, 5, "checks-clear");
+  f.emit("Stop", { session_crons }, 3, "old-checks");
+  assert.deepEqual(f.chat.scheduledChecks, []);
+  assert.equal(finishedTurn(f.chat), true);
+  f.reopen();
+  f.emit("Stop", { background_tasks, session_crons }, 2, "old-after-restart");
+  assert.equal(finishedTurn(f.chat), true);
+});
+
+test("background task age and session endings expose uncertainty without declaring completion", t => {
+  const f = fixture(t, "claude");
+  f.emit("Stop", { background_tasks: [{ id: "shell", type: "shell" }, { id: "monitor", type: "monitor" }] }, 2, "tasks");
+  assert.equal(effectiveState(f.chat), "running");
+  assert.equal(statusLabel(f.chat), "Main turn finished · 1 background task working · 1 monitor observed");
+  const stale = f.base + 2 + SUBAGENT_OBSERVATION_AGE;
+  assert.equal(effectiveState(f.chat, stale), "unknown");
+  assert.equal(statusLabel(f.chat, stale), "Main turn finished · 2 background observations uncertain");
+  assert.equal(finishedTurn(f.chat), false);
+  f.emit("Stop", { session_crons: [{ id: "cron", schedule: "0 9 * * *", recurring: true }] }, 3, "schedule");
+  f.emit("SessionEnd", {}, 4, "end");
+  assert.equal(effectiveState(f.chat), "unknown");
+  assert.equal(statusLabel(f.chat), "Ended · 3 background observations uncertain");
+  f.emit("Stop", { background_tasks: [], session_crons: [] }, 3, "old-clear");
+  assert.equal(f.chat.backgroundTasks.length, 2);
+  assert.equal(f.chat.scheduledChecks.length, 1);
+});
+
+test("malformed and oversized background snapshots fail atomically; providers remain isolated", t => {
+  const f = fixture(t, "claude");
+  f.emit("Stop", { background_tasks: [{ id: "monitor", type: "monitor" }] }, 2, "valid");
+  const before = f.chat;
+  const invalid = [
+    { background_tasks: [{ id: "missing-type" }] },
+    { background_tasks: [{ id: "same", type: "monitor" }, { id: "same", type: "shell" }] },
+    { background_tasks: Array.from({ length: 1001 }, (_, i) => ({ id: String(i), type: "monitor" })) },
+    { session_crons: {} },
+    { session_crons: Array.from({ length: 1001 }, (_, i) => ({ id: String(i), schedule: "0 9 * * *", recurring: true })) },
+    { session_crons: Array.from({ length: 2 }, () => ({ id: "same", schedule: "0 9 * * *", recurring: true })) },
+    { session_crons: [{ id: "check", schedule: "0 9 * * *", recurring: "yes" }] },
+    { background_tasks: [], session_crons: [{ id: "check", recurring: true }] },
+  ];
+  for (const [i, payload] of invalid.entries()) {
+    assert.throws(() => f.emit("Stop", payload, 3, `invalid-${i}`));
+    assert.deepEqual(f.chat, before);
+    assert.equal(f.store.db.prepare("SELECT 1 FROM processed_events WHERE eventId=?").get(`invalid-${i}`), undefined);
+  }
+  f.store.command({ type: "createSource", name: "Other", provider: "claude", environment: "native" });
+  const other = f.store.sources().find(s => s.id !== f.source.id)!;
+  f.store.ingest(other.id, { version: 1, eventId: "other-prompt", payload: { hook_event_name: "UserPromptSubmit", session_id: "parent" } });
+  f.store.ingest(other.id, { version: 1, eventId: "other-stop", payload: { hook_event_name: "Stop", session_id: "parent", background_tasks: [] } });
+  assert.deepEqual(f.chat, before);
+  const codex = { ...f.source, provider: "codex" as const };
+  assert.equal(normalize(codex, { hook_event_name: "Stop", session_id: "parent", session_crons: [{ id: "unsupported" }] })!.scheduledChecks, undefined);
+});
+
+test("v8 migration preserves response links and user data without fabricating monitoring", t => {
+  const f = fixture(t, "claude");
+  f.store.command({ type: "updateChat", id: f.id, patch: { name: "Watch CI", notes: "Keep migration notes", archived: true } });
+  f.emit("Stop", { last_assistant_message: "[Build](https://ci.example/build/42)" });
+  const before = f.chat;
+  const links = f.store.links();
+  assert.equal(links.length, 1);
+  f.store.db.exec("DROP TABLE background_snapshots; PRAGMA user_version=8;");
+  f.reopen();
+  assert.deepEqual(f.chat, before);
+  assert.deepEqual(f.store.links(), links);
+  assert.equal(f.store.db.pragma("user_version", { simple: true }), 9);
   assert.deepEqual(f.store.db.pragma("foreign_key_check"), []);
   f.reopen();
   assert.equal(readdirSync(f.dir).filter(name => name.includes(".bak-")).length, 1);

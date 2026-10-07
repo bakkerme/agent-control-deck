@@ -570,6 +570,7 @@ summary {
 .status { display: inline-flex; gap: 5px; align-items: center; border: 0; padding: 0; background: transparent; color: var(--muted); text-transform: none; font-weight: 500; font-size: 11px; }
 .status::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
 .status.running { color: #176d63; background: transparent; }
+.status.monitoring { color: #526b98; background: transparent; }
 .status.waiting { color: #825410; background: transparent; }
 .status.error { color: #ad3343; background: transparent; }
 .status.ended { color: var(--muted); background: transparent; }

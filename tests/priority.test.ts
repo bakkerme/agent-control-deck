@@ -6,7 +6,7 @@ import { priorityAttention } from "../src/shared/status";
 const chat = (patch: Partial<Chat> = {}): Chat => ({
   id: "chat", projectId: "custom", repoProjectId: "repo", provider: "claude", sourceId: "source", externalId: "session",
   name: "", providerTitle: "Task", notes: "", jiraKey: "", jiraUrl: "", archived: false,
-  state: "idle", lifecycle: "open", preview: "", lastEventAt: "2026-10-06T00:00:00Z", createdAt: "", updatedAt: "", subagents: [], ...patch,
+  state: "idle", lifecycle: "open", preview: "", lastEventAt: "2026-10-06T00:00:00Z", createdAt: "", updatedAt: "", subagents: [], backgroundTasks: [], scheduledChecks: [], ...patch,
 });
 const project = (id: string, priority: boolean): Project => ({ id, name: id, createdAt: "", kind: id === "repo" ? "repo" : "custom", priority });
 

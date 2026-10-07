@@ -19,7 +19,8 @@ import { canonicalPath, repositoryLocation, repositoryRoot } from "./repositorie
 import { MAX_CHAT_LINKS } from "../shared/links";
 export { canonicalPath } from "./repositories";
 
-type ChatRow = Omit<Chat, "subagents"> & { subagentBaselineAt: string | null };
+type ChatRow = Omit<Chat, "subagents" | "backgroundTasks" | "scheduledChecks"> & { subagentBaselineAt: string | null };
+type BackgroundSnapshotRow = { chatId: string; kind: "backgroundTasks" | "scheduledChecks"; state: "observed" | "unknown"; lastEventAt: string; items: string };
 type SubagentRow = Subagent & { chatId: string };
 type ProjectRow = Project & { repositoryPath: string | null; mergedInto: string | null };
 
@@ -37,11 +38,11 @@ export class Store {
       const version = this.db.pragma("user_version", {
         simple: true,
       }) as number;
-      if (version > 8)
+      if (version > 9)
         throw new Error(
           "This database was created by a newer version of Agent Control Deck",
         );
-      if (version < 8 && existed) {
+      if (version < 9 && existed) {
         this.db.pragma("wal_checkpoint(TRUNCATE)");
         copyFileSync(filename, `${filename}.bak-${Date.now()}`);
       }
@@ -161,8 +162,20 @@ export class Store {
           `);
         })();
       }
+      if (version < 9) {
+        this.db.transaction(() => {
+          this.db.exec(`
+            CREATE TABLE background_snapshots (
+              chatId TEXT NOT NULL REFERENCES chats(id), kind TEXT NOT NULL CHECK(kind IN ('backgroundTasks','scheduledChecks')),
+              state TEXT NOT NULL CHECK(state IN ('observed','unknown')), lastEventAt TEXT NOT NULL,
+              items TEXT NOT NULL, PRIMARY KEY(chatId,kind)
+            );
+            PRAGMA user_version = 9;
+          `);
+        })();
+      }
       this.reconcileRepositories(() => {
-        if (version >= 8 && existed) {
+        if (version >= 9 && existed) {
           this.db.pragma("wal_checkpoint(TRUNCATE)");
           copyFileSync(filename, `${filename}.bak-${Date.now()}`);
         }
@@ -194,6 +207,7 @@ export class Store {
     return row;
   }
   chats(): Chat[] {
+    const background = this.backgroundObservations();
     const agents = new Map<string, Subagent[]>();
     for (const { chatId, ...agent } of this.db.prepare("SELECT * FROM subagents WHERE state!='finished' ORDER BY id").all() as SubagentRow[]) {
       const group = agents.get(chatId) ?? [];
@@ -201,7 +215,21 @@ export class Store {
       agents.set(chatId, group);
     }
     return (this.db.prepare("SELECT * FROM chats ORDER BY createdAt,id").all() as ChatRow[])
-      .map(({ subagentBaselineAt, ...c }) => ({ ...c, archived: !!c.archived, subagents: agents.get(c.id) ?? [] }));
+      .map(({ subagentBaselineAt, ...c }) => ({ ...c, archived: !!c.archived, subagents: agents.get(c.id) ?? [],
+        ...(background.get(c.id) ?? { backgroundTasks: [], scheduledChecks: [] }) }));
+  }
+  private backgroundObservations(chatId?: string): Map<string, Pick<Chat, "backgroundTasks" | "scheduledChecks">> {
+    const result = new Map<string, Pick<Chat, "backgroundTasks" | "scheduledChecks">>();
+    const rows = chatId === undefined
+      ? this.db.prepare("SELECT * FROM background_snapshots").all()
+      : this.db.prepare("SELECT * FROM background_snapshots WHERE chatId=?").all(chatId);
+    for (const row of rows as BackgroundSnapshotRow[]) {
+      const group = result.get(row.chatId) ?? { backgroundTasks: [], scheduledChecks: [] };
+      const items = JSON.parse(row.items).map((item: { id: string }) => ({ ...item, state: row.state, lastEventAt: row.lastEventAt }));
+      group[row.kind] = items;
+      result.set(row.chatId, group);
+    }
+    return result;
   }
   sources(): Source[] {
     return (
@@ -221,7 +249,8 @@ export class Store {
     const { subagentBaselineAt, ...chat } = row;
     const subagents = (this.db.prepare("SELECT * FROM subagents WHERE chatId=? AND state!='finished' ORDER BY id").all(id) as SubagentRow[])
       .map(({ chatId, ...agent }) => agent);
-    return { ...chat, archived: !!chat.archived, subagents };
+    return { ...chat, archived: !!chat.archived, subagents,
+      ...(this.backgroundObservations(id).get(id) ?? { backgroundTasks: [], scheduledChecks: [] }) };
   }
   source(id: string): Source {
     const source = this.sources().find((s) => s.id === id);
@@ -494,6 +523,7 @@ export class Store {
           .run(this.projectFor(sourceId, observation.workspace), chat.id);
       }
       this.observeSubagents(chat.id, observation, observedAt);
+      this.observeBackground(chat.id, observation, observedAt);
       if (observation.links?.length) {
         const save = this.db.prepare(`INSERT INTO chat_links VALUES (?,?,?,?,?,?)
           ON CONFLICT(chatId,url) DO UPDATE SET
@@ -584,6 +614,23 @@ export class Store {
       .run(chatId, chatId);
     const count = this.db.prepare("SELECT COUNT(*) AS total FROM subagents WHERE chatId=? AND state!='finished'").get(chatId) as { total: number };
     if (count.total > 1000) throw Object.assign(new Error("Subagent observation capacity reached; pending event retained"), { code: "ACD_SUBAGENT_CAPACITY" });
+  }
+  private observeBackground(chatId: string, observation: Observation, observedAt: string): void {
+    for (const kind of ["backgroundTasks", "scheduledChecks"] as const) {
+      const items = observation[kind];
+      if (items !== undefined) {
+        // Empty snapshots are retained as boundaries against delayed events.
+        // An absent field does not establish that existing work completed.
+        this.db.prepare(`INSERT INTO background_snapshots VALUES (?,?,?,?,?) ON CONFLICT(chatId,kind) DO UPDATE SET
+          state=excluded.state,lastEventAt=excluded.lastEventAt,items=excluded.items
+          WHERE excluded.lastEventAt>=background_snapshots.lastEventAt`)
+          .run(chatId, kind, "observed", observedAt, JSON.stringify(items));
+      } else if (observation.lifecycle === "ended") {
+        this.db.prepare(`INSERT INTO background_snapshots VALUES (?,?,?,?,?) ON CONFLICT(chatId,kind) DO UPDATE SET
+          state='unknown',lastEventAt=excluded.lastEventAt WHERE excluded.lastEventAt>=background_snapshots.lastEventAt`)
+          .run(chatId, kind, "unknown", observedAt, "[]");
+      }
+    }
   }
   sourceError(id: string, message: string, rejected = false): void {
     this.db
