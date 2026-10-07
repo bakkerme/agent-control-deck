@@ -278,7 +278,7 @@ function App() {
                     aria-description={description}
                     onClick={() => void navigate(() => setProject(p.id))}
                   >
-                    <span className="project-name">{attention > 0 && <span className="priority-lamp" aria-hidden="true" />}{p.name}</span>
+                    <span className="project-name" title={p.name}>{attention > 0 && <span className="priority-lamp" aria-hidden="true" />}{p.name}</span>
                     <span className="project-count">{viewChats.filter((c) => inProject(c, p.id)).length}</span>
                   </button>
                   <div className="project-tools">

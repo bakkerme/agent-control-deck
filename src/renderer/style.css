@@ -534,11 +534,11 @@ summary {
 .projects { background: var(--rail); padding: 24px 14px; }
 .projects h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .7px; color: var(--muted); }
 .projects nav button { border: 0; border-radius: 6px; padding: 9px 10px; }
-.project-row { display: flex; align-items: center; gap: 2px; }
-.project-row > button { flex: 1; min-width: 0; align-items: center; padding-right: 4px; }
-.project-name { min-width: 0; }
+.project-row { position: relative; display: flex; align-items: center; }
+.projects nav .project-row > button { flex: 1; min-width: 0; align-items: center; gap: 6px; padding-right: 4px; }
+.project-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-count { flex-shrink: 0; font-variant-numeric: tabular-nums; color: var(--muted); }
-.project-tools { display: flex; flex-shrink: 0; gap: 1px; opacity: 0; }
+.project-tools { position: absolute; right: 2px; top: 50%; transform: translateY(-50%); display: flex; gap: 1px; padding: 2px; border: 1px solid var(--border); border-radius: 7px; background: var(--panel); opacity: 0; }
 .project-row:hover .project-tools, .project-row:focus-within .project-tools { opacity: 1; }
 .projects nav .project-tools button { align-items: center; justify-content: center; padding: 6px; width: 26px; height: 28px; color: var(--muted); }
 .projects nav .project-tools button:hover { background: var(--selection); color: var(--accent); }
