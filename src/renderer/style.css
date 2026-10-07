@@ -538,7 +538,8 @@ summary {
 .project-row > button { flex: 1; min-width: 0; align-items: center; padding-right: 4px; }
 .project-name { min-width: 0; }
 .project-count { flex-shrink: 0; font-variant-numeric: tabular-nums; color: var(--muted); }
-.project-tools { display: flex; flex-shrink: 0; gap: 1px; }
+.project-tools { display: flex; flex-shrink: 0; gap: 1px; opacity: 0; }
+.project-row:hover .project-tools, .project-row:focus-within .project-tools { opacity: 1; }
 .projects nav .project-tools button { align-items: center; justify-content: center; padding: 6px; width: 26px; height: 28px; color: var(--muted); }
 .projects nav .project-tools button:hover { background: var(--selection); color: var(--accent); }
 .projects nav .project-tools .flagged { color: var(--accent); }
