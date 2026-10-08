@@ -1,3 +1,4 @@
+import type { PlanningSnapshot, PlanCategory, PlanItem } from "./planning";
 export const states = [
   "running",
   "idle",
@@ -110,6 +111,7 @@ export interface ChatLink {
   lastSeenAt: string;
 }
 export interface Snapshot {
+  planning: PlanningSnapshot;
   settings: Settings;
   links: ChatLink[];
   projects: Project[];
@@ -122,6 +124,13 @@ export interface Snapshot {
   setups: Record<string, Setup>;
 }
 export type Command =
+  | { type: "createPlanItem"; day: string; category: PlanCategory; name: string }
+  | { type: "updatePlanItem"; id: string; patch: Partial<Pick<PlanItem, "name" | "notes" | "projectId">> }
+  | { type: "setPlanChats"; id: string; chatIds: string[] }
+  | { type: "schedulePlanItem"; id: string; day: string; category: PlanCategory }
+  | { type: "removePlanEntry"; id: string; day: string }
+  | { type: "setPlanWorkedOn"; id: string; day: string; workedOn: boolean }
+  | { type: "importDailyPlan"; markdown: string; sourceName: string; itemIds: (string | null)[] }
   | { type: "updateSettings"; jiraBaseUrl?: string; linkRules?: LinkRule[] }
   | { type: "createProject"; name: string; chatId?: string }
   | { type: "renameProject"; id: string; name: string }

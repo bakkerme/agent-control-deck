@@ -59,6 +59,10 @@ Command hooks finish quietly and successfully when the deck is unavailable, with
 
 **Send diagnostic event** checks local inbox ingestion only. The Sources page also provides an HTTP test command to run in the provider environment. Submit a real prompt in an existing chat to verify the complete hook installation.
 
+## Daily planning
+
+**Today** provides a daily card with Coding, Agentic, and Other sections. Other covers work mostly done by you, such as reviews and conversations. Add broad plan items, optionally connect projects and existing chats, record days worked on, and carry context forward. Import transcribed Markdown through **Import card** or the separate **Plan inbox**, with review before saving. See [daily planning](docs/daily-planning.md) for the card format and demo instructions.
+
 ## Local storage
 
 SQLite databases live under Electron’s OS application-data directory, with separate `workspace/` and `demo/` subdirectories. Jira settings are saved separately in each database. The exact active path appears in the app footer. Hook files stay local. There is no cloud sync, telemetry, or Jira API access.

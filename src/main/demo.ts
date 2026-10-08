@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { localPlanDay } from "../shared/planning";
+import { PlanningStore } from "./planning-store";
 import type { Store } from "./store";
 export function seedDemo(store: Store): void {
   // Backfill this sample in existing demo databases without resetting edits.
@@ -14,7 +16,7 @@ export function seedDemo(store: Store): void {
     time,
     time,
   );
-  if (store.projects().length) return;
+  if (store.projects().length) { seedPlan(store); return; }
   store.command({ type: "createProject", name: "Payments API" });
   store.command({ type: "createProject", name: "Customer portal" });
   store.command({
@@ -81,6 +83,7 @@ export function seedDemo(store: Store): void {
       state: "waiting",
     },
   });
+  seedPlan(store);
 }
 export function advanceDemo(store: Store): void {
   const chat = store.chats().find((c) => c.externalId === "demo-api");
@@ -109,4 +112,22 @@ export function advanceDemo(store: Store): void {
     eventId: randomUUID(),
     payload: { ...event, session_id: "demo-api", cwd: "/demo/payments" },
   });
+}
+
+function seedPlan(store: Store): void {
+  if(store.db.prepare("SELECT value FROM settings WHERE key='planningDemoSeeded'").get())return;
+  store.db.transaction(()=>{
+    const day=localPlanDay();
+    const markdown=`---\ndate: ${day}\n---\n\n## Coding\n- Customer portal\n\n## Agentic\n- Payments API\n\n## Other\n- Review reconciliation report\n- Ask the team about deployment`;
+    store.command({type:"importDailyPlan",markdown,sourceName:"Sample daily card",itemIds:[null,null,null,null]});
+    const plans=new PlanningStore(store);
+    for(const item of plans.items()){
+      const project=store.projects().find(p=>p.name===item.name);
+      if(project){
+        store.command({type:"updatePlanItem",id:item.id,patch:{projectId:project.id}});
+        store.command({type:"setPlanChats",id:item.id,chatIds:store.chats().filter(c=>c.projectId===project.id).map(c=>c.id)});
+      }
+    }
+    store.db.prepare("INSERT INTO settings (key,value) VALUES ('planningDemoSeeded','true')").run();
+  })();
 }

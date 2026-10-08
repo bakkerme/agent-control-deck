@@ -16,6 +16,8 @@ import type { Snapshot } from "../shared/types";
 import { commandSchema, idSchema, ticketUrl } from "../shared/validation";
 import { Store } from "./store";
 import { Inbox } from "./inbox";
+import { PlanningStore } from "./planning-store";
+import { readPlanInbox } from "./plan-inbox";
 import { sourceSetup, writeHookSetup, type HookConnection } from "./setup";
 import { HookReceiver } from "./http";
 import { advanceDemo, seedDemo } from "./demo";
@@ -35,6 +37,7 @@ let inbox: Inbox;
 let window: BrowserWindow | null = null;
 let timer: NodeJS.Timeout | undefined;
 let ingestionError: string | null = null;
+let planInboxSignature = "";
 let connection: HookConnection;
 let receiver: HookReceiver | undefined;
 let inputIndicator: InputIndicator | undefined;
@@ -90,10 +93,20 @@ function pollInbox(): void {
     ingestionError = "Event ingestion is paused by a storage error. Check disk space and permissions; queued events will be retried.";
   }
   if (before !== ingestionError) changed();
+  const plans = new PlanningStore(store);
+  const signature = JSON.stringify(readPlanInbox(dataRoot(), plans));
+  if (signature !== planInboxSignature) { planInboxSignature = signature; changed(); }
 }
 function snapshot(): Snapshot {
   const sources = store.sources();
+  const plans = new PlanningStore(store);
   return {
+    planning: {
+      items: plans.items(),
+      entries: plans.entries(),
+      imports: plans.imports(),
+      inbox: readPlanInbox(dataRoot(), plans),
+    },
     settings: store.settings(),
     links: store.links(),
     projects: store.projects(),

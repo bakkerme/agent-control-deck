@@ -174,10 +174,10 @@ test("v4 migration preserves user data and backs up once without fabricating obs
   const f = fixture(t);
   f.store.command({ type: "updateChat", id: f.id, patch: { name: "Keep", notes: "Personal", archived: true } });
   const before = f.chat;
-  f.store.db.exec("DROP TABLE background_snapshots; DROP TABLE chat_links; DROP TABLE subagents; ALTER TABLE chats DROP COLUMN subagentBaselineAt; ALTER TABLE projects DROP COLUMN priority; ALTER TABLE projects DROP COLUMN mergedInto; ALTER TABLE projects DROP COLUMN repositoryPath; PRAGMA user_version=4;");
+  f.store.db.exec("DROP TABLE plan_chats; DROP TABLE plan_entries; DROP TABLE plan_imports; DROP TABLE plan_items; DROP TABLE background_snapshots; DROP TABLE chat_links; DROP TABLE subagents; ALTER TABLE chats DROP COLUMN subagentBaselineAt; ALTER TABLE projects DROP COLUMN priority; ALTER TABLE projects DROP COLUMN mergedInto; ALTER TABLE projects DROP COLUMN repositoryPath; PRAGMA user_version=4;");
   f.reopen();
   assert.deepEqual(f.chat, before);
-  assert.equal(f.store.db.pragma("user_version", { simple: true }), 9);
+  assert.equal(f.store.db.pragma("user_version", { simple: true }), 10);
   assert.deepEqual(f.store.db.pragma("foreign_key_check"), []);
   f.reopen();
   assert.equal(readdirSync(f.dir).filter(name => name.includes(".bak-")).length, 1);
@@ -293,11 +293,11 @@ test("v8 migration preserves response links and user data without fabricating mo
   const before = f.chat;
   const links = f.store.links();
   assert.equal(links.length, 1);
-  f.store.db.exec("DROP TABLE background_snapshots; PRAGMA user_version=8;");
+  f.store.db.exec("DROP TABLE plan_chats; DROP TABLE plan_entries; DROP TABLE plan_imports; DROP TABLE plan_items; DROP TABLE background_snapshots; PRAGMA user_version=8;");
   f.reopen();
   assert.deepEqual(f.chat, before);
   assert.deepEqual(f.store.links(), links);
-  assert.equal(f.store.db.pragma("user_version", { simple: true }), 9);
+  assert.equal(f.store.db.pragma("user_version", { simple: true }), 10);
   assert.deepEqual(f.store.db.pragma("foreign_key_check"), []);
   f.reopen();
   assert.equal(readdirSync(f.dir).filter(name => name.includes(".bak-")).length, 1);

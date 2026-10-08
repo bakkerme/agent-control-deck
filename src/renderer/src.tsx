@@ -10,6 +10,7 @@ import Settings from "./Settings";
 import TitleBar from "./TitleBar";
 import Icon from "./Icon";
 import LinkStack from "./LinkStack";
+import Planning, { type PlanningHandle } from "./Planning";
 import "./style.css";
 const api = window.deck;
 
@@ -22,7 +23,7 @@ function App() {
   const [provider, setProvider] = useState("all");
   const [state, setState] = useState("all");
   const [archived, setArchived] = useState(false);
-  const [page, setPage] = useState<"workspace" | "sources" | "settings">("workspace");
+  const [page, setPage] = useState<"workspace" | "today" | "sources" | "settings">("workspace");
   const [modal, setModal] = useState<"project" | "chat" | "rename" | null>(
     null,
   );
@@ -31,6 +32,7 @@ function App() {
   const [projectChatId, setProjectChatId] = useState<string | undefined>();
   const [activities, setActivities] = useState<Activity[]>([]);
   const editor = useRef<EditorHandle>(null);
+  const planningEditor = useRef<PlanningHandle>(null);
   const settingsEditor = useRef<EditorHandle>(null);
   const [, tick] = useState(0);
   useEffect(() => {
@@ -52,6 +54,7 @@ function App() {
     setSnapshot(await api.command(command));
   }, []);
   const navigate = async (action: () => void | Promise<void>) => {
+    if (planningEditor.current && !(await planningEditor.current.flush())) return;
     if (editor.current && !(await editor.current.flush())) return;
     if (settingsEditor.current && !(await settingsEditor.current.flush())) return;
     try {
@@ -196,6 +199,7 @@ function App() {
         ? "Demo workspace · separate sample data"
         : "Local workspace · read-only agent monitoring"}>
         <nav aria-label="Main">
+          <button className={page === "today" ? "selected" : ""} onClick={() => void navigate(() => setPage("today"))}>Today</button>
           <button
             className={page === "workspace" ? "selected" : ""}
             onClick={() => void navigate(() => setPage("workspace"))}
@@ -243,7 +247,13 @@ function App() {
           <button onClick={() => setError("")}>Dismiss</button>
         </div>
       )}
-      {page === "sources" ? (
+      {page === "today" ? (
+        <Planning key={String(snapshot.demo)} ref={planningEditor} snapshot={snapshot} mutate={mutate} report={setError}
+          allChats={() => void navigate(() => setPage("workspace"))}
+          createProject={() => openModal("project")}
+          openChat={id => void navigate(() => { setSelected(id); setPage("workspace"); setProject("all"); setArchived(!!snapshot.chats.find(c=>c.id===id)?.archived); setSearch(""); setState("all"); setProvider("all"); })}
+        />
+      ) : page === "sources" ? (
         <Sources snapshot={snapshot} mutate={mutate} report={setError} />
       ) : page === "settings" ? (
         <Settings key={String(snapshot.demo)} ref={settingsEditor} settings={snapshot.settings} mutate={mutate} />

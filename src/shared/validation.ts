@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { states } from "./types";
+import { planCategories, validPlanDay } from "./planning";
+const day = z.string().refine(validPlanDay, "Choose a valid YYYY-MM-DD date");
 const id = z.string().min(1).max(200);
 const name = z.string().trim().min(1, "A name is required").max(200);
 export const ticketUrl = z
@@ -39,6 +41,13 @@ export const linkRulesSchema = z.array(z.object({
   category: z.string().trim().min(1, "A category is required").max(100),
 }).strict()).max(50).refine(rules => new Set(rules.map(rule => `${rule.domain}\n${rule.pathPrefix}`)).size === rules.length, "Each domain and path combination needs just one category");
 export const commandSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("createPlanItem"), day, category: z.enum(planCategories), name }).strict(),
+  z.object({ type: z.literal("updatePlanItem"), id, patch: z.object({ name, notes: z.string().max(100000), projectId: id.nullable() }).partial().strict() }).strict(),
+  z.object({ type: z.literal("setPlanChats"), id, chatIds: z.array(id).max(200) }).strict(),
+  z.object({ type: z.literal("schedulePlanItem"), id, day, category: z.enum(planCategories) }).strict(),
+  z.object({ type: z.literal("removePlanEntry"), id, day }).strict(),
+  z.object({ type: z.literal("setPlanWorkedOn"), id, day, workedOn: z.boolean() }).strict(),
+  z.object({ type: z.literal("importDailyPlan"), markdown: z.string().max(100000), sourceName: name, itemIds: z.array(id.nullable()).max(200) }).strict(),
   z.object({ type: z.literal("updateSettings"), jiraBaseUrl: jiraBaseUrl.optional(), linkRules: linkRulesSchema.optional() }).strict()
     .refine(value => value.jiraBaseUrl !== undefined || value.linkRules !== undefined, "Choose settings to update"),
   z.object({ type: z.literal("createProject"), name, chatId: id.optional() }).strict(),

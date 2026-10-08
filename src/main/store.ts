@@ -13,6 +13,7 @@ import type {
   Subagent,
   ChatLink,
 } from "../shared/types";
+import { PlanningStore } from "./planning-store";
 import { commandSchema, envelopeSchema } from "../shared/validation";
 import { normalize, type Observation } from "./providers";
 import { canonicalPath, repositoryLocation, repositoryRoot } from "./repositories";
@@ -38,11 +39,11 @@ export class Store {
       const version = this.db.pragma("user_version", {
         simple: true,
       }) as number;
-      if (version > 9)
+      if (version > 10)
         throw new Error(
           "This database was created by a newer version of Agent Control Deck",
         );
-      if (version < 9 && existed) {
+      if (version < 10 && existed) {
         this.db.pragma("wal_checkpoint(TRUNCATE)");
         copyFileSync(filename, `${filename}.bak-${Date.now()}`);
       }
@@ -174,8 +175,19 @@ export class Store {
           `);
         })();
       }
+      if (version < 10) {
+        this.db.transaction(() => {
+          this.db.exec(`
+            CREATE TABLE plan_items (id TEXT PRIMARY KEY, name TEXT NOT NULL, notes TEXT NOT NULL DEFAULT '', projectId TEXT REFERENCES projects(id), createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL);
+            CREATE TABLE plan_entries (day TEXT NOT NULL, itemId TEXT NOT NULL REFERENCES plan_items(id), category TEXT NOT NULL CHECK(category IN ('Coding','Agentic','Other')), workedOn INTEGER NOT NULL DEFAULT 0 CHECK(workedOn IN (0,1)), position INTEGER NOT NULL, PRIMARY KEY(day,itemId));
+            CREATE TABLE plan_chats (itemId TEXT NOT NULL REFERENCES plan_items(id), chatId TEXT NOT NULL REFERENCES chats(id), PRIMARY KEY(itemId,chatId));
+            CREATE TABLE plan_imports (id TEXT PRIMARY KEY, day TEXT NOT NULL, sourceName TEXT NOT NULL, markdown TEXT NOT NULL, importedAt TEXT NOT NULL);
+            PRAGMA user_version = 10;
+          `);
+        })();
+      }
       this.reconcileRepositories(() => {
-        if (version >= 9 && existed) {
+        if (version >= 10 && existed) {
           this.db.pragma("wal_checkpoint(TRUNCATE)");
           copyFileSync(filename, `${filename}.bak-${Date.now()}`);
         }
@@ -275,6 +287,7 @@ export class Store {
   }
   command(raw: Command): void {
     const c = commandSchema.parse(raw);
+    if (new PlanningStore(this).command(c)) return;
     switch (c.type) {
       case "updateSettings":
         this.db.transaction(() => {
@@ -430,6 +443,7 @@ export class Store {
           // and all chat content, activity, subagents, and archive state intact.
           this.db.prepare("UPDATE chats SET repoProjectId=? WHERE repoProjectId=?").run(primary.id, duplicate.id);
           this.db.prepare("UPDATE chats SET projectId=? WHERE projectId=?").run(primary.id, duplicate.id);
+          this.db.prepare("UPDATE plan_items SET projectId=? WHERE projectId=?").run(primary.id, duplicate.id);
           this.db.prepare("UPDATE workspaces SET projectId=? WHERE projectId=?").run(primary.id, duplicate.id);
           this.db.prepare("UPDATE projects SET mergedInto=? WHERE mergedInto=?").run(primary.id, duplicate.id);
           // Retain the old record/name for recovery without a duplicate sidebar row.

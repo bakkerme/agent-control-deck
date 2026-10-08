@@ -112,7 +112,7 @@ test("v7 migration backs up once, preserves records, and isolates rule settings"
   const f = fixture(t);
   f.emit("prompt", "UserPromptSubmit");
   const before = f.store.chats();
-  f.store.db.exec("DROP TABLE background_snapshots; DROP TABLE chat_links; PRAGMA user_version=7;");
+  f.store.db.exec("DROP TABLE plan_chats; DROP TABLE plan_entries; DROP TABLE plan_imports; DROP TABLE plan_items; DROP TABLE background_snapshots; DROP TABLE chat_links; PRAGMA user_version=7;");
   f.reopen();
   assert.deepEqual(f.store.chats(), before);
   assert.deepEqual(f.store.links(), []);
