@@ -45,11 +45,29 @@ export class HookReceiver {
     });
   }
   private receive(req: IncomingMessage, res: ServerResponse): void {
+    let replied = false;
     const reply = (status: number, body = "") => {
-      if (res.writableEnded) return;
+      if (replied) return;
+      replied = true;
       res.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store", "Connection": "close" });
-      res.end(body);
-      if (status >= 400) res.once("finish", () => req.destroy());
+      if (status < 400 || req.complete) { res.end(body); return; }
+      // Closing with unread upload bytes can reset the connection on Windows,
+      // hiding the error response. Send headers immediately, then discard a
+      // bounded remainder before closing. Never buffer a rejected payload.
+      res.flushHeaders();
+      let discarded = 0;
+      const deadline = setTimeout(() => req.destroy(), 3000);
+      deadline.unref();
+      const discard = (chunk: Buffer) => {
+        discarded += chunk.length;
+        if (discarded > 524288) req.destroy();
+      };
+      const cleanup = () => { clearTimeout(deadline); req.off("data", discard); };
+      req.once("close", cleanup);
+      res.once("close", cleanup);
+      req.on("data", discard);
+      req.once("end", () => { cleanup(); res.end(body); });
+      req.resume();
     };
     // No browser clients, redirects, CORS, or command/control routes.
     if (req.method !== "POST") return reply(405);
@@ -79,13 +97,14 @@ export class HookReceiver {
     const chunks: Buffer[] = [];
     let size = 0;
     req.on("data", (chunk: Buffer) => {
+      if (replied) return;
       size += chunk.length;
-      if (size > 262144) { reply(413); return; }
+      if (size > 262144) { chunks.length = 0; reply(413); return; }
       chunks.push(chunk);
     });
     req.on("end", () => {
       release();
-      if (res.writableEnded) return;
+      if (replied) return;
       const current = this.context();
       if (current.root !== ctx.root || current.demo) return reply(503);
       let payload: Record<string, unknown>;

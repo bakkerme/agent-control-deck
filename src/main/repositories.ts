@@ -3,8 +3,10 @@ import { basename, dirname, join, posix, resolve, win32 } from "node:path";
 import type { Source } from "../shared/types";
 
 export function canonicalPath(value: string): string {
-  if (/^[a-z]:[\\/]/i.test(value) || value.startsWith("\\\\"))
-    return win32.normalize(value).replace(/\\/g, "/").replace(/\/$/, "").toLowerCase();
+  if (/^[a-z]:[\\/]/i.test(value) || value.startsWith("\\\\") || value.startsWith("//")) {
+    const path = win32.normalize(value).replace(/\\/g, "/").toLowerCase();
+    return /^[a-z]:\/$/.test(path) ? path : path.replace(/\/$/, "");
+  }
   if (!value.startsWith("/")) throw new Error("Workspace paths must be absolute");
   return posix.normalize(value).replace(/\/$/, "") || "/";
 }
@@ -30,6 +32,7 @@ function markerText(path: string): string | null {
 // Read only Git's location markers, never provider storage, Git config, or objects.
 // An inaccessible/broken pointer still establishes a separate checkout boundary.
 export function repositoryLocation(path: string, source: Source): RepositoryLocation | null {
+  path = canonicalPath(path);
   if (source.environment !== "native" || (process.platform !== "win32" && !path.startsWith("/"))) return null;
   if (process.platform === "win32" && !/^(?:[a-z]:\/|\/\/)/i.test(path)) return null;
   let current = path;
@@ -41,15 +44,17 @@ export function repositoryLocation(path: string, source: Source): RepositoryLoca
     if (hasMarker) {
       const fallback = { root: canonicalPath(current), identity: null, name: basename(current) || current };
       try {
-        const root = canonicalPath(realpathSync(current));
+        // Native realpath expands Windows 8.3 aliases such as RUNNER~1.
+        // Git's worktree pointers may use the long spelling of the same path.
+        const root = canonicalPath(realpathSync.native(current));
         const directory = statSync(marker).isDirectory()
-          ? realpathSync(marker)
+          ? realpathSync.native(marker)
           : resolve(current, /^gitdir: (.+)$/i.exec(markerText(marker) ?? "")?.[1] ?? "");
         if (directory === resolve(current) || !statSync(directory).isDirectory()) return fallback;
         const commonMarker = join(directory, "commondir");
         const common = existsSync(commonMarker) ? markerText(commonMarker) : null;
         if (existsSync(commonMarker) && !common) return fallback;
-        const identity = canonicalPath(realpathSync(common ? resolve(directory, common) : directory));
+        const identity = canonicalPath(realpathSync.native(common ? resolve(directory, common) : directory));
         if (!statSync(identity).isDirectory()) return fallback;
         const name = basename(identity) === ".git" ? basename(dirname(identity))
           : common ? basename(identity).replace(/\.git$/i, "") : basename(root);

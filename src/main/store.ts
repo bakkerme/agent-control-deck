@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, realpathSync } from "node:fs";
 import { dirname, basename, join } from "node:path";
 import type {
   Activity,
@@ -108,7 +108,11 @@ export class Store {
             if (root) repositories.set(root, [...(repositories.get(root) ?? []), workspace]);
           }
           for (const [root, workspaces] of repositories) {
-            const primary = workspaces.find(w => w.path === root) ?? workspaces[0];
+            const primary = workspaces.find(w => {
+              if (canonicalPath(w.path) === root) return true;
+              try { return canonicalPath(realpathSync.native(w.path)) === root; }
+              catch { return false; }
+            }) ?? workspaces[0];
             for (const workspace of workspaces) {
               this.db.prepare("UPDATE chats SET repoProjectId=? WHERE sourceId=? AND repoProjectId=?")
                 .run(primary.projectId, workspace.sourceId, workspace.projectId);
