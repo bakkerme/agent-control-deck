@@ -22,7 +22,7 @@ export function readPlanInbox(
     mkdirSync(path, { recursive: true, mode: 0o700 });
     const imported = new Set(planning.imports().map((i) => i.id));
     const names = readdirSync(path)
-      .filter((name) => /\.(md|markdown)$/i.test(name))
+      .filter((name) => /\.ya?ml$/i.test(name))
       .sort();
     for (const name of names.slice(0, 50)) {
       let file: number | undefined;
@@ -30,7 +30,7 @@ export function readPlanInbox(
         const filename = join(path, name),
           before = lstatSync(filename);
         if (!before.isFile() || before.isSymbolicLink())
-          throw new Error("Only regular Markdown files are accepted");
+          throw new Error("Only regular YAML files are accepted");
         file = openSync(
           filename,
           constants.O_RDONLY |
@@ -39,15 +39,15 @@ export function readPlanInbox(
         );
         const stat = fstatSync(file);
         if (!stat.isFile())
-          throw new Error("Only regular Markdown files are accepted");
+          throw new Error("Only regular YAML files are accepted");
         if (stat.size > 100000) throw new Error("Card exceeds 100,000 bytes");
-        const markdown = readFileSync(file, "utf8");
-        if (imported.has(planDigest(markdown))) continue;
-        files.push({ name, markdown, error: null });
+        const card = readFileSync(file, "utf8");
+        if (imported.has(planDigest(card))) continue;
+        files.push({ name, card, error: null });
       } catch (error) {
         files.push({
           name,
-          markdown: "",
+          card: "",
           error:
             error instanceof Error ? error.message : "Cannot read this card",
         });

@@ -1,0 +1,31 @@
+date: 2026-10-09
+
+coding:
+  - name: CEF signing
+    tickets:
+      - key: THR-1118
+        status: backlog
+        note: CEF support in BSR
+  - name: Test JA4 detection lab
+    note: No ticket yet
+    related: [THR-1165, THR-914]
+
+agentic:
+  - name: Continue auto sampling
+    tickets:
+      - key: THR-1241
+        status: backlog
+        note: Agent Canary, unassigned
+      - key: THR-1235
+        status: backlog
+  - name: WBA TTs
+    tickets:
+      - key: THR-1199
+        status: in-progress
+        note: Web Bot Auth signals
+
+other:
+  - name: TT update runbook
+    note: Draft pending; global telltale deployment in enablement window
+    related: [CHNGE-6464, THR-814]
+  - Ask team about deployment

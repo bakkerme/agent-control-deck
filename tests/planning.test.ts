@@ -14,9 +14,9 @@ import Database from "better-sqlite3";
 import { Store } from "../src/main/store";
 import { PlanningStore } from "../src/main/planning-store";
 import { readPlanInbox } from "../src/main/plan-inbox";
-import { parseDailyPlan } from "../src/shared/planning";
+import { parseDailyPlan, planItemNotes } from "../src/shared/planning";
 const card =
-  "---\ndate: 2026-10-08\n---\n\n## Coding\n- Deck\n\n## Agentic\n- Save research\n\n## Other\n- Review a document\n- Ask about deployment";
+  "date: 2026-10-08\ncoding:\n  - Deck\nagentic:\n  - Save research\nother:\n  - Review a document\n  - Ask about deployment\n";
 function fixture(t: { after: (fn: () => void) => void }) {
   const dir = mkdtempSync(join(tmpdir(), "acd-plan-")),
     file = join(dir, "workspace.sqlite");
@@ -41,27 +41,100 @@ function fixture(t: { after: (fn: () => void) => void }) {
     },
   };
 }
-test("daily card parser preserves broad names, ignores checkbox completion, and rejects ambiguous or malformed cards", () => {
-  const parsed = parseDailyPlan(
-    card.replace("- Review a document", "- [x] Review a document"),
-  );
-  assert.equal(parsed.day, "2026-10-08");
-  assert.deepEqual(parsed.items.at(-2), {
-    name: "Review a document",
-    category: "Other",
+test("daily card parser keeps tickets and annotations in separate fields and rejects malformed cards", () => {
+  const parsed = parseDailyPlan(`
+date: 2026-10-09
+Coding:
+  - name: CEF signing
+    tickets:
+      - key: thr-1118
+        status: backlog
+        note: CEF support in BSR
+    note: Waiting on review
+  - name: Test JA4 detection lab
+    related: [THR-1165, THR-914]
+agentic:
+  - name: Continue auto sampling
+    tickets:
+      - { key: THR-1241, status: backlog, note: "Agent Canary, unassigned" }
+      - THR-1235
+other:
+  - Ask a colleague
+`);
+  assert.equal(parsed.day, "2026-10-09");
+  assert.deepEqual(parsed.items[0], {
+    name: "CEF signing",
+    category: "Coding",
+    tickets: [{ key: "THR-1118", status: "backlog", note: "CEF support in BSR" }],
+    related: [],
+    note: "Waiting on review",
   });
+  assert.deepEqual(
+    parsed.items[1].related.map((t) => t.key),
+    ["THR-1165", "THR-914"],
+  );
+  assert.deepEqual(parsed.items[2].tickets[1], {
+    key: "THR-1235",
+    status: "",
+    note: "",
+  });
+  assert.equal(parsed.items[3].name, "Ask a colleague");
+  assert.equal(
+    planItemNotes(parsed.items[0]),
+    "Waiting on review\n\n**Tickets**\n- THR-1118 `backlog` — CEF support in BSR",
+  );
+  assert.equal(
+    parseDailyPlan("date: 2026-10-08\nother: [Ask]\ncoding:\n").items.length,
+    1,
+  );
   for (const bad of [
     card.replace("2026-10-08", "2026-02-31"),
-    card.replace("## Other", "## Misc"),
-    card.replace("- Deck", "  - Nested"),
-    card.replace("date: 2026-10-08", "date: 2026-10-08\ndate: 2026-10-09"),
-    card + "\n# 2026-10-09",
-    card + "\nUnparsed text",
+    card.replace("other:", "misc:"),
+    card.replace("coding:", "coding: Deck\nextra:"),
+    card + "date: 2026-10-09\n",
+    card + "coding:\n  - Again\n",
+    "date: 2026-10-08\ncoding:\n  - name: A\n    tickets: [not a key]\n",
+    "date: 2026-10-08\ncoding:\n  - name: A\n    tickets: [THR-1, THR-1]\n",
+    "date: 2026-10-08\ncoding:\n  - name: A\n    ticket: THR-1\n",
+    "date: 2026-10-08\ncoding:\n  - note: no name\n",
+    "date: 2026-10-08\ncoding:\n  - &a [x]\n  - *a\n",
+    "# 2026-10-08\n## Other\n- Ask a colleague",
+    "date: 2026-10-08\n",
   ])
-    assert.throws(() => parseDailyPlan(bad));
+    assert.throws(() => parseDailyPlan(bad), Error, bad);
+});
+test("rescheduling moves an item to another day and keeps its context", (t) => {
+  const f = fixture(t);
+  f.store.command({
+    type: "importDailyPlan",
+    card,
+    sourceName: "card.yaml",
+    itemIds: [null, null, null, null],
+  });
+  const item = f.plans.items().find((i) => i.name === "Deck")!;
+  f.store.command({
+    type: "updatePlanItem",
+    id: item.id,
+    patch: { notes: "## My notes" },
+  });
+  const move = (fromDay: string, day: string) => ({
+    type: "reschedulePlanItem" as const,
+    id: item.id,
+    fromDay,
+    day,
+    category: "Coding" as const,
+  });
+  assert.throws(() => f.store.command(move("2026-10-08", "2026-10-08")), Error);
+  assert.throws(() => f.store.command(move("2026-10-07", "2026-10-09")), Error);
+  f.store.command(move("2026-10-08", "2026-10-09"));
+  const days = f.plans
+    .entries()
+    .filter((e) => e.itemId === item.id)
+    .map((e) => e.day);
+  assert.deepEqual(days, ["2026-10-09"]);
   assert.equal(
-    parseDailyPlan("# 2026-10-08\n## Other\n- Ask a colleague").items.length,
-    1,
+    f.plans.items().find((i) => i.id === item.id)!.notes,
+    "## My notes",
   );
 });
 test("planning survives provider events, carry-forward and restart without changing chat organization", (t) => {
@@ -89,8 +162,8 @@ test("planning survives provider events, carry-forward and restart without chang
   const chat = f.store.chats()[0];
   f.store.command({
     type: "importDailyPlan",
-    markdown: card,
-    sourceName: "card.md",
+    card,
+    sourceName: "card.yaml",
     itemIds: [null, null, null, null],
   });
   const item = f.plans.items().find((i) => i.name === "Deck")!;
@@ -141,25 +214,31 @@ test("planning survives provider events, carry-forward and restart without chang
   assert.equal(entries.length, 2);
   assert.equal(entries[0].workedOn, true);
   assert.equal(entries[1].workedOn, false);
-  assert.equal(f.plans.imports()[0].markdown, card);
+  assert.equal(f.plans.imports()[0].card, card);
   f.store.command({ type: "removePlanEntry", id: item.id, day: "2026-10-08" });
   assert.equal(
     f.plans.items().find((i) => i.id === item.id)!.notes,
     "## My notes",
   );
+  f.store.command({ type: "deletePlanItem", id: item.id });
+  assert.equal(f.plans.items().some((i) => i.id === item.id), false);
+  assert.equal(f.plans.entries().some((e) => e.itemId === item.id), false);
+  assert.equal(f.store.chat(chat.id).id, chat.id);
+  assert.throws(() => f.store.command({ type: "deletePlanItem", id: item.id }));
+  assert.deepEqual(f.store.db.pragma("foreign_key_check"), []);
 });
 test("imports are atomic, deduplicated and explicitly connect recurring work", (t) => {
   const f = fixture(t);
   f.store.command({
     type: "importDailyPlan",
-    markdown: card,
-    sourceName: "card.md",
+    card,
+    sourceName: "card.yaml",
     itemIds: [null, null, null, null],
   });
   f.store.command({
     type: "importDailyPlan",
-    markdown: card,
-    sourceName: "another.md",
+    card,
+    sourceName: "another.yaml",
     itemIds: [null, null, null, null],
   });
   assert.equal(f.plans.items().length, 4);
@@ -168,8 +247,8 @@ test("imports are atomic, deduplicated and explicitly connect recurring work", (
   assert.throws(() =>
     f.store.command({
       type: "importDailyPlan",
-      markdown: second,
-      sourceName: "next.md",
+      card: second,
+      sourceName: "next.yaml",
       itemIds: [item.id, null, "missing", null],
     }),
   );
@@ -180,16 +259,16 @@ test("imports are atomic, deduplicated and explicitly connect recurring work", (
     () =>
       f.store.command({
         type: "importDailyPlan",
-        markdown: second,
-        sourceName: "next.md",
+        card: second,
+        sourceName: "next.yaml",
         itemIds: [item.id, item.id, null, null],
       }),
     /same plan item/,
   );
   f.store.command({
     type: "importDailyPlan",
-    markdown: second,
-    sourceName: "next.md",
+    card: second,
+    sourceName: "next.yaml",
     itemIds: [item.id, null, null, null],
   });
   assert.equal(f.plans.items().length, 7);
@@ -214,28 +293,28 @@ test("imports are atomic, deduplicated and explicitly connect recurring work", (
 test("plan inbox preserves files, excludes imported duplicates, rejects symlinks and bounds large cards", (t) => {
   const f = fixture(t);
   const initial = readPlanInbox(f.dir, f.plans),
-    path = join(initial.path, "card.md");
+    path = join(initial.path, "card.yaml");
   writeFileSync(path, card);
   writeFileSync(join(initial.path, "partial.tmp"), card);
   symlinkSync(
     process.platform === "win32" ? f.dir : f.file,
-    join(initial.path, "symlink.md"),
+    join(initial.path, "symlink.yaml"),
     process.platform === "win32" ? "junction" : "file",
   );
-  writeFileSync(join(initial.path, "large.md"), "a".repeat(256001));
+  writeFileSync(join(initial.path, "large.yaml"), "a".repeat(256001));
   const pending = readPlanInbox(f.dir, f.plans);
   assert.equal(pending.files.length, 3);
-  assert.equal(pending.files.find((i) => i.name === "card.md")!.markdown, card);
-  assert.ok(pending.files.find((i) => i.name === "symlink.md")!.error);
-  assert.ok(pending.files.find((i) => i.name === "large.md")!.error);
+  assert.equal(pending.files.find((i) => i.name === "card.yaml")!.card, card);
+  assert.ok(pending.files.find((i) => i.name === "symlink.yaml")!.error);
+  assert.ok(pending.files.find((i) => i.name === "large.yaml")!.error);
   f.store.command({
     type: "importDailyPlan",
-    markdown: card,
-    sourceName: "card.md",
+    card,
+    sourceName: "card.yaml",
     itemIds: [null, null, null, null],
   });
   assert.equal(
-    readPlanInbox(f.dir, f.plans).files.some((i) => i.name === "card.md"),
+    readPlanInbox(f.dir, f.plans).files.some((i) => i.name === "card.yaml"),
     false,
   );
   assert.equal(readFileSync(path, "utf8"), card);
@@ -260,8 +339,8 @@ test("v9 planning migration backs up once, retains existing chats, and isolates 
   }
   f.store.command({
     type: "importDailyPlan",
-    markdown: card,
-    sourceName: "card.md",
+    card,
+    sourceName: "card.yaml",
     itemIds: [null, null, null, null],
   });
   f.reopen();

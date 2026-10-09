@@ -45,9 +45,11 @@ export const commandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("updatePlanItem"), id, patch: z.object({ name, notes: z.string().max(100000), projectId: id.nullable() }).partial().strict() }).strict(),
   z.object({ type: z.literal("setPlanChats"), id, chatIds: z.array(id).max(200) }).strict(),
   z.object({ type: z.literal("schedulePlanItem"), id, day, category: z.enum(planCategories) }).strict(),
+  z.object({ type: z.literal("reschedulePlanItem"), id, fromDay: day, day, category: z.enum(planCategories) }).strict(),
   z.object({ type: z.literal("removePlanEntry"), id, day }).strict(),
+  z.object({ type: z.literal("deletePlanItem"), id }).strict(),
   z.object({ type: z.literal("setPlanWorkedOn"), id, day, workedOn: z.boolean() }).strict(),
-  z.object({ type: z.literal("importDailyPlan"), markdown: z.string().max(100000), sourceName: name, itemIds: z.array(id.nullable()).max(200) }).strict(),
+  z.object({ type: z.literal("importDailyPlan"), card: z.string().max(100000), sourceName: name, itemIds: z.array(id.nullable()).max(200) }).strict(),
   z.object({ type: z.literal("updateSettings"), jiraBaseUrl: jiraBaseUrl.optional(), linkRules: linkRulesSchema.optional() }).strict()
     .refine(value => value.jiraBaseUrl !== undefined || value.linkRules !== undefined, "Choose settings to update"),
   z.object({ type: z.literal("createProject"), name, chatId: id.optional() }).strict(),

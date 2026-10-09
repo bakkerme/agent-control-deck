@@ -128,9 +128,11 @@ export type Command =
   | { type: "updatePlanItem"; id: string; patch: Partial<Pick<PlanItem, "name" | "notes" | "projectId">> }
   | { type: "setPlanChats"; id: string; chatIds: string[] }
   | { type: "schedulePlanItem"; id: string; day: string; category: PlanCategory }
+  | { type: "reschedulePlanItem"; id: string; fromDay: string; day: string; category: PlanCategory }
   | { type: "removePlanEntry"; id: string; day: string }
+  | { type: "deletePlanItem"; id: string }
   | { type: "setPlanWorkedOn"; id: string; day: string; workedOn: boolean }
-  | { type: "importDailyPlan"; markdown: string; sourceName: string; itemIds: (string | null)[] }
+  | { type: "importDailyPlan"; card: string; sourceName: string; itemIds: (string | null)[] }
   | { type: "updateSettings"; jiraBaseUrl?: string; linkRules?: LinkRule[] }
   | { type: "createProject"; name: string; chatId?: string }
   | { type: "renameProject"; id: string; name: string }

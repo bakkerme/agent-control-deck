@@ -3,12 +3,13 @@ import type { Store } from "./store";
 import type { Command } from "../shared/types";
 import {
   parseDailyPlan,
+  planItemNotes,
   type PlanEntry,
   type PlanImport,
   type PlanItem,
 } from "../shared/planning";
-export const planDigest = (markdown: string) =>
-  createHash("sha256").update(markdown).digest("hex");
+export const planDigest = (card: string) =>
+  createHash("sha256").update(card).digest("hex");
 export class PlanningStore {
   constructor(private store: Store) {}
   items(): PlanItem[] {
@@ -32,7 +33,7 @@ export class PlanningStore {
   }
   imports(): PlanImport[] {
     return this.store.db
-      .prepare("SELECT * FROM plan_imports ORDER BY importedAt,id")
+      .prepare("SELECT id,day,sourceName,markdown AS card,importedAt FROM plan_imports ORDER BY importedAt,id")
       .all() as PlanImport[];
   }
   private requireItem(id: string): void {
@@ -52,14 +53,14 @@ export class PlanningStore {
       )
       .run(day, id, category, row.position);
   }
-  private create(name: string): string {
+  private create(name: string, notes = ""): string {
     const id = randomUUID(),
       time = new Date().toISOString();
     this.store.db
       .prepare(
-        "INSERT INTO plan_items (id,name,createdAt,updatedAt) VALUES (?,?,?,?)",
+        "INSERT INTO plan_items (id,name,notes,createdAt,updatedAt) VALUES (?,?,?,?,?)",
       )
-      .run(id, name, time, time);
+      .run(id, name, notes, time, time);
     return id;
   }
   command(c: Command): boolean {
@@ -89,6 +90,22 @@ export class PlanningStore {
       case "schedulePlanItem":
         db.transaction(() => this.schedule(c.id, c.day, c.category))();
         break;
+      case "reschedulePlanItem":
+        db.transaction(() => {
+          if (c.day === c.fromDay) throw new Error("Choose a different day");
+          if (
+            !db
+              .prepare("SELECT 1 FROM plan_entries WHERE day=? AND itemId=?")
+              .get(c.fromDay, c.id)
+          )
+            throw new Error("This item is not scheduled on that day");
+          this.schedule(c.id, c.day, c.category);
+          db.prepare("DELETE FROM plan_entries WHERE day=? AND itemId=?").run(
+            c.fromDay,
+            c.id,
+          );
+        })();
+        break;
       case "setPlanWorkedOn": {
         this.requireItem(c.id);
         if (
@@ -108,6 +125,14 @@ export class PlanningStore {
           c.id,
         );
         break;
+      case "deletePlanItem":
+        db.transaction(() => {
+          this.requireItem(c.id);
+          db.prepare("DELETE FROM plan_chats WHERE itemId=?").run(c.id);
+          db.prepare("DELETE FROM plan_entries WHERE itemId=?").run(c.id);
+          db.prepare("DELETE FROM plan_items WHERE id=?").run(c.id);
+        })();
+        break;
       case "setPlanChats":
         db.transaction(() => {
           this.requireItem(c.id);
@@ -119,8 +144,8 @@ export class PlanningStore {
         break;
       case "importDailyPlan":
         db.transaction(() => {
-          const parsed = parseDailyPlan(c.markdown),
-            digest = planDigest(c.markdown);
+          const parsed = parseDailyPlan(c.card),
+            digest = planDigest(c.card);
           if (c.itemIds.length !== parsed.items.length)
             throw new Error("Review each imported item before importing");
           if (db.prepare("SELECT id FROM plan_imports WHERE id=?").get(digest))
@@ -135,7 +160,7 @@ export class PlanningStore {
           for (const id of existingIds) this.requireItem(id);
           parsed.items.forEach((row, index) =>
             this.schedule(
-              c.itemIds[index] ?? this.create(row.name),
+              c.itemIds[index] ?? this.create(row.name, planItemNotes(row)),
               parsed.day,
               row.category,
             ),
@@ -144,7 +169,7 @@ export class PlanningStore {
             digest,
             parsed.day,
             c.sourceName,
-            c.markdown,
+            c.card,
             new Date().toISOString(),
           );
         })();
