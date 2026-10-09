@@ -1,15 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readdirSync, realpathSync, renameSync, rmSync } from "node:fs";
+import { execFileSync, execSync } from "node:child_process";
+import { mkdtempSync, mkdirSync, readdirSync, realpathSync, renameSync } from "node:fs";
+import { removeFixture } from "./fixture-cleanup";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { Store } from "../src/main/store";
-import { canonicalPath } from "../src/main/repositories";
+import { canonicalPath, repositoryLocation } from "../src/main/repositories";
 
 function fixture(t: { after: (fn: () => void) => void }) {
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), "acd-repositories-")));
+  const dir = realpathSync.native(mkdtempSync(join(tmpdir(), "acd-repositories-")));
   const root = join(dir, "repo");
   const worktree = join(dir, "worktrees", "temporary-hash");
   execFileSync("git", ["init", "--initial-branch=main", root], { stdio: "pipe" });
@@ -23,9 +24,38 @@ function fixture(t: { after: (fn: () => void) => void }) {
     version: 1, eventId: `event-${++sequence}`, observedAt: new Date(Date.now() + sequence).toISOString(),
     payload: { hook_event_name: hook, session_id: session, cwd, prompt: session },
   });
-  t.after(() => { store.close(); rmSync(dir, { recursive: true, force: true }); });
+  t.after(() => { store.close(); removeFixture(dir); });
   return { dir, root, worktree, source, emit, get store() { return store; }, reopen() { store.close(); store = new Store(join(dir, "workspace.sqlite")); } };
 }
+
+test("Windows drive and UNC paths remain absolute across repeated normalization", () => {
+  for (const [input, expected] of [
+    ["C:\\", "c:/"],
+    ["C:\\Work\\Deck", "c:/work/deck"],
+    ["\\\\Server\\Share\\Deck", "//server/share/deck"],
+    ["//Server/Share/Deck", "//server/share/deck"],
+  ]) {
+    assert.equal(canonicalPath(input), expected);
+    assert.equal(canonicalPath(canonicalPath(input)), expected);
+  }
+});
+
+test("Windows short and long paths discover the same repository and worktree", { skip: process.platform !== "win32" }, t => {
+  const f = fixture(t);
+  const shortDir = execSync(`for %I in ("${f.dir}") do @echo %~sI`, { encoding: "utf8", windowsHide: true }).trim();
+  const longDir = realpathSync.native(f.dir);
+  if (canonicalPath(shortDir) === canonicalPath(longDir)) { t.skip("8.3 aliases are unavailable on this volume"); return; }
+  const main = repositoryLocation(join(longDir, "repo"), f.source)!;
+  assert.ok(main.identity);
+  assert.equal(repositoryLocation(join(shortDir, "repo"), f.source)?.identity, main.identity);
+  assert.equal(repositoryLocation(join(shortDir, "worktrees", "temporary-hash"), f.source)?.identity, main.identity);
+  f.emit("short main", join(shortDir, "repo"));
+  f.emit("long main", join(longDir, "repo"));
+  f.emit("short worktree", join(shortDir, "worktrees", "temporary-hash"));
+  f.reopen();
+  assert.equal(f.store.projects().length, 1);
+  assert.ok(f.store.chats().every(chat => chat.projectId === f.store.projects()[0].id));
+});
 
 test("real linked worktrees use one repository default across providers while user moves survive", t => {
   const f = fixture(t);
@@ -154,3 +184,4 @@ test("repository repair retries when Git markers become available and backs up c
   f.reopen();
   assert.equal(readdirSync(f.dir).filter(n => /^workspace\.sqlite\.bak-\d+$/.test(n)).length, 1);
 });
+
