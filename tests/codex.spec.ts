@@ -26,7 +26,8 @@ test("Codex source setup, HTTP events, filtering and automatic chat fields", asy
     const emit = async (event: string, extra: Record<string, unknown>) => {
       const command = config.hooks[event][0].hooks[0].command;
       const result = await new Promise<{ status: number | null; stdout: string; stderr: string }>((resolveResult, reject) => {
-        const child = spawn(process.platform === "win32" ? "cmd.exe" : "sh", process.platform === "win32" ? ["/d", "/s", "/c", command] : ["-c", command]);
+        // Match the real hook shell, including CMD quoting for commands with quotes.
+        const child = spawn(command, { shell: true });
         let stdout = "", stderr = "";
         child.stdout.on("data", (data) => stdout += data);
         child.stderr.on("data", (data) => stderr += data);
