@@ -2,13 +2,14 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   mkdtempSync,
+  mkdirSync,
   readFileSync,
   readdirSync,
-  rmSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { removeFixture } from "./fixture-cleanup";
 import { tmpdir } from "node:os";
 import Database from "better-sqlite3";
 import { Store } from "../src/main/store";
@@ -23,7 +24,7 @@ function fixture(t: { after: (fn: () => void) => void }) {
   let store = new Store(file);
   t.after(() => {
     store.close();
-    rmSync(dir, { recursive: true, force: true });
+    removeFixture(dir);
   });
   return {
     dir,
@@ -217,8 +218,11 @@ test("plan inbox preserves files, excludes imported duplicates, rejects symlinks
     path = join(initial.path, "card.md");
   writeFileSync(path, card);
   writeFileSync(join(initial.path, "partial.tmp"), card);
+  // A separate target keeps the Windows junction from pointing at its own ancestor.
+  const target = join(f.dir, "link-target");
+  mkdirSync(target);
   symlinkSync(
-    process.platform === "win32" ? f.dir : f.file,
+    process.platform === "win32" ? target : f.file,
     join(initial.path, "symlink.md"),
     process.platform === "win32" ? "junction" : "file",
   );
@@ -276,3 +280,4 @@ test("v9 planning migration backs up once, retains existing chats, and isolates 
     demo.close();
   }
 });
+
