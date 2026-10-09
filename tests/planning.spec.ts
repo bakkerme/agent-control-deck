@@ -34,8 +34,8 @@ test("daily cards link broad work, carry notes and chats, and retain human-led O
     );
     const day = localPlanDay(),
       next = nextPlanDay(day),
-      card = `---\ndate: ${day}\n---\n\n## Coding\n- Deck\n\n## Agentic\n- Research\n\n## Other\n- Review document\n- Ask a colleague`;
-    const file = join(base.planning.inbox.path, "today.md");
+      card = `date: ${day}\ncoding:\n  - Deck\nagentic:\n  - Research\nother:\n  - Review document\n  - Ask a colleague\n`;
+    const file = join(base.planning.inbox.path, "today.yaml");
     writeFileSync(file, card);
     await page
       .getByRole("button", { name: "Today", exact: true })
@@ -46,7 +46,7 @@ test("daily cards link broad work, carry notes and chats, and retain human-led O
     ).toBeVisible();
     await page.getByRole("button", { name: /Plan inbox 1/ }).click();
     await page
-      .getByRole("button", { name: "Review card today.md", exact: true })
+      .getByRole("button", { name: "Review card today.yaml", exact: true })
       .click();
     await page
       .getByRole("button", { name: "Review items", exact: true })
@@ -73,6 +73,21 @@ test("daily cards link broad work, carry notes and chats, and retain human-led O
     await expect(page.locator(".plan-notes h2")).toHaveText(
       "Keep this context",
     );
+    await page.getByRole("button", { name: "Rename plan item" }).click();
+    await page.getByLabel("Plan item name").fill("Deck renamed");
+    await page.getByRole("button", { name: "Save name", exact: true }).click();
+    await expect(
+      page.getByRole("button", {
+        name: "Select plan item Deck renamed",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Rename plan item" }).click();
+    await page.getByLabel("Plan item name").fill("Deck");
+    await page.getByRole("button", { name: "Save name", exact: true }).click();
+    await expect(
+      page.getByRole("button", { name: "Select plan item Deck", exact: true }),
+    ).toBeVisible();
     await page.getByRole("button", { name: "Link chat", exact: true }).click();
     await page.getByRole("dialog").getByLabel("Implementation chat").check();
     await page.getByRole("button", { name: "Save links", exact: true }).click();
@@ -83,11 +98,14 @@ test("daily cards link broad work, carry notes and chats, and retain human-led O
       page.getByRole("button", { name: "✓ Worked on this day", exact: true }),
     ).toBeVisible();
     await page
-      .getByRole("button", { name: "Carry forward", exact: true })
+      .getByRole("button", { name: "Reschedule", exact: true })
       .click();
     await page
-      .getByRole("button", { name: "Schedule item", exact: true })
+      .getByRole("button", { name: "Reschedule item", exact: true })
       .click();
+    await expect(
+      page.getByRole("button", { name: "Schedule on this day", exact: true }),
+    ).toBeVisible();
     await page
       .getByRole("button", { name: "Next planning day", exact: true })
       .click();
@@ -203,6 +221,23 @@ test("daily cards link broad work, carry notes and chats, and retain human-led O
       BrowserWindow.getAllWindows()[0].setSize(1320, 850),
     );
     await page.screenshot({ path: "test-results/planning-desktop.png" });
+    await page.getByRole("button", { name: "Delete item", exact: true }).click();
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    expect(
+      (await page.evaluate(() => window.deck.load())).planning.items.some(
+        (i) => i.id === item.id,
+      ),
+    ).toBe(true);
+    await page.getByRole("button", { name: "Delete item", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Confirm delete", exact: true })
+      .click();
+    await expect(
+      page.getByRole("button", { name: "Select plan item Deck", exact: true }),
+    ).toHaveCount(0);
+    const after = await page.evaluate(() => window.deck.load());
+    expect(after.planning.items.some((i) => i.id === item.id)).toBe(false);
+    expect(after.chats.some((c) => c.id === chat.id)).toBe(true);
     expect(errors).toEqual([]);
   } finally {
     await app.close().catch(() => {});

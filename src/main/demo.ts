@@ -118,8 +118,8 @@ function seedPlan(store: Store): void {
   if(store.db.prepare("SELECT value FROM settings WHERE key='planningDemoSeeded'").get())return;
   store.db.transaction(()=>{
     const day=localPlanDay();
-    const markdown=`---\ndate: ${day}\n---\n\n## Coding\n- Customer portal\n\n## Agentic\n- Payments API\n\n## Other\n- Review reconciliation report\n- Ask the team about deployment`;
-    store.command({type:"importDailyPlan",markdown,sourceName:"Sample daily card",itemIds:[null,null,null,null]});
+    const card=`date: ${day}\ncoding:\n  - Customer portal\nagentic:\n  - name: Payments API\n    tickets:\n      - key: PAY-142\n        status: in-progress\nother:\n  - name: Review reconciliation report\n    note: Check the month-end totals\n  - Ask the team about deployment\n`;
+    store.command({type:"importDailyPlan",card,sourceName:"Sample daily card",itemIds:[null,null,null,null]});
     const plans=new PlanningStore(store);
     for(const item of plans.items()){
       const project=store.projects().find(p=>p.name===item.name);

@@ -1,0 +1,31 @@
+date: 2026-10-09
+
+coding:
+  - name: Installer signing
+    tickets:
+      - key: DECK-101
+        status: backlog
+        note: Support for the new installer
+  - name: Test the staging lab
+    note: No ticket yet
+    related: [DECK-102, DECK-103]
+
+agentic:
+  - name: Continue auto sampling
+    tickets:
+      - key: DECK-104
+        status: backlog
+        note: Billing Export, unassigned
+      - key: DECK-105
+        status: backlog
+  - name: Release notes
+    tickets:
+      - key: DECK-106
+        status: in-progress
+        note: Draft release notes
+
+other:
+  - name: Update runbook
+    note: Draft pending; rollout in the maintenance window
+    related: [CHG-201, DECK-107]
+  - Ask team about deployment

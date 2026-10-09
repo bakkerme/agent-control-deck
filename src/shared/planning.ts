@@ -1,3 +1,4 @@
+import { parse } from "yaml";
 export const planCategories = ["Coding", "Agentic", "Other"] as const;
 export type PlanCategory = (typeof planCategories)[number];
 export interface PlanItem {
@@ -20,12 +21,12 @@ export interface PlanImport {
   id: string;
   day: string;
   sourceName: string;
-  markdown: string;
+  card: string;
   importedAt: string;
 }
 export interface PlanInboxFile {
   name: string;
-  markdown: string;
+  card: string;
   error: string | null;
 }
 export interface PlanningSnapshot {
@@ -56,56 +57,139 @@ export function nextPlanDay(day: string, offset = 1): string {
   date.setUTCDate(date.getUTCDate() + offset);
   return date.toISOString().slice(0, 10);
 }
+export interface PlanTicket {
+  key: string;
+  status: string;
+  note: string;
+}
+export interface ParsedPlanItem {
+  name: string;
+  category: PlanCategory;
+  tickets: PlanTicket[];
+  related: PlanTicket[];
+  note: string;
+}
 export interface ParsedPlan {
   day: string;
-  items: { name: string; category: PlanCategory }[];
+  items: ParsedPlanItem[];
 }
-// Deliberately small Markdown contract: one dated card, three headings, flat bullets.
-// Project relationships, chat links, and progress always remain user decisions.
-export function parseDailyPlan(markdown: string): ParsedPlan {
-  if (markdown.length > 100000)
-    throw new Error("Card exceeds 100,000 characters");
-  const text = markdown.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
-  const frontmatter = text.match(/^---\n([\s\S]*?)\n---(?:\n|$)/);
-  const header = text.match(/^#\s+(\d{4}-\d{2}-\d{2})\s*$/m);
-  const dates =
-    frontmatter?.[1].match(/^date:\s*\d{4}-\d{2}-\d{2}\s*$/gm) ?? [];
-  if (dates.length > 1) throw new Error("Use one date per card");
-  const day = dates[0]?.match(/\d{4}-\d{2}-\d{2}/)?.[0] ?? header?.[1] ?? "";
-  if (!validPlanDay(day))
+const ticketKey = /^[A-Z][A-Z0-9]*-\d+$/;
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+function text(value: unknown, where: string, max: number): string {
+  if (value === undefined || value === null) return "";
+  if (typeof value !== "string" && typeof value !== "number")
+    throw new Error(`${where} must be text`);
+  const result = String(value).trim();
+  if (result.length > max)
+    throw new Error(`${where} must be at most ${max} characters`);
+  return result;
+}
+function ticket(value: unknown, where: string): PlanTicket {
+  const fields = typeof value === "string" ? { key: value } : value;
+  if (!isRecord(fields))
+    throw new Error(`${where} must be a ticket key or a mapping`);
+  for (const field of Object.keys(fields))
+    if (!["key", "status", "note"].includes(field))
+      throw new Error(`${where} has unknown field "${field}"`);
+  const key = text(fields.key, `${where} key`, 100).toUpperCase();
+  if (!ticketKey.test(key))
+    throw new Error(`${where} needs a Jira key such as DECK-101`);
+  return {
+    key,
+    status: text(fields.status, `${where} status`, 50),
+    note: text(fields.note, `${where} note`, 500),
+  };
+}
+function tickets(value: unknown, where: string): PlanTicket[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) throw new Error(`${where} must be a list`);
+  if (value.length > 20)
+    throw new Error(`${where} can contain at most 20 tickets`);
+  const result = value.map((v, n) => ticket(v, `${where} ${n + 1}`));
+  if (new Set(result.map((t) => t.key)).size !== result.length)
+    throw new Error(`${where} lists a ticket twice`);
+  return result;
+}
+// YAML contract: `date` plus `coding`, `agentic`, and `other` lists. An item is
+// a name, or a mapping of `name`, `tickets`, `related`, and `note`. Tickets and
+// annotations have their own fields, so nothing is split out of prose. Project
+// relationships, chat links, and progress always remain user decisions.
+export function parseDailyPlan(card: string): ParsedPlan {
+  if (card.length > 100000) throw new Error("Card exceeds 100,000 characters");
+  let document: unknown;
+  try {
+    // Aliases are refused so a small card cannot expand into a large one.
+    document = parse(card.replace(/^﻿/, ""), { maxAliasCount: 0 });
+  } catch (e) {
     throw new Error(
-      "Add a valid date: YYYY-MM-DD in frontmatter, or use # YYYY-MM-DD",
+      `The card is not valid YAML: ${(e instanceof Error ? e.message : String(e)).split("\n")[0]}`,
     );
-  if (header && header[1] !== day)
-    throw new Error("The card heading and frontmatter dates disagree");
-  let category: PlanCategory | null = null;
-  const items: ParsedPlan["items"] = [];
-  const body = frontmatter ? text.slice(frontmatter[0].length) : text;
-  for (const line of body.split("\n")) {
-    if (!line.trim() || /^#\s+/.test(line)) continue;
-    const heading = line.match(/^##\s+(.+?)\s*$/);
-    if (heading) {
-      category =
-        planCategories.find(
-          (c) => c.toLowerCase() === heading[1].toLowerCase(),
-        ) ?? null;
-      if (!category)
-        throw new Error(
-          `Unknown category: ${heading[1]}. Use Coding, Agentic, or Other.`,
-        );
+  }
+  if (!isRecord(document))
+    throw new Error(
+      "Write the card as YAML: a date and coding, agentic, or other lists",
+    );
+  const sections = new Map<PlanCategory, unknown>();
+  let day = "";
+  for (const [key, value] of Object.entries(document)) {
+    if (key === "date") {
+      day = String(value ?? "");
       continue;
     }
-    const bullet = line.match(/^[-*]\s+(?:\[[ xX]\]\s*)?(.+?)\s*$/);
-    if (!bullet || !category)
+    const category = planCategories.find(
+      (c) => c.toLowerCase() === key.toLowerCase(),
+    );
+    if (!category)
       throw new Error(
-        "Use flat bullet items under ## Coding, ## Agentic, or ## Other",
+        `Unknown section: ${key}. Use date, coding, agentic, or other.`,
       );
-    if (bullet[1].length > 200)
-      throw new Error("Plan item names must be at most 200 characters");
-    items.push({ name: bullet[1], category });
-    if (items.length > 200)
-      throw new Error("A daily card can contain at most 200 items");
+    if (sections.has(category)) throw new Error(`${category} appears twice`);
+    sections.set(category, value);
+  }
+  if (!validPlanDay(day)) throw new Error("Add a valid date: YYYY-MM-DD");
+  const items: ParsedPlanItem[] = [];
+  for (const category of planCategories) {
+    const list = sections.get(category);
+    if (list === undefined || list === null) continue;
+    if (!Array.isArray(list))
+      throw new Error(`${category} must be a list of items`);
+    list.forEach((raw, n) => {
+      const where = `${category} item ${n + 1}`,
+        fields = typeof raw === "string" ? { name: raw } : raw;
+      if (!isRecord(fields))
+        throw new Error(`${where} must be a name or a mapping`);
+      for (const field of Object.keys(fields))
+        if (!["name", "tickets", "related", "note"].includes(field))
+          throw new Error(`${where} has unknown field "${field}"`);
+      const name = text(fields.name, `${where} name`, 200);
+      if (!name) throw new Error(`${where} needs a name`);
+      items.push({
+        name,
+        category,
+        tickets: tickets(fields.tickets, `${where} tickets`),
+        related: tickets(fields.related, `${where} related`),
+        note: text(fields.note, `${where} note`, 2000),
+      });
+      if (items.length > 200)
+        throw new Error("A daily card can contain at most 200 items");
+    });
   }
   if (!items.length) throw new Error("The card has no plan items");
   return { day, items };
+}
+// Seed notes for a newly created item; existing items keep their own notes.
+export function planItemNotes(item: ParsedPlanItem): string {
+  const line = (t: PlanTicket) =>
+    "- " +
+    [t.key, t.status && `\`${t.status}\``, t.note && `— ${t.note}`]
+      .filter(Boolean)
+      .join(" ");
+  return [
+    item.note,
+    item.tickets.length && `**Tickets**\n${item.tickets.map(line).join("\n")}`,
+    item.related.length && `**Related**\n${item.related.map(line).join("\n")}`,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }

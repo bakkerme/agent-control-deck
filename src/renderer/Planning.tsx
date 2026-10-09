@@ -36,7 +36,7 @@ const dayLabel = (day: string) =>
     month: "short",
   });
 const example = (day: string) =>
-  `---\ndate: ${day}\n---\n\n## Coding\n- Agent Control Deck\n\n## Agentic\n- Research workflows\n\n## Other\n- Review design document\n- Ask about deployment`;
+  `date: ${day}\ncoding:\n  - Agent Control Deck\nagentic:\n  - Research workflows\nother:\n  - name: Review design document\n    tickets:\n      - key: DECK-42\n        status: backlog\n    note: Focus on the rollout section\n  - Ask about deployment\n`;
 export default forwardRef<
   PlanningHandle,
   {
@@ -57,7 +57,14 @@ export default forwardRef<
   const [selected, setSelected] = useState("");
   const [notice, setNotice] = useState("");
   const [modal, setModal] = useState<
-    "add" | "link" | "import" | "original" | "inbox" | "schedule" | null
+    | "add"
+    | "link"
+    | "import"
+    | "original"
+    | "inbox"
+    | "schedule"
+    | "reschedule"
+    | null
   >(null);
   const [modalError, setModalError] = useState("");
   const [category, setCategory] = useState<PlanCategory>("Coding");
@@ -65,10 +72,25 @@ export default forwardRef<
   const [note, setNote] = useState("");
   const [noteEditing, setNoteEditing] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [chatIds, setChatIds] = useState<string[]>([]);
+  const [chatQuery, setChatQuery] = useState("");
+  const needle = chatQuery.trim().toLowerCase();
+  const lastSeen = (c: Snapshot["chats"][number]) =>
+    Date.parse(c.lastEventAt ?? c.createdAt);
+  const linkableChats = [...snapshot.chats]
+    .sort((a, b) => lastSeen(b) - lastSeen(a))
+    .filter(
+      (c) =>
+        !needle ||
+        [displayName(c), c.providerTitle, c.provider, c.preview, c.jiraKey]
+          .join("\n")
+          .toLowerCase()
+          .includes(needle),
+    );
   const [card, setCard] = useState({
     name: "Pasted card",
-    markdown: example(localPlanDay()),
+    text: example(localPlanDay()),
   });
   const [review, setReview] = useState<ReturnType<
     typeof parseDailyPlan
@@ -78,6 +100,12 @@ export default forwardRef<
   const dirty = useRef(false),
     notesRef = useRef<HTMLTextAreaElement>(null);
   const item = planning.items.find((i) => i.id === selected);
+  const [renaming, setRenaming] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
+  useEffect(() => {
+    setConfirmDelete(false);
+    setRenaming(false);
+  }, [item?.id]);
   const itemRef = useRef(item);
   itemRef.current = item;
   const noteRef = useRef(note);
@@ -126,7 +154,10 @@ export default forwardRef<
   useEffect(() => {
     if (!noteEditing && !dirty.current) setNote(item?.notes ?? "");
   }, [item?.id, item?.notes, noteEditing]);
-  const todayEntries = planning.entries.filter((e) => e.day === day);
+  // Worked-on items sink to the bottom of their category; the sort is stable.
+  const todayEntries = planning.entries
+    .filter((e) => e.day === day)
+    .sort((a, b) => Number(a.workedOn) - Number(b.workedOn));
   const visible =
     project === "day"
       ? todayEntries
@@ -172,7 +203,7 @@ export default forwardRef<
     });
   }
   function loadCard(file: PlanInboxFile) {
-    setCard({ name: file.name, markdown: file.markdown });
+    setCard({ name: file.name, text: file.card });
     setReview(null);
     setConnections([]);
     show("import");
@@ -350,7 +381,7 @@ export default forwardRef<
           <button
             onClick={() => {
               setReview(null);
-              setCard({ name: "Pasted card", markdown: example(day) });
+              setCard({ name: "Pasted card", text: example(day) });
               show("import");
             }}
           >
@@ -463,7 +494,62 @@ export default forwardRef<
         {item ? (
           <>
             <span className="eyebrow">Plan item</span>
-            <h2>{item.name}</h2>
+            {renaming ? (
+              <form
+                className="plan-actions"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const next = nameDraft.trim();
+                  if (!next || next === item.name) {
+                    setRenaming(false);
+                    return;
+                  }
+                  void run(
+                    {
+                      type: "updatePlanItem",
+                      id: item.id,
+                      patch: { name: next },
+                    },
+                    "Renamed",
+                  ).then((ok) => {
+                    if (ok) setRenaming(false);
+                  });
+                }}
+              >
+                <input
+                  aria-label="Plan item name"
+                  required
+                  maxLength={200}
+                  value={nameDraft}
+                  autoFocus
+                  onChange={(e) => setNameDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") setRenaming(false);
+                  }}
+                />
+                <button disabled={busy}>Save name</button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setRenaming(false)}
+                >
+                  Cancel
+                </button>
+              </form>
+            ) : (
+              <div className="section-heading">
+                <h2>{item.name}</h2>
+                <button
+                  aria-label="Rename plan item"
+                  onClick={() => {
+                    setNameDraft(item.name);
+                    setRenaming(true);
+                  }}
+                >
+                  Rename
+                </button>
+              </div>
+            )}
             <small>
               {entry?.category ?? "Not scheduled on this day"} · {dayLabel(day)}
             </small>
@@ -500,15 +586,17 @@ export default forwardRef<
                   Schedule on this day
                 </button>
               )}
-              <button
-                onClick={() => {
-                  setTargetDay(nextPlanDay(day));
-                  setCategory(entry?.category ?? "Coding");
-                  show("schedule");
-                }}
-              >
-                Carry forward
-              </button>
+              {entry && (
+                <button
+                  onClick={() => {
+                    setTargetDay(nextPlanDay(day));
+                    setCategory(entry.category);
+                    show("reschedule");
+                  }}
+                >
+                  Reschedule
+                </button>
+              )}
             </div>
             <section className="plan-detail-section">
               <h3>Planning context</h3>
@@ -567,6 +655,7 @@ export default forwardRef<
                 <button
                   onClick={() => {
                     setChatIds(item.chatIds);
+                    setChatQuery("");
                     show("link");
                   }}
                 >
@@ -715,6 +804,46 @@ export default forwardRef<
                   Remove from this day
                 </button>
               )}
+              {confirmDelete ? (
+                <div className="plan-actions" role="alert">
+                  <span>
+                    Delete this item, its notes, chat links, and every day it
+                    is scheduled? Linked chats are not affected.
+                  </span>
+                  <button
+                    className="plan-remove"
+                    disabled={busy}
+                    onClick={() =>
+                      void run(
+                        { type: "deletePlanItem", id: item.id },
+                        "Plan item deleted",
+                      ).then((ok) => {
+                        if (!ok) return;
+                        dirty.current = false;
+                        setConfirmDelete(false);
+                        setSelected("");
+                        setNoteEditing(false);
+                      })
+                    }
+                  >
+                    Confirm delete
+                  </button>
+                  <button
+                    disabled={busy}
+                    onClick={() => setConfirmDelete(false)}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <button
+                  className="plan-remove"
+                  disabled={busy}
+                  onClick={() => setConfirmDelete(true)}
+                >
+                  Delete item
+                </button>
+              )}
             </section>
           </>
         ) : (
@@ -736,7 +865,8 @@ export default forwardRef<
               import: "Import daily card",
               original: "Original daily card",
               inbox: "Plan inbox",
-              schedule: "Carry or schedule this item",
+              schedule: "Schedule this item",
+              reschedule: "Reschedule this item",
             }[modal]
           }
           close={() => {
@@ -776,18 +906,28 @@ export default forwardRef<
               <button disabled={busy}>Add item</button>
             </form>
           )}
-          {modal === "schedule" && item && (
+          {(modal === "schedule" || modal === "reschedule") && item && (
             <form
               onSubmit={(e) => {
                 e.preventDefault();
                 void run(
-                  {
-                    type: "schedulePlanItem",
-                    id: item.id,
-                    day: targetDay,
-                    category,
-                  },
-                  "Scheduled; notes and chat links retained",
+                  modal === "reschedule"
+                    ? {
+                        type: "reschedulePlanItem",
+                        id: item.id,
+                        fromDay: day,
+                        day: targetDay,
+                        category,
+                      }
+                    : {
+                        type: "schedulePlanItem",
+                        id: item.id,
+                        day: targetDay,
+                        category,
+                      },
+                  modal === "reschedule"
+                    ? "Rescheduled; notes and chat links retained"
+                    : "Scheduled; notes and chat links retained",
                 ).then((ok) => {
                   if (ok) setModal(null);
                 });
@@ -816,7 +956,9 @@ export default forwardRef<
                   ))}
                 </select>
               </label>
-              <button disabled={busy}>Schedule item</button>
+              <button disabled={busy}>
+                {modal === "reschedule" ? "Reschedule item" : "Schedule item"}
+              </button>
             </form>
           )}
           {modal === "link" && item && (
@@ -835,8 +977,15 @@ export default forwardRef<
                 Link chats to {item.name}. Their existing project assignments
                 stay intact.
               </p>
+              <input
+                type="search"
+                aria-label="Search chats"
+                placeholder="Search chats"
+                value={chatQuery}
+                onChange={(e) => setChatQuery(e.target.value)}
+              />
               <div className="plan-chat-picker">
-                {snapshot.chats.map((c) => (
+                {linkableChats.map((c) => (
                   <label key={c.id}>
                     <input
                       type="checkbox"
@@ -865,6 +1014,9 @@ export default forwardRef<
                   are observed.
                 </p>
               )}
+              {!!snapshot.chats.length && !linkableChats.length && (
+                <p>No chats match your search.</p>
+              )}
               <button disabled={busy}>Save links</button>
             </form>
           )}
@@ -877,13 +1029,13 @@ export default forwardRef<
                   <small>
                     Imported {new Date(i.importedAt).toLocaleString()}
                   </small>
-                  <pre className="plan-card-source">{i.markdown}</pre>
+                  <pre className="plan-card-source">{i.card}</pre>
                 </section>
               ))}
           {modal === "inbox" && (
             <>
               <p>
-                Save transcribed Markdown cards to this folder, then review them
+                Save transcribed YAML cards (.yaml or .yml) to this folder, then review them
                 here.
               </p>
               <div className="plan-inbox-path">
@@ -919,10 +1071,10 @@ export default forwardRef<
               {!review ? (
                 <>
                   <label>
-                    Choose a Markdown card
+                    Choose a YAML card
                     <input
                       type="file"
-                      accept=".md,.markdown,text/markdown,text/plain"
+                      accept=".yaml,.yml,text/yaml,text/plain"
                       onChange={(e) => {
                         const file = e.target.files?.[0];
                         if (!file) return;
@@ -932,8 +1084,8 @@ export default forwardRef<
                         }
                         void file
                           .text()
-                          .then((markdown) => {
-                            setCard({ name: file.name, markdown });
+                          .then((text) => {
+                            setCard({ name: file.name, text });
                             setModalError("");
                           })
                           .catch((e) => setModalError(message(e)));
@@ -944,16 +1096,16 @@ export default forwardRef<
                     Card transcription
                     <textarea
                       aria-label="Card transcription"
-                      value={card.markdown}
+                      value={card.text}
                       onChange={(e) =>
-                        setCard({ ...card, markdown: e.target.value })
+                        setCard({ ...card, text: e.target.value })
                       }
                     />
                   </label>
                   <button
                     onClick={() => {
                       try {
-                        const parsed = parseDailyPlan(card.markdown);
+                        const parsed = parseDailyPlan(card.text);
                         setReview(parsed);
                         setConnections(parsed.items.map(() => null));
                         setModalError("");
@@ -978,6 +1130,14 @@ export default forwardRef<
                     <div className="plan-import-row" key={index}>
                       <strong>{r.name}</strong>
                       <small>{r.category}</small>
+                      {[...r.tickets, ...r.related].length > 0 && (
+                        <small>
+                          {r.tickets.map((t) => t.key).join(", ")}
+                          {r.related.length > 0 &&
+                            ` · related ${r.related.map((t) => t.key).join(", ")}`}
+                        </small>
+                      )}
+                      {r.note && <small>{r.note}</small>}
                       <label>
                         Connect {r.name}
                         <select
@@ -1018,7 +1178,7 @@ export default forwardRef<
                           await mutate({
                             type: "importDailyPlan",
                             sourceName: card.name,
-                            markdown: card.markdown,
+                            card: card.text,
                             itemIds: connections,
                           });
                         })()
