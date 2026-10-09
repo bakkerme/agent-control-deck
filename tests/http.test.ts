@@ -12,7 +12,9 @@ import { sourceSetup, writeHookSetup, sourceToken, hookOrigin } from "../src/mai
 
 function runCommand(command: string, payload = "{}") {
   return new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve, reject) => {
-    const child = spawn(process.platform === "win32" ? "cmd.exe" : "sh", process.platform === "win32" ? ["/d", "/s", "/c", command] : ["-c", command]);
+    // Let Node apply CMD's command-line rules instead of escaping a whole
+    // shell command as an ordinary executable argument with escaped quotes.
+    const child = spawn(command, { shell: true });
     let stdout = "", stderr = "";
     child.stdout.on("data", data => stdout += data);
     child.stderr.on("data", data => stderr += data);
@@ -147,6 +149,49 @@ test("HTTP rejects unauthorized, cross-source, browser, mismatched and oversized
   assert.equal(readdirSync(f.setups.claude.inbox).length, 0);
 });
 
+test("rejected uploads return an HTTP response while the remaining body is discarded", async t => {
+  const f = await fixture(t);
+  for (const [headers, status] of [
+    [{ Authorization: "" }, 401],
+    [{ Authorization: `Bearer ${sourceToken(f.root, f.sources.find(s => s.provider === "claude")!.id)}`, "Content-Length": "270000" }, 413],
+  ] as const) {
+    const body = await new Promise<string>((resolve, reject) => {
+      const req = request(`${f.setups.claude.endpoint}/UserPromptSubmit`, { method: "POST", headers: { "Content-Type": "application/json", ...headers } }, res => {
+        assert.equal(res.statusCode, status);
+        let body = "";
+        res.on("data", data => body += data);
+        res.on("error", reject);
+        res.on("end", () => resolve(body));
+        // Finish only after rejection headers arrive, proving that an early
+        // response does not reset a client that is still sending its body.
+        req.end("x".repeat(270000 - 1));
+      });
+      req.on("error", reject);
+      req.write("x");
+    });
+    assert.equal(body, "");
+  }
+  assert.equal(f.store.chats().length, 0);
+  assert.equal(readdirSync(f.setups.claude.inbox).length, 0);
+});
+
+test("rejected uploads cannot keep sending an unbounded body", async t => {
+  const f = await fixture(t);
+  await new Promise<void>((resolve, reject) => {
+    const req = request(`${f.setups.claude.endpoint}/UserPromptSubmit`, { method: "POST", headers: { "Content-Type": "application/json" } }, res => {
+      assert.equal(res.statusCode, 401);
+      res.resume();
+      res.on("error", error => { if ((error as NodeJS.ErrnoException).code !== "ECONNRESET") reject(error); });
+      res.on("close", resolve);
+      req.end("x".repeat(600000));
+    });
+    req.on("error", error => { if (!["ECONNRESET", "EPIPE"].includes((error as NodeJS.ErrnoException).code!)) reject(error); });
+    req.write("x");
+  });
+  assert.equal(f.store.chats().length, 0);
+  assert.equal(readdirSync(f.setups.claude.inbox).length, 0);
+});
+
 test("generated curl commands deliver stdin through the real shell and return neutral responses", async t => {
   const f = await fixture(t);
   for (const provider of ["claude", "cursor", "codex"] as const) {
@@ -155,14 +200,8 @@ test("generated curl commands deliver stdin through the real shell and return ne
     const source = f.sources.find(s => s.provider === provider)!;
     const setup = sourceSetup(f.root, { ...source, environment: "native" }, process.platform, f.connection);
     const event = provider === "cursor" ? "beforeSubmitPrompt" : "UserPromptSubmit";
-    const result = await new Promise<{ code: number | null; stdout: string }>((resolve, reject) => {
-      const command = setup.testCommand;
-      const child = spawn(process.platform === "win32" ? "cmd.exe" : "sh", process.platform === "win32" ? ["/d", "/s", "/c", command] : ["-c", command]);
-      let stdout = ""; child.stdout.on("data", data => stdout += data);
-      child.on("error", reject); child.on("close", code => resolve({ code, stdout }));
-      child.stdin.end(JSON.stringify({ hook_event_name: event, session_id: "curl-chat", conversation_id: "curl-chat", prompt: "Unicode café 日本語\nSecond line" }));
-    });
-    assert.equal(result.code, 0);
+    const result = await runCommand(setup.testCommand, JSON.stringify({ hook_event_name: event, session_id: "curl-chat", conversation_id: "curl-chat", prompt: "Unicode café 日本語\nSecond line" }));
+    assert.equal(result.code, 0, result.stderr);
     assert.equal(result.stdout, provider === "cursor" ? '{"continue":true}' : "");
     f.inbox.poll();
   }
@@ -288,3 +327,4 @@ test("Windows WSL hooks use Windows curl and receiver address, preserving creden
   assert.throws(() => receiverOptions({ ACD_HTTP_PORT: "bad" }));
   assert.deepEqual(receiverOptions({ ACD_WSL_HOOK_URL: "http://172.30.0.1:43821" }), { host: "127.0.0.1", port: 43821 });
 });
+
