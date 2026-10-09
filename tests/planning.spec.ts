@@ -203,6 +203,10 @@ test("daily cards link broad work, carry notes and chats, and retain human-led O
       .getByRole("button", { name: "Today", exact: true })
       .first()
       .click();
+    // Reschedule moved Deck off today, so open the day it now lives on.
+    await page
+      .getByRole("button", { name: "Next planning day", exact: true })
+      .click();
     await page
       .getByRole("button", { name: "Select plan item Deck", exact: true })
       .click();
@@ -215,7 +219,7 @@ test("daily cards link broad work, carry notes and chats, and retain human-led O
     const reopened = await page.evaluate(() => window.deck.load());
     expect(
       reopened.planning.entries.filter((e) => e.itemId === item.id),
-    ).toHaveLength(2);
+    ).toHaveLength(1);
     expect(reopened.planning.inbox.files).toHaveLength(0);
     await app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()[0].setSize(1320, 850),
