@@ -413,19 +413,36 @@ const Planning = forwardRef<
       y: number;
       active: boolean;
       pointer: number;
+      clientX: number;
+      clientY: number;
+      list: HTMLElement;
+      frame?: number;
       timer?: ReturnType<typeof setTimeout>;
       category?: PlanCategory;
       beforeId?: string | null;
     } | null>(null),
     suppressClick = useRef(0);
+  useEffect(
+    () => () => {
+      clearTimeout(drag.current?.timer);
+      if (drag.current?.frame !== undefined)
+        cancelAnimationFrame(drag.current.frame);
+    },
+    [],
+  );
   function startDrag(event: React.PointerEvent, id: string) {
     if (view !== "day" || busy || event.button !== 0) return;
+    const list = event.currentTarget.closest<HTMLElement>(".daily-plan");
+    if (!list) return;
     const value = {
       id,
       x: event.clientX,
       y: event.clientY,
       active: false,
       pointer: event.pointerId,
+      clientX: event.clientX,
+      clientY: event.clientY,
+      list,
       timer: undefined as ReturnType<typeof setTimeout> | undefined,
     };
     drag.current = value;
@@ -440,6 +457,8 @@ const Planning = forwardRef<
   function pointerMove(event: React.PointerEvent) {
     const value = drag.current;
     if (!value || value.pointer !== event.pointerId) return;
+    value.clientX = event.clientX;
+    value.clientY = event.clientY;
     const distance = Math.hypot(
       event.clientX - value.x,
       event.clientY - value.y,
@@ -455,18 +474,36 @@ const Planning = forwardRef<
       if (distance < 6) return;
       value.active = true;
       setDragging(value.id);
-      event.currentTarget.setPointerCapture(event.pointerId);
     }
+    if (!event.currentTarget.hasPointerCapture(event.pointerId))
+      event.currentTarget.setPointerCapture(event.pointerId);
     event.preventDefault();
-    const target = document.elementFromPoint(event.clientX, event.clientY),
+    updateDragTarget(value);
+    if (value.frame === undefined) scrollDrag(value);
+  }
+  function updateDragTarget(value: NonNullable<typeof drag.current>) {
+    const rect = value.list.getBoundingClientRect();
+    const inside =
+      value.clientX >= rect.left &&
+      value.clientX < rect.right &&
+      value.clientY >= rect.top &&
+      value.clientY < rect.bottom;
+    const target = inside
+        ? document.elementFromPoint(value.clientX, value.clientY)
+        : null,
       group = target?.closest<HTMLElement>("[data-card-category]");
-    if (!group) return;
+    if (!group || !value.list.contains(group)) {
+      value.category = undefined;
+      value.beforeId = undefined;
+      setDropTarget(null);
+      return;
+    }
     const row = target?.closest<HTMLElement>("[data-task-card]"),
       category = group.dataset.cardCategory as PlanCategory;
     let beforeId = row?.dataset.taskCard || null;
     if (
       row &&
-      event.clientY >
+      value.clientY >
         row.getBoundingClientRect().top + row.getBoundingClientRect().height / 2
     ) {
       const peers = allEntries.filter((e) => e.category === category),
@@ -476,17 +513,41 @@ const Planning = forwardRef<
     value.category = category;
     value.beforeId = beforeId;
     setDropTarget({ category, beforeId });
-    const list = group.closest<HTMLElement>(".daily-plan");
-    if (list) {
-      const rect = list.getBoundingClientRect();
-      if (event.clientY < rect.top + 35) list.scrollTop -= 14;
-      if (event.clientY > rect.bottom - 35) list.scrollTop += 14;
-    }
+  }
+  function scrollDrag(value: NonNullable<typeof drag.current>) {
+    value.frame = requestAnimationFrame(() => {
+      value.frame = undefined;
+      if (drag.current !== value || !value.active) return;
+      const rect = value.list.getBoundingClientRect();
+      if (
+        value.clientX >= rect.left &&
+        value.clientX < rect.right &&
+        value.clientY >= rect.top &&
+        value.clientY < rect.bottom
+      ) {
+        const direction =
+          value.clientY < rect.top + 35
+            ? -1
+            : value.clientY > rect.bottom - 35
+              ? 1
+              : 0;
+        const before = value.list.scrollTop;
+        value.list.scrollTop += direction * 10;
+        if (value.list.scrollTop !== before) updateDragTarget(value);
+      }
+      scrollDrag(value);
+    });
   }
   function finishDrag(event: React.PointerEvent, cancel = false) {
     const value = drag.current;
     if (!value || value.pointer !== event.pointerId) return;
     clearTimeout(value.timer);
+    if (value.frame !== undefined) cancelAnimationFrame(value.frame);
+    if (value.active && !cancel) {
+      value.clientX = event.clientX;
+      value.clientY = event.clientY;
+      updateDragTarget(value);
+    }
     drag.current = null;
     setDragging(null);
     setDropTarget(null);

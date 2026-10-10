@@ -181,14 +181,31 @@ test("Today supports the complete physical-card workflow and preserves context a
         .filter((e) => e.day === day && e.category === "Coding")
         .map((e) => e.name),
     ).toEqual(["Second coding task", "Deck"]);
+    await app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()[0].setSize(980, 650),
+    );
     await first.hover();
+    const list = page.getByRole("region", { name: "Daily tasks", exact: true });
+    const other = page.locator('[data-card-category="Other"]');
     const from = await first.boundingBox(),
-      other = await page.locator('[data-card-category="Other"]').boundingBox();
+      listBox = await list.boundingBox();
     await page.mouse.move(from!.x + 40, from!.y + 20);
     await page.mouse.down();
-    await page.mouse.move(other!.x + 30, other!.y + other!.height - 8, {
+    await page.mouse.move(listBox!.x + 50, listBox!.y + listBox!.height - 12, {
       steps: 10,
     });
+    await expect(first).toHaveClass(/dragging/);
+    // Hold at the list edge until the offscreen category scrolls into reach.
+    // Category bounding boxes can extend below the viewport on CI displays.
+    await expect
+      .poll(async () => {
+        const box = await other.boundingBox();
+        return !!box && box.y + 30 < listBox!.y + listBox!.height - 40;
+      })
+      .toBe(true);
+    const otherBox = await other.boundingBox();
+    await page.mouse.move(otherBox!.x + 30, otherBox!.y + 15, { steps: 5 });
+    await expect(other).toHaveClass(/drop-category/);
     await page.mouse.up();
     await expect
       .poll(
@@ -198,6 +215,28 @@ test("Today supports the complete physical-card workflow and preserves context a
           )!.category,
       )
       .toBe("Other");
+    // Dropping outside the list must not reuse a previously highlighted row.
+    const moved = page.getByRole("button", {
+      name: "Select task Deck",
+      exact: true,
+    });
+    await moved.hover();
+    const movedBox = await moved.boundingBox();
+    await page.mouse.move(movedBox!.x + 40, movedBox!.y + 20);
+    await page.mouse.down();
+    await page.mouse.move(movedBox!.x + 40, movedBox!.y + 8, { steps: 3 });
+    await expect(moved).toHaveClass(/dragging/);
+    const workspace = await page
+      .getByRole("region", { name: "Task workspace", exact: true })
+      .boundingBox();
+    await page.mouse.move(workspace!.x + 40, workspace!.y + 40, { steps: 5 });
+    await expect(page.locator(".drop-before,.drop-category")).toHaveCount(0);
+    await page.mouse.up();
+    expect(
+      (await page.evaluate(() => window.deck.load())).planning.entries.find(
+        (e) => e.day === day && e.itemId === item.id,
+      )!.category,
+    ).toBe("Other");
     await page
       .getByRole("button", { name: "Select task Deck", exact: true })
       .click();
