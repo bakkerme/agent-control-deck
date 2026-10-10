@@ -1,25 +1,15 @@
-import { test, expect, _electron as electron } from "@playwright/test";
+import { test, expect } from "./renderer-fixture";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 
-test("long project names use the full row while hover controls overlay without shifting it", async () => {
+test("long project names use the full row while hover controls overlay without shifting it", async ({
+  launchRenderer,
+}) => {
   const dir = mkdtempSync(join(tmpdir(), "acd-project-layout-"));
-  const env = Object.fromEntries(
-    Object.entries(process.env).filter(
-      ([key, value]) => key !== "ELECTRON_RUN_AS_NODE" && value !== undefined,
-    ),
-  ) as Record<string, string>;
-  const app = await electron.launch({
-    executablePath: process.env.ACD_PACKAGED_EXECUTABLE,
-    args: [
-      ...(process.env.ACD_PACKAGED_EXECUTABLE ? [] : [resolve(".")]),
-      `--data-dir=${dir}`,
-    ],
-    env: { ...env, ACD_HTTP_PORT: "0" },
-  });
+  const app = await launchRenderer({ dataDirectory: dir });
   try {
     const page = await app.firstWindow();
     const names = [
@@ -65,11 +55,7 @@ test("long project names use the full row while hover controls overlay without s
       exact: true,
     });
     for (const width of [1280, 980]) {
-      await app.evaluate(
-        ({ BrowserWindow }, width) =>
-          BrowserWindow.getAllWindows()[0].setSize(width, 650),
-        width,
-      );
+      await app.resize(width, 650);
       await expect.poll(() => page.evaluate(() => innerWidth)).toBe(width);
       await heading.hover();
       for (const name of names) {
@@ -177,7 +163,9 @@ test("long project names use the full row while hover controls overlay without s
   }
 });
 
-test("repository labels and legacy context persist while real worktrees share their repository", async () => {
+test("repository labels and legacy context persist while real worktrees share their repository", async ({
+  launchRenderer,
+}) => {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "acd-projects-")));
   const root = join(dir, "agent-control-deck"),
     worktree = join(dir, "temporary-worktree");
@@ -203,20 +191,7 @@ test("repository labels and legacy context persist while real worktrees share th
   execFileSync("git", ["-C", root, "worktree", "add", "--detach", worktree], {
     stdio: "pipe",
   });
-  const env = Object.fromEntries(
-    Object.entries(process.env).filter(
-      ([key, value]) => key !== "ELECTRON_RUN_AS_NODE" && value !== undefined,
-    ),
-  ) as Record<string, string>;
-  const launch = () =>
-    electron.launch({
-      executablePath: process.env.ACD_PACKAGED_EXECUTABLE,
-      args: [
-        ...(process.env.ACD_PACKAGED_EXECUTABLE ? [] : [resolve(".")]),
-        `--data-dir=${dir}`,
-      ],
-      env: { ...env, ACD_HTTP_PORT: "0" },
-    });
+  const launch = () => launchRenderer({ dataDirectory: dir });
   let app = await launch();
   try {
     let page = await app.firstWindow();

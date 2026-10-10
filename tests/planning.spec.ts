@@ -1,25 +1,17 @@
-import { test, expect, _electron as electron } from "@playwright/test";
+import { test, expect } from "./renderer-fixture";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import {
   localPlanDay,
   nextPlanDay,
   nextBusinessDay,
 } from "../src/shared/planning";
-test("Today supports the complete physical-card workflow and preserves context across restart", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "acd-task-ui-")),
-    env = { ...process.env };
-  delete env.ELECTRON_RUN_AS_NODE;
-  const launch = () =>
-    electron.launch({
-      executablePath: process.env.ACD_PACKAGED_EXECUTABLE,
-      args: [
-        ...(process.env.ACD_PACKAGED_EXECUTABLE ? [] : [resolve(".")]),
-        `--data-dir=${dir}`,
-      ],
-      env: { ...env, ACD_HTTP_PORT: "0" },
-    });
+test("Today supports the complete physical-card workflow and preserves context across restart", async ({
+  launchRenderer,
+}) => {
+  const dir = mkdtempSync(join(tmpdir(), "acd-task-ui-"));
+  const launch = () => launchRenderer({ dataDirectory: dir });
   let app = await launch();
   try {
     let page = await app.firstWindow();
@@ -181,9 +173,7 @@ test("Today supports the complete physical-card workflow and preserves context a
         .filter((e) => e.day === day && e.category === "Coding")
         .map((e) => e.name),
     ).toEqual(["Second coding task", "Deck"]);
-    await app.evaluate(({ BrowserWindow }) =>
-      BrowserWindow.getAllWindows()[0].setSize(980, 650),
-    );
+    await app.resize(980, 650);
     await first.hover();
     const list = page.getByRole("region", { name: "Daily tasks", exact: true });
     const other = page.locator('[data-card-category="Other"]');
@@ -418,9 +408,7 @@ test("Today supports the complete physical-card workflow and preserves context a
         (i) => i.id === item.id,
       )!.notes,
     ).toBe(note);
-    await app.evaluate(({ BrowserWindow }) =>
-      BrowserWindow.getAllWindows()[0].setSize(980, 650),
-    );
+    await app.resize(980, 650);
     await expect
       .poll(() =>
         page.evaluate(
@@ -431,9 +419,7 @@ test("Today supports the complete physical-card workflow and preserves context a
     await page.screenshot({
       path: "test-results/today-task-workspace-minimum.png",
     });
-    await app.evaluate(({ BrowserWindow }) =>
-      BrowserWindow.getAllWindows()[0].setSize(1320, 850),
-    );
+    await app.resize(1320, 850);
     await page.screenshot({
       path: "test-results/today-task-workspace-desktop.png",
     });

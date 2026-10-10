@@ -1,25 +1,14 @@
-import { test, expect, _electron as electron } from "@playwright/test";
+import { test, expect } from "./renderer-fixture";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 
-test("sidebar priority flags highlight actionable chats across filters and persist with pencil renames", async () => {
+test("sidebar priority flags highlight actionable chats across filters and persist with pencil renames", async ({
+  launchRenderer,
+}) => {
   const dir = mkdtempSync(join(tmpdir(), "acd-priority-"));
-  const env = Object.fromEntries(
-    Object.entries(process.env).filter(
-      ([key, value]) => key !== "ELECTRON_RUN_AS_NODE" && value !== undefined,
-    ),
-  ) as Record<string, string>;
-  const launch = () =>
-    electron.launch({
-      executablePath: process.env.ACD_PACKAGED_EXECUTABLE,
-      args: [
-        ...(process.env.ACD_PACKAGED_EXECUTABLE ? [] : [resolve(".")]),
-        `--data-dir=${dir}`,
-      ],
-      env: { ...env, ACD_HTTP_PORT: "0" },
-    });
+  const launch = () => launchRenderer({ dataDirectory: dir });
   let app = await launch();
   try {
     let page = await app.firstWindow();
@@ -143,9 +132,7 @@ test("sidebar priority flags highlight actionable chats across filters and persi
       .getByRole("dialog")
       .getByRole("button", { name: "Save name", exact: true })
       .click();
-    await app.evaluate(({ BrowserWindow }) =>
-      BrowserWindow.getAllWindows()[0].setSize(980, 650),
-    );
+    await app.resize(980, 650);
     await expect.poll(() => page.evaluate(() => innerWidth)).toBe(980);
     await expect
       .poll(() =>
