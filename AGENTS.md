@@ -12,7 +12,7 @@ Read-only toward agents: do not add approvals, prompt injection, process control
 - `src/preload/`: narrow typed IPC. Validate inputs and the sender in main; never expose arbitrary filesystem or shell access.
 - `src/renderer/`: React UI. Keep Node disabled, context isolation and sandbox enabled, and render provider content as text.
 - `src/shared/`: types and Zod validation. Desktop contracts are independent of legacy StatusSnapshot.
-- `tests/`: Node tests run through Electron to match SQLite's native ABI; Playwright drives the packaged renderer in Electron.
+- `tests/`: Node tests run through Electron to match SQLite's native ABI; Routine Playwright tests drive the built renderer in headless Chromium with the real workspace runtime. Electron window/IPC/native-control checks are a separate opt-in suite.
 
 Use Node 24+ and npm; commit `package-lock.json`. `npm ci` installs Electron and rebuilds SQLite. `npm run dev` starts development, `npm run build && npm start` runs a production build, and `npm run demo` uses separate sample data after building.
 
@@ -27,7 +27,7 @@ Use Node 24+ and npm; commit `package-lock.json`. `npm ci` installs Electron and
 
 ## Verification
 
-Run `npm run check` for desktop changes (type checking, native storage/provider/HTTP tests, and Electron UI tests). Run `npm run package` when changing native dependencies or packaging. Build on the target OS; do not claim Windows/WSL or real provider verification from macOS fixtures alone.
+Run `npm run check` for desktop changes (type checking, native storage/provider/HTTP tests, and headless renderer tests; no visible windows). Run `npm run test:electron` when changing Electron lifecycle, preload/IPC security, or native window controls; this opt-in suite opens windows. `npm run check:all` includes both suites. Run `npm run package` when changing native dependencies or packaging. Build on the target OS; do not claim Windows/WSL or real provider verification from macOS fixtures alone.
 
 The packaging downloader override in package.json removes an old vulnerable cache dependency. Validate packaging and audit when changing it.
 

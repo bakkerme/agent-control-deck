@@ -87,7 +87,7 @@ desktop-build: ## Type-check and build the desktop app
 desktop-test: ## Run desktop persistence/provider tests
 	npm test
 
-desktop-check: ## Run all desktop checks, including Electron UI tests
+desktop-check: ## Run routine desktop checks without visible windows
 	npm run check
 
 desktop-package: ## Build an unpacked desktop app for this OS

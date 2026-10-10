@@ -1,21 +1,12 @@
-import { test, expect, _electron as electron } from "@playwright/test";
+import { test, expect } from "./renderer-fixture";
 import { mkdtempSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { localPlanDay, nextPlanDay } from "../src/shared/planning";
-test("daily cards link broad work, carry notes and chats, and retain human-led Other entries after restart", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "acd-plan-ui-")),
-    env = { ...process.env };
-  delete env.ELECTRON_RUN_AS_NODE;
+test("daily cards link broad work, carry notes and chats, and retain human-led Other entries after restart", async ({ launchRenderer }) => {
+  const dir = mkdtempSync(join(tmpdir(), "acd-plan-ui-"));
   const launch = () =>
-    electron.launch({
-      executablePath: process.env.ACD_PACKAGED_EXECUTABLE,
-      args: [
-        ...(process.env.ACD_PACKAGED_EXECUTABLE ? [] : [resolve(".")]),
-        `--data-dir=${dir}`,
-      ],
-      env: { ...env, ACD_HTTP_PORT: "0" },
-    });
+    launchRenderer({ dataDirectory: dir });
   let app = await launch();
   try {
     let page = await app.firstWindow();
@@ -157,9 +148,7 @@ test("daily cards link broad work, carry notes and chats, and retain human-led O
       )!.projectId,
     ).toBeNull();
     expect(existsSync(file)).toBe(true);
-    await app.evaluate(({ BrowserWindow }) =>
-      BrowserWindow.getAllWindows()[0].setSize(980, 650),
-    );
+    await app.resize(980, 650);
     await page.screenshot({ path: "test-results/planning-minimum.png" });
     expect(
       await page.evaluate(
@@ -221,9 +210,7 @@ test("daily cards link broad work, carry notes and chats, and retain human-led O
       reopened.planning.entries.filter((e) => e.itemId === item.id),
     ).toHaveLength(1);
     expect(reopened.planning.inbox.files).toHaveLength(0);
-    await app.evaluate(({ BrowserWindow }) =>
-      BrowserWindow.getAllWindows()[0].setSize(1320, 850),
-    );
+    await app.resize(1320, 850);
     await page.screenshot({ path: "test-results/planning-desktop.png" });
     await page.getByRole("button", { name: "Delete item", exact: true }).click();
     await page.getByRole("button", { name: "Cancel", exact: true }).click();

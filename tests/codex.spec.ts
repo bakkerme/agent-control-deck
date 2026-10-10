@@ -1,17 +1,13 @@
 import { notesField, organizationField } from "./ui-helpers";
-import { test, expect, _electron as electron } from "@playwright/test";
+import { test, expect } from "./renderer-fixture";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { spawn } from "node:child_process";
 
-test("Codex source setup, HTTP events, filtering and automatic chat fields", async () => {
+test("Codex source setup, HTTP events, filtering and automatic chat fields", async ({ launchRenderer }) => {
   const dir = mkdtempSync(join(tmpdir(), "acd-codex-ui-"));
-  const env = Object.fromEntries(Object.entries(process.env).filter(([key, value]) => key !== "ELECTRON_RUN_AS_NODE" && value !== undefined)) as Record<string, string>;
-  const app = await electron.launch({
-    executablePath: process.env.ACD_PACKAGED_EXECUTABLE,
-    args: [...(process.env.ACD_PACKAGED_EXECUTABLE ? [] : [resolve(".")]), `--data-dir=${dir}`], env: { ...env, ACD_HTTP_PORT: "0" },
-  });
+  const app = await launchRenderer({ dataDirectory: dir });
   try {
     const page = await app.firstWindow();
     await page.getByRole("button", { name: "Sources", exact: true }).click();
