@@ -1,5 +1,5 @@
 import { test, expect } from "./renderer-fixture";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -15,9 +15,17 @@ test("compact links, editable rules, source context and project membership survi
     const initial = await page.evaluate(() => window.deck.command({ type: "createSource", name: "Link source", provider: "claude", environment: "native" }));
     const source = initial.sources[0];
     let sequence = 0;
-    const emit = (session: string, kind: string, extra: Record<string, unknown>) => writeFileSync(join(initial.setups[source.id].inbox, `${randomUUID()}.json`), JSON.stringify({ version: 1, eventId: randomUUID(), observedAt: new Date(Date.now() + ++sequence).toISOString(), payload: { hook_event_name: kind, session_id: session, cwd: "/work/payments", ...extra } }));
+    // Reverse filenames and tied mtimes exercise adverse queue ordering on Windows.
+    const fileTime = new Date();
+    const emit = (session: string, kind: string, extra: Record<string, unknown>) => {
+      const path = join(initial.setups[source.id].inbox, `${String(1000 - ++sequence).padStart(4, "0")}.json`);
+      writeFileSync(path, JSON.stringify({ version: 1, eventId: randomUUID(), observedAt: new Date(Date.now() + sequence).toISOString(), payload: { hook_event_name: kind, session_id: session, cwd: "/work/payments", ...extra } }));
+      utimesSync(path, fileTime, fileTime);
+    };
     emit("plan", "UserPromptSubmit", { prompt: "Write rollout plan" });
     emit("retry", "UserPromptSubmit", { prompt: "Fix payment retries" });
+    // Unknown sessions intentionally ignore Stop: wait for prompt discovery first.
+    await expect(page.locator(".projects").getByRole("button", { name: /^payments 2$/ })).toBeVisible();
     emit("plan", "Stop", { last_assistant_message: `${"x".repeat(600)} [Rollout](https://team.example/wiki/rollout)` });
     emit("retry", "Stop", { last_assistant_message: '[Rollout](https://team.example/wiki/rollout) https://team.example/browse/PAY-142 [<img src=x>](https://example.org/context)' });
     const projectLinks = () => page.getByRole("region", { name: "Project links", exact: true });
