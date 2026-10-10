@@ -12,6 +12,9 @@ const api: DeckApi = {
   copy: (text) => invoke("deck:copy", text),
   openTicket: (id) => invoke("deck:open-ticket", id),
   openLink: (id) => invoke("deck:open-link", id),
+  openPlanLink: (itemId, url) => invoke("deck:open-plan-link", { itemId, url }),
+  openPlanTicket: (itemId, key) =>
+    invoke("deck:open-plan-ticket", { itemId, key }),
   onChanged: (callback) => {
     const listener = () => callback();
     ipcRenderer.on("deck:changed", listener);

@@ -2,61 +2,86 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { Activity, Chat, Command, Snapshot } from "../shared/types";
 import { states } from "../shared/types";
-import { attentionReason, effectiveState, finishedTurn, priorityAttention } from "../shared/status";
+import {
+  attentionReason,
+  effectiveState,
+  finishedTurn,
+  priorityAttention,
+} from "../shared/status";
 import ChatEditor, { type EditorHandle } from "./ChatEditor";
+import Planning, { type PlanningHandle } from "./Planning";
 import Sources from "./Sources";
-import { providerLabel, displayName, message, age, Status, Modal } from "./components";
 import Settings from "./Settings";
+import {
+  providerLabel,
+  displayName,
+  message,
+  age,
+  Status,
+  Modal,
+} from "./components";
 import TitleBar from "./TitleBar";
 import Icon from "./Icon";
-import LinkStack from "./LinkStack";
-import Planning, { type PlanningHandle } from "./Planning";
 import "./style.css";
 const api = window.deck;
-
 function App() {
-  const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
-  const [error, setError] = useState("");
-  const [project, setProject] = useState("all");
-  const [selected, setSelected] = useState("");
-  const [search, setSearch] = useState("");
-  const [provider, setProvider] = useState("all");
-  const [state, setState] = useState("all");
-  const [archived, setArchived] = useState(false);
-  const [page, setPage] = useState<"workspace" | "today" | "sources" | "settings">("workspace");
-  const [modal, setModal] = useState<"project" | "chat" | "rename" | null>(
-    null,
-  );
-  const [modalError, setModalError] = useState("");
-  const [renameProjectId, setRenameProjectId] = useState("");
-  const [projectChatId, setProjectChatId] = useState<string | undefined>();
+  const [snapshot, setSnapshot] = useState<Snapshot | null>(null),
+    [error, setError] = useState("");
+  const [page, setPage] = useState<"today" | "repos" | "sources" | "settings">(
+      "today",
+    ),
+    [repo, setRepo] = useState("all"),
+    [selected, setSelected] = useState("");
+  const [search, setSearch] = useState(""),
+    [provider, setProvider] = useState("all"),
+    [state, setState] = useState("all"),
+    [archived, setArchived] = useState(false),
+    [returnToday, setReturnToday] = useState(false);
+  const [modal, setModal] = useState<"chat" | "rename" | null>(null),
+    [renameId, setRenameId] = useState(""),
+    [modalError, setModalError] = useState("");
   const [activities, setActivities] = useState<Activity[]>([]);
-  const editor = useRef<EditorHandle>(null);
-  const planningEditor = useRef<PlanningHandle>(null);
-  const settingsEditor = useRef<EditorHandle>(null);
+  const editor = useRef<EditorHandle>(null),
+    planningEditor = useRef<PlanningHandle>(null),
+    settingsEditor = useRef<EditorHandle>(null),
+    queue = useRef<Promise<unknown>>(Promise.resolve()),
+    revision = useRef(0);
   const [, tick] = useState(0);
   useEffect(() => {
     const reload = () => {
+      const request = ++revision.current;
       void api
         .load()
-        .then(setSnapshot)
+        .then((value) => {
+          if (request === revision.current) setSnapshot(value);
+        })
         .catch((e) => setError(message(e)));
     };
     const unsubscribe = api.onChanged(reload);
     reload();
-    const timer = setInterval(() => tick((t) => t + 1), 10000);
+    const timer = setInterval(() => tick((n) => n + 1), 10000);
     return () => {
       unsubscribe();
       clearInterval(timer);
     };
   }, []);
-  const mutate = useCallback(async (command: Command) => {
-    setSnapshot(await api.command(command));
+  const mutate = useCallback((command: Command): Promise<void> => {
+    const work = queue.current
+      .catch(() => {})
+      .then(async () => {
+        const request = ++revision.current;
+        const value = await api.command(command);
+        if (request === revision.current) setSnapshot(value);
+      });
+    queue.current = work;
+    return work;
   }, []);
   const navigate = async (action: () => void | Promise<void>) => {
-    if (planningEditor.current && !(await planningEditor.current.flush())) return;
+    if (planningEditor.current && !(await planningEditor.current.flush()))
+      return;
     if (editor.current && !(await editor.current.flush())) return;
-    if (settingsEditor.current && !(await settingsEditor.current.flush())) return;
+    if (settingsEditor.current && !(await settingsEditor.current.flush()))
+      return;
     try {
       await action();
     } catch (e) {
@@ -65,9 +90,6 @@ function App() {
   };
   const chat = snapshot?.chats.find((c) => c.id === selected);
   useEffect(() => {
-    if (snapshot && project !== "all" && project !== "unassigned" && !snapshot.projects.some(p => p.id === project)) setProject("all");
-  }, [snapshot, project]);
-  useEffect(() => {
     let active = true;
     if (!chat) {
       setActivities([]);
@@ -75,8 +97,8 @@ function App() {
     }
     void api
       .activity(chat.id)
-      .then((a) => {
-        if (active) setActivities(a);
+      .then((value) => {
+        if (active) setActivities(value);
       })
       .catch((e) => {
         if (active) setError(message(e));
@@ -84,7 +106,7 @@ function App() {
     return () => {
       active = false;
     };
-  }, [chat, snapshot]);
+  }, [chat?.id, chat?.lastEventAt]);
   if (!snapshot)
     return (
       <div className="app">
@@ -95,124 +117,96 @@ function App() {
         </div>
       </div>
     );
-  const activeChats = snapshot.chats.filter((c) => !c.archived);
-  const viewChats = snapshot.chats.filter((c) => c.archived === archived);
-  const inProject = (c: Chat, id: string) => id === "all" || (id === "unassigned" ? !c.projectId : c.projectId === id);
-  const projectNames = (c: Chat) => snapshot.projects.find(p => p.id === c.projectId)?.name || "No project";
-  const projectChats = snapshot.chats.filter(c => inProject(c, project));
-  const projectChatIds = new Set(projectChats.map(c => c.id));
-  const projectLinks = snapshot.links.filter(link => projectChatIds.has(link.chatId));
-  const selectLinkChat = (target: Chat) => void navigate(() => {
-    setSelected(target.id);
-    setArchived(target.archived);
-    setSearch(""); setState("all"); setProvider("all");
-  });
-  const changeArchiveView = (value: boolean) => {
-    setArchived(value);
-    setSearch("");
-    setState("all");
-    setProvider("all");
-  };
+  const repositories = snapshot.projects.filter(
+    (p) =>
+      p.kind === "repo" || snapshot.chats.some((c) => c.repoProjectId === p.id),
+  );
+  const repositoryId = (c: Chat) =>
+    c.repoProjectId ||
+    (repositories.some((p) => p.id === c.projectId) ? c.projectId : null);
+  const inRepo = (c: Chat, id: string) =>
+    id === "all" || (id === "none" ? !repositoryId(c) : repositoryId(c) === id);
+  const repoName = (c: Chat) =>
+    repositories.find((p) => p.id === repositoryId(c))?.name || "No repository";
+  const scoped = snapshot.chats.filter(
+    (c) =>
+      c.archived === archived &&
+      inRepo(c, repo) &&
+      (provider === "all" || c.provider === provider) &&
+      `${displayName(c)} ${c.notes} ${c.preview} ${repoName(c)}`
+        .toLowerCase()
+        .includes(search.toLowerCase()),
+  );
+  const matchesState = (c: Chat, value: string) =>
+    value === "all" ||
+    (value === "ended"
+      ? c.lifecycle === "ended"
+      : c.lifecycle === "open" &&
+        (value === "finished" ? finishedTurn(c) : effectiveState(c) === value));
   const rank = (c: Chat) =>
     c.lifecycle === "ended"
       ? 6
-      : { error: 0, waiting: 1, running: 2, monitoring: 3, idle: 4, unknown: 5 }[effectiveState(c)];
-  const scoped = snapshot.chats
-    .filter(
-      (c) =>
-        c.archived === archived &&
-        inProject(c, project) &&
-        (provider === "all" || c.provider === provider) &&
-        [
-          displayName(c),
-          c.notes,
-          c.jiraKey,
-          c.preview,
-          projectNames(c),
-        ]
-          .join(" ")
-          .toLowerCase()
-          .includes(search.toLowerCase()),
-    );
-  const matchesState = (c: Chat, value: string) => value === "all" || (value === "ended" ? c.lifecycle === "ended" : c.lifecycle === "open" && (value === "finished" ? finishedTurn(c) : effectiveState(c) === value));
-  const visible = scoped.filter(c => matchesState(c, state))
+      : {
+          error: 0,
+          waiting: 1,
+          running: 2,
+          monitoring: 3,
+          idle: 4,
+          unknown: 5,
+        }[effectiveState(c)];
+  const visible = scoped
+    .filter((c) => matchesState(c, state))
     .sort(
       (a, b) =>
         rank(a) - rank(b) ||
-        (b.lastEventAt ?? b.updatedAt).localeCompare(
-          a.lastEventAt ?? a.updatedAt,
-        ) ||
-        a.id.localeCompare(b.id),
+        (b.lastEventAt || b.updatedAt).localeCompare(
+          a.lastEventAt || a.updatedAt,
+        ),
     );
-  const openModal = (kind: "project" | "chat" | "rename", targetProject = project, chatId?: string) =>
+  const openChat = (id: string) =>
     void navigate(() => {
-      setModalError("");
-      setRenameProjectId(targetProject);
-      setProjectChatId(chatId);
-      setModal(kind);
+      const target = snapshot.chats.find((c) => c.id === id);
+      if (!target) return;
+      setSelected(id);
+      setRepo(repositoryId(target) || "none");
+      setArchived(target.archived);
+      setSearch("");
+      setState("all");
+      setProvider("all");
+      setReturnToday(true);
+      setPage("repos");
     });
-  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const data = new FormData(event.currentTarget);
-    const name = String(data.get("name"));
-    try {
-      const before = new Set(snapshot.chats.map((c) => c.id));
-      const beforeProjects = new Set(snapshot.projects.map(p => p.id));
-      const next = await api.command(
-        modal === "project"
-          ? { type: "createProject", name, chatId: projectChatId }
-          : modal === "rename"
-            ? { type: "renameProject", id: renameProjectId, name }
-            : {
-                type: "createChat",
-                projectId: String(data.get("projectId") ?? "") || null,
-                name,
-              },
-      );
-      setSnapshot(next);
-      setModal(null);
-      if (modal === "project") {
-        const created = next.projects.find(p => !beforeProjects.has(p.id));
-        if (created) {
-          setProject(created.id);
-          setSearch(""); setState("all"); setProvider("all"); setArchived(projectChatId ? archived : false);
-        }
-      }
-      if (modal === "chat") {
-        const created = next.chats.find((c) => !before.has(c.id));
-        if (created) {
-          setSelected(created.id);
-          setProject(created.projectId ?? "unassigned");
-          setArchived(false);
-          setSearch("");
-          setState("all");
-          setProvider("all");
-        }
-      }
-    } catch (e) {
-      setModalError(message(e));
-    }
-  };
   return (
     <div className="app">
-      <TitleBar subtitle={snapshot.demo
-        ? "Demo workspace · separate sample data"
-        : "Local workspace · read-only agent monitoring"}>
+      <TitleBar
+        subtitle={
+          snapshot.demo
+            ? "Demo workspace · separate sample data"
+            : "Local workspace · read-only agent monitoring"
+        }
+      >
         <nav aria-label="Main">
-          <button className={page === "today" ? "selected" : ""} onClick={() => void navigate(() => setPage("today"))}>Today</button>
-          <button
-            className={page === "workspace" ? "selected" : ""}
-            onClick={() => void navigate(() => setPage("workspace"))}
-          >
-            Workspace
-          </button>
-          <button
-            className={page === "sources" ? "selected" : ""}
-            onClick={() => void navigate(() => setPage("sources"))}
-          >
-            Sources
-          </button>
-          <button className={page === "settings" ? "selected" : ""} onClick={() => void navigate(() => setPage("settings"))}>Settings</button>
+          {(
+            [
+              ["today", "Today"],
+              ["repos", "Repositories"],
+              ["sources", "Sources"],
+              ["settings", "Settings"],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              className={page === value ? "selected" : ""}
+              onClick={() =>
+                void navigate(() => {
+                  setPage(value);
+                  if (value === "repos") setReturnToday(false);
+                })
+              }
+            >
+              {label}
+            </button>
+          ))}
           {snapshot.demo && (
             <button
               onClick={() =>
@@ -229,8 +223,8 @@ function App() {
               void navigate(async () => {
                 await mutate({ type: "setDemo", enabled: !snapshot.demo });
                 setSelected("");
-                setProject("all");
-                setPage("workspace");
+                setRepo("all");
+                setPage("today");
                 setSearch("");
                 setArchived(false);
               })
@@ -240,106 +234,146 @@ function App() {
           </button>
         </nav>
       </TitleBar>
-      {snapshot.ingestionError && <div className="global-error" role="alert">{snapshot.ingestionError}</div>}
+      {snapshot.ingestionError && (
+        <div className="global-error" role="alert">
+          {snapshot.ingestionError}
+        </div>
+      )}
       {error && (
         <div className="global-error" role="alert">
           <span>{error}</span>
           <button onClick={() => setError("")}>Dismiss</button>
         </div>
       )}
-      {page === "today" ? (
-        <Planning key={String(snapshot.demo)} ref={planningEditor} snapshot={snapshot} mutate={mutate} report={setError}
-          allChats={() => void navigate(() => setPage("workspace"))}
-          createProject={() => openModal("project")}
-          openChat={id => void navigate(() => { setSelected(id); setPage("workspace"); setProject("all"); setArchived(!!snapshot.chats.find(c=>c.id===id)?.archived); setSearch(""); setState("all"); setProvider("all"); })}
+      <div
+        className={page === "today" ? "today-page" : "today-page inactive-page"}
+      >
+        <Planning
+          key={String(snapshot.demo)}
+          ref={planningEditor}
+          snapshot={snapshot}
+          mutate={mutate}
+          openChat={openChat}
+          configureJira={() => void navigate(() => setPage("settings"))}
         />
-      ) : page === "sources" ? (
+      </div>
+      {page === "sources" ? (
         <Sources snapshot={snapshot} mutate={mutate} report={setError} />
       ) : page === "settings" ? (
-        <Settings key={String(snapshot.demo)} ref={settingsEditor} settings={snapshot.settings} mutate={mutate} />
-      ) : (
-        <main className="board">
-          <aside className="projects">
-            <div className="section-heading">
-              <h2>Projects</h2>
-            </div>
-            <nav aria-label="Projects">
-              <button
-                className={project === "all" ? "selected" : ""}
-                onClick={() => void navigate(() => setProject("all"))}
-              >
-                All projects <span>{viewChats.length}</span>
-              </button>
-              <button
-                className={project === "unassigned" ? "selected" : ""}
-                onClick={() => void navigate(() => setProject("unassigned"))}
-              >
-                No project <span>{viewChats.filter((c) => inProject(c, "unassigned")).length}</span>
-              </button>
-              {snapshot.projects.map((p) => {
-                const attention = p.priority ? activeChats.filter(c => inProject(c, p.id) && attentionReason(c)).length : 0;
-                const description = p.priority
-                  ? `Priority project · ${attention} chat${attention === 1 ? "" : "s"} finished or needing attention`
-                  : p.kind === "repo" ? "Default repository project · name is editable" : "Custom project";
-                return <div key={p.id} className={`project-row ${attention ? "has-attention" : ""}`}>
-                  <button
-                    className={project === p.id ? "selected" : ""}
-                    title={description}
-                    aria-description={description}
-                    onClick={() => void navigate(() => setProject(p.id))}
+        <Settings
+          key={String(snapshot.demo)}
+          ref={settingsEditor}
+          settings={snapshot.settings}
+          mutate={mutate}
+        />
+      ) : page === "repos" ? (
+        <main className="board repository-board">
+          <aside className="projects repositories">
+            <h2>Repositories</h2>
+            <nav aria-label="Repositories">
+              {[
+                ["all", "All repositories"],
+                ["none", "No repository"],
+                ...repositories.map((p) => [p.id, p.name]),
+              ].map(([id, label]) => {
+                const project = repositories.find((p) => p.id === id),
+                  count = snapshot.chats.filter(
+                    (c) => c.archived === archived && inRepo(c, id),
+                  ).length,
+                  attention = project?.priority
+                    ? snapshot.chats.filter(
+                        (c) =>
+                          !c.archived && inRepo(c, id) && attentionReason(c),
+                      ).length
+                    : 0;
+                return (
+                  <div
+                    className={`project-row ${attention ? "has-attention" : ""}`}
+                    key={id}
                   >
-                    <span className="project-name" title={p.name}>{attention > 0 && <span className="priority-lamp" aria-hidden="true" />}{p.name}</span>
-                    <span className="project-count">{viewChats.filter((c) => inProject(c, p.id)).length}</span>
-                  </button>
-                  <div className="project-tools">
                     <button
-                      aria-label={`Rename project ${p.name}`}
-                      title={`Rename project ${p.name}`}
-                      onClick={() => openModal("rename", p.id)}
-                    ><Icon name="pencil" /></button>
-                    <button
-                      className={p.priority ? "priority-flag flagged" : "priority-flag"}
-                      aria-label={`Priority project ${p.name}`}
-                      aria-pressed={p.priority}
-                      title={p.priority ? "Remove priority flag" : "Flag as priority: mark chats that finish or need attention"}
-                      onClick={() => void navigate(() => mutate({ type: "setProjectPriority", id: p.id, priority: !p.priority }))}
-                    ><Icon name="flag" /></button>
+                      className={repo === id ? "selected" : ""}
+                      onClick={() =>
+                        void navigate(() => {
+                          setRepo(id);
+                          setSelected("");
+                        })
+                      }
+                    >
+                      <span className="project-name" title={label}>
+                        {attention > 0 && (
+                          <span className="priority-lamp" aria-hidden="true" />
+                        )}
+                        {label}
+                      </span>
+                      <span className="project-count">{count}</span>
+                    </button>
+                    {project && (
+                      <div className="project-tools">
+                        <button
+                          aria-label={`Rename repository ${project.name}`}
+                          title="Rename repository"
+                          onClick={() => {
+                            setRenameId(id);
+                            setModal("rename");
+                            setModalError("");
+                          }}
+                        >
+                          <Icon name="pencil" />
+                        </button>
+                        <button
+                          aria-label={`Priority repository ${project.name}`}
+                          aria-pressed={project.priority}
+                          title="Flag repository for attention"
+                          onClick={() =>
+                            void mutate({
+                              type: "setProjectPriority",
+                              id,
+                              priority: !project.priority,
+                            }).catch((e) => setError(message(e)))
+                          }
+                        >
+                          <Icon name="flag" />
+                        </button>
+                      </div>
+                    )}
                   </div>
-                </div>;
+                );
               })}
-              <button className="add-project" onClick={() => openModal("project")}>
-                <span>+ Add a new project</span>
-              </button>
             </nav>
             <div className="project-note">
-              {snapshot.sources.length
-                ? `${snapshot.sources.filter((s) => s.enabled).length} sources enabled`
-                : "No live sources configured"}
               <p>
-                States reflect the last reported event, not process liveness.
+                Repository paths are discovered from observed chats. Last
+                reported states are observations, not process liveness.
               </p>
             </div>
           </aside>
           <section className="chat-list" aria-label="Chats">
             <div className="section-heading">
-              <div><span className="eyebrow">Operations</span><h2>{project === "all" ? archived ? "Archived chats" : "All chats" : project === "unassigned" ? "No project" : snapshot.projects.find(p => p.id === project)?.name}</h2></div>
+              <h2>
+                {repo === "all"
+                  ? "All chats"
+                  : repo === "none"
+                    ? "No repository"
+                    : repositories.find((p) => p.id === repo)?.name ||
+                      "Repository"}
+              </h2>
               <button
-                onClick={() =>
-                  openModal("chat")
-                }
+                onClick={() => {
+                  setModal("chat");
+                  setModalError("");
+                }}
               >
                 New chat
               </button>
             </div>
-            {project !== "all" && project !== "unassigned" && <LinkStack links={projectLinks} rules={snapshot.settings.linkRules} chats={projectChats} scope="Project"
-              open={id => void api.openLink(id).catch(e => setError(message(e)))} selectChat={selectLinkChat} />}
             <label className="search">
               Search chats
               <input
                 type="search"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Name, notes, ticket, or project"
+                placeholder="Name, notes, or repository"
               />
             </label>
             <div className="filters">
@@ -349,10 +383,11 @@ function App() {
                 onChange={(e) => setProvider(e.target.value)}
               >
                 <option value="all">All providers</option>
-                <option value="claude">Claude Code</option>
-                <option value="cursor">Cursor</option>
-                <option value="codex">Codex</option>
-                <option value="manual">Manual</option>
+                {["claude", "cursor", "codex", "manual"].map((value) => (
+                  <option key={value} value={value}>
+                    {providerLabel(value)}
+                  </option>
+                ))}
               </select>
               <select
                 aria-label="State filter"
@@ -362,175 +397,250 @@ function App() {
                 <option value="all">All states</option>
                 <option value="finished">Finished turns</option>
                 <option value="monitoring">Monitoring</option>
-                {states.map((s) => (
-                  <option key={s}>{s}</option>
+                {states.map((value) => (
+                  <option key={value}>{value}</option>
                 ))}
                 <option value="ended">ended</option>
               </select>
             </div>
-            <nav className="status-filters chat-views" aria-label="Chat visibility">
-              {[false, true].map(value => <button key={String(value)} aria-pressed={archived === value} className={archived === value ? "selected" : ""} onClick={() => void navigate(() => changeArchiveView(value))}>
-                {value ? "Archived chats" : "Active chats"} <span>{projectChats.filter(c => c.archived === value).length}</span>
-              </button>)}
+            <nav
+              className="status-filters chat-views"
+              aria-label="Chat visibility"
+            >
+              {[false, true].map((value) => (
+                <button
+                  key={String(value)}
+                  className={archived === value ? "selected" : ""}
+                  aria-pressed={archived === value}
+                  onClick={() =>
+                    void navigate(() => {
+                      setArchived(value);
+                      setProvider("all");
+                      setSelected("");
+                      setSearch("");
+                      setState("all");
+                    })
+                  }
+                >
+                  {value ? "Archived chats" : "Active chats"}{" "}
+                  <span>
+                    {
+                      snapshot.chats.filter(
+                        (c) => c.archived === value && inRepo(c, repo),
+                      ).length
+                    }
+                  </span>
+                </button>
+              ))}
             </nav>
-            {archived && <p className="archive-note">Archived chats are hidden, with notes and history preserved. Select a chat to restore it. New chats appear in Active chats.</p>}
             <nav className="status-filters" aria-label="Quick status filters">
-              {[["all", "All"], ["running", "Running"], ["monitoring", "Monitoring"], ["waiting", "Needs input"], ["finished", "Finished turns"]].map(([value, label]) => <button key={value} aria-pressed={state === value} className={state === value ? "selected" : ""} onClick={() => setState(value)}>{label} <span>{scoped.filter(c => matchesState(c, value)).length}</span></button>)}
+              {[
+                ["all", "All"],
+                ["running", "Running"],
+                ["monitoring", "Monitoring"],
+                ["waiting", "Needs input"],
+                ["finished", "Finished turns"],
+              ].map(([value, label]) => (
+                <button
+                  key={value}
+                  className={state === value ? "selected" : ""}
+                  aria-pressed={state === value}
+                  onClick={() => setState(value)}
+                >
+                  {label}{" "}
+                  <span>
+                    {scoped.filter((c) => matchesState(c, value)).length}
+                  </span>
+                </button>
+              ))}
             </nav>
-            <div className="record-heading" aria-hidden="true"><span>Chat / project / provider</span><span>Reported</span><span>Event age</span></div>
+            <div className="record-heading" aria-hidden="true">
+              <span>Chat / repository / provider</span>
+              <span>Reported</span>
+              <span>Event age</span>
+            </div>
             <div className="chat-items">
-              {visible.map((c) => {
-                const priorityReason = priorityAttention(c, snapshot.projects);
-                return (
+              {visible.map((c) => (
                 <button
                   key={c.id}
-                  className={`chat-item ${selected === c.id ? "selected" : ""} ${priorityReason ? "priority-attention" : ""}`}
+                  className={`chat-item ${selected === c.id ? "selected" : ""} ${priorityAttention({ ...c, projectId: repositoryId(c) }, repositories) ? "priority-attention" : ""}`}
                   aria-label={`Select chat ${displayName(c)}`}
-                  aria-description={priorityReason ? `Priority project · ${priorityReason}` : undefined}
-                  title={priorityReason ? `Priority project · ${priorityReason}` : undefined}
+                  aria-description={
+                    priorityAttention(
+                      { ...c, projectId: repositoryId(c) },
+                      repositories,
+                    )
+                      ? `Priority repository · ${attentionReason(c)}`
+                      : undefined
+                  }
                   aria-pressed={selected === c.id}
                   onClick={() => void navigate(() => setSelected(c.id))}
                 >
                   <div className="chat-record-title">
                     <strong>{displayName(c)}</strong>
-                  <small>
-                    {projectNames(c)}{" "}
-                    · {providerLabel(c.provider)}
-                    {c.jiraKey && ` · ${c.jiraKey}`}
-                  </small>
+                    <small>
+                      {repoName(c)} · {providerLabel(c.provider)}
+                    </small>
                   </div>
                   <Status chat={c} />
-                  <small className="record-age" title={c.lastEventAt ?? undefined}>
+                  <small className="record-age">
                     {c.provider === "manual"
                       ? "Manual entry"
                       : age(c.lastEventAt)}
                   </small>
                 </button>
-              ); })}
+              ))}
               {!visible.length && (
                 <div className="empty">
-                  <h3>
-                    {snapshot.chats.length
-                      ? "No matching chats"
-                      : "Start with a chat"}
-                  </h3>
-                  <p>
-                    {snapshot.chats.length
-                      ? archived ? "No archived chats match this view. New chats appear in Active chats." : "Adjust the filters or look in Archived chats."
-                      : "Track something manually, connect a source, or try the demo."}
-                  </p>
-                  {!snapshot.chats.length && (
-                    <button onClick={() => openModal("chat")}>
-                      Create chat
-                    </button>
-                  )}
+                  <h3>No matching chats</h3>
+                  <p>Adjust the filters or look in Archived chats.</p>
                 </div>
               )}
             </div>
           </section>
-          {chat ? (
-            <ChatEditor
-              key={`${snapshot.demo}:${chat.id}`}
-              ref={editor}
-              chat={chat}
-              projects={snapshot.projects}
-              settings={snapshot.settings}
-              links={snapshot.links.filter(link => link.chatId === chat.id)}
-              configureJira={() => void navigate(() => setPage("settings"))}
-              activities={activities}
-              mutate={mutate}
-              renameProject={(id) => openModal("rename", id)}
-              createProject={() => openModal("project", project, chat?.id)}
-              report={setError}
-              archive={() =>
-                void navigate(async () => {
-                  await mutate({
-                    type: "updateChat",
-                    id: chat.id,
-                    patch: { archived: !chat.archived },
-                  });
-                  if (chat.archived) {
-                    changeArchiveView(false);
-                    setProject(chat.projectId ?? "unassigned");
+          <div className="repository-detail">
+            {returnToday && (
+              <button
+                className="back-to-today quiet"
+                onClick={() => void navigate(() => setPage("today"))}
+              >
+                Back to Today
+              </button>
+            )}
+            {chat ? (
+              <>
+                <section className="repository-linked-tasks">
+                  <h3>Linked tasks</h3>
+                  {snapshot.planning.items
+                    .filter((i) => i.chatIds.includes(chat.id))
+                    .map((i) => (
+                      <button
+                        className="quiet"
+                        key={i.id}
+                        onClick={() =>
+                          void navigate(() => {
+                            planningEditor.current?.selectTask(i.id);
+                            setPage("today");
+                          })
+                        }
+                      >
+                        {i.name}
+                      </button>
+                    ))}
+                  {!snapshot.planning.items.some((i) =>
+                    i.chatIds.includes(chat.id),
+                  ) && <small>No task linked yet.</small>}
+                </section>
+                <ChatEditor
+                  key={`${snapshot.demo}:${chat.id}`}
+                  ref={editor}
+                  repositoryOnly
+                  chat={chat}
+                  projects={snapshot.projects}
+                  settings={snapshot.settings}
+                  links={snapshot.links.filter(
+                    (link) => link.chatId === chat.id,
+                  )}
+                  activities={activities}
+                  mutate={mutate}
+                  report={setError}
+                  configureJira={() => void navigate(() => setPage("settings"))}
+                  renameProject={(id) => {
+                    setRenameId(id);
+                    setModal("rename");
+                  }}
+                  createProject={() => {}}
+                  archive={() =>
+                    void navigate(async () => {
+                      await mutate({
+                        type: "updateChat",
+                        id: chat.id,
+                        patch: { archived: !chat.archived },
+                      });
+                      setArchived(!chat.archived);
+                    })
                   }
-                })
-              }
-            />
-          ) : (
-            <section className="empty detail-empty">
-              <h2>Select a chat</h2>
-              <p>
-                Names, notes, Jira references, and recent activity live here.
-              </p>
-            </section>
-          )}
+                />
+              </>
+            ) : (
+              <section className="empty detail-empty">
+                <h2>Select a chat</h2>
+                <p>
+                  Choose a conversation to view its observed history and saved
+                  context.
+                </p>
+              </section>
+            )}
+          </div>
         </main>
-      )}
-      <footer>
-        <span>
-          {snapshot.demo ? "Demo data" : "Local data"}: {snapshot.dataDirectory}
-        </span>
-        <span>
-          {
-            activeChats.filter(
-              (c) => effectiveState(c) === "running" && c.lifecycle === "open",
-            ).length
-          }{" "}
-          running ·{" "}
-          {activeChats.filter(c => effectiveState(c) === "monitoring" && c.lifecycle === "open").length} monitoring ·{" "}
-          {
-            activeChats.filter(
-              (c) =>
-                ["waiting", "error"].includes(c.state) &&
-                c.lifecycle === "open",
-            ).length
-          }{" "}
-          need attention
-        </span>
-      </footer>
+      ) : null}
       {modal && (
         <Modal
-          title={
-            modal === "project"
-              ? "Create project"
-              : modal === "rename"
-                ? "Rename project"
-                : "Create chat"
-          }
+          title={modal === "rename" ? "Rename repository" : "New chat"}
           close={() => setModal(null)}
         >
-          <form onSubmit={submit}>
-            {modal === "rename" && <p className="muted">This changes the project name for every chat assigned to it.</p>}
-            {modalError && (
-              <p className="error" role="alert">
-                {modalError}
-              </p>
-            )}
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              const form = new FormData(event.currentTarget),
+                name = String(form.get("name"));
+              const command: Command =
+                modal === "rename"
+                  ? { type: "renameProject", id: renameId, name }
+                  : {
+                      type: "createChat",
+                      projectId: String(form.get("repository") || "") || null,
+                      name,
+                    };
+              void navigate(async () => {
+                try {
+                  const before = new Set(snapshot.chats.map((c) => c.id));
+                  await mutate(command);
+                  const next = await api.load();
+                  setSnapshot(next);
+                  setModal(null);
+                  if (command.type === "createChat") {
+                    const added = next.chats.find((c) => !before.has(c.id));
+                    if (added) {
+                      setSelected(added.id);
+                      setRepo(command.projectId || "none");
+                      setArchived(false);
+                      setSearch("");
+                      setState("all");
+                    }
+                  }
+                } catch (e) {
+                  setModalError(message(e));
+                }
+              });
+            }}
+          >
             <label>
-              {modal === "chat" ? "Chat name" : "Project name"}
+              Name
               <input
-                autoFocus
                 name="name"
+                autoFocus
                 required
                 maxLength={200}
                 defaultValue={
                   modal === "rename"
-                    ? snapshot.projects.find((p) => p.id === renameProjectId)?.name
+                    ? repositories.find((p) => p.id === renameId)?.name
                     : ""
                 }
               />
             </label>
             {modal === "chat" && (
               <label>
-                Project
+                Repository
                 <select
-                  name="projectId"
+                  name="repository"
+                  aria-label="Repository"
                   defaultValue={
-                    snapshot.projects.some((p) => p.id === project) ? project : ""
+                    repositories.some((p) => p.id === repo) ? repo : ""
                   }
                 >
-                  <option value="">No project</option>
-                  {snapshot.projects.map((p) => (
+                  <option value="">No repository</option>
+                  {repositories.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.name}
                     </option>
@@ -538,41 +648,23 @@ function App() {
                 </select>
               </label>
             )}
-            <button className="primary">
-              {modal === "rename"
-                ? "Save name"
-                : modal === "chat"
-                  ? "Create chat"
-                  : "Create project"}
-            </button>
+            {modalError && (
+              <p className="error" role="alert">
+                {modalError}
+              </p>
+            )}
+            <div className="plan-actions">
+              <button className="primary">
+                {modal === "rename" ? "Save name" : "Create chat"}
+              </button>
+              <button type="button" onClick={() => setModal(null)}>
+                Cancel
+              </button>
+            </div>
           </form>
         </Modal>
       )}
     </div>
   );
 }
-class ErrorBoundary extends React.Component<
-  { children: React.ReactNode },
-  { error: string }
-> {
-  state = { error: "" };
-  static getDerivedStateFromError(error: Error) {
-    return { error: error.message };
-  }
-  render() {
-    return this.state.error ? (
-      <div className="loading">
-        <h1>Something went wrong</h1>
-        <p>{this.state.error}</p>
-        <button onClick={() => location.reload()}>Reload workspace</button>
-      </div>
-    ) : (
-      this.props.children
-    );
-  }
-}
-createRoot(document.getElementById("root")!).render(
-  <ErrorBoundary>
-    <App />
-  </ErrorBoundary>,
-);
+createRoot(document.getElementById("root")!).render(<App />);

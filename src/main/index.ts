@@ -17,7 +17,6 @@ import { commandSchema, idSchema, ticketUrl } from "../shared/validation";
 import { Store } from "./store";
 import { Inbox } from "./inbox";
 import { PlanningStore } from "./planning-store";
-import { readPlanInbox } from "./plan-inbox";
 import { sourceSetup, writeHookSetup, type HookConnection } from "./setup";
 import { HookReceiver } from "./http";
 import { advanceDemo, seedDemo } from "./demo";
@@ -37,7 +36,6 @@ let inbox: Inbox;
 let window: BrowserWindow | null = null;
 let timer: NodeJS.Timeout | undefined;
 let ingestionError: string | null = null;
-let planInboxSignature = "";
 let connection: HookConnection;
 let receiver: HookReceiver | undefined;
 let inputIndicator: InputIndicator | undefined;
@@ -58,15 +56,23 @@ const changed = () => {
 function initializeInputIndicator(): void {
   if (process.platform === "win32") {
     const lamp = inputLamp();
-    inputIndicator = new InputIndicator(count => {
-      window?.setOverlayIcon(count ? lamp : null, count ? `${count} ${count === 1 ? "chat needs" : "chats need"} input` : "");
+    inputIndicator = new InputIndicator((count) => {
+      window?.setOverlayIcon(
+        count ? lamp : null,
+        count
+          ? `${count} ${count === 1 ? "chat needs" : "chats need"} input`
+          : "",
+      );
     });
   } else if (process.platform === "darwin") {
     // AppKit supplies the actual application icon at its native resolution.
     const original = nativeImage.createFromNamedImage("NSApplicationIcon");
-    if (original.isEmpty()) throw new Error("The application's Dock icon is unavailable");
+    if (original.isEmpty())
+      throw new Error("The application's Dock icon is unavailable");
     const lit = dockIconWithLamp(original);
-    inputIndicator = new InputIndicator(count => app.dock?.setIcon(count ? lit : original));
+    inputIndicator = new InputIndicator((count) =>
+      app.dock?.setIcon(count ? lit : original),
+    );
   }
 }
 function openStore(): void {
@@ -90,12 +96,10 @@ function pollInbox(): void {
     inbox.poll();
     ingestionError = null;
   } catch {
-    ingestionError = "Event ingestion is paused by a storage error. Check disk space and permissions; queued events will be retried.";
+    ingestionError =
+      "Event ingestion is paused by a storage error. Check disk space and permissions; queued events will be retried.";
   }
   if (before !== ingestionError) changed();
-  const plans = new PlanningStore(store);
-  const signature = JSON.stringify(readPlanInbox(dataRoot(), plans));
-  if (signature !== planInboxSignature) { planInboxSignature = signature; changed(); }
 }
 function snapshot(): Snapshot {
   const sources = store.sources();
@@ -105,7 +109,10 @@ function snapshot(): Snapshot {
       items: plans.items(),
       entries: plans.entries(),
       imports: plans.imports(),
-      inbox: readPlanInbox(dataRoot(), plans),
+      inbox: { path: "", files: [], error: null },
+      wrapups: plans.wrapups(),
+      drafts: plans.drafts(),
+      undoId: plans.undoId(),
     },
     settings: store.settings(),
     links: store.links(),
@@ -117,7 +124,10 @@ function snapshot(): Snapshot {
     dataDirectory: dataRoot(),
     ingestionError,
     setups: Object.fromEntries(
-      sources.map((s) => [s.id, sourceSetup(dataRoot(), s, process.platform, connection)]),
+      sources.map((s) => [
+        s.id,
+        sourceSetup(dataRoot(), s, process.platform, connection),
+      ]),
     ),
   };
 }
@@ -166,11 +176,52 @@ function registerIpc(): void {
     clipboard.writeText(z.string().max(100000).parse(input)),
   );
   handle("deck:open-ticket", async (input) => {
-    const url = resolveTicketUrl(store.chat(idSchema.parse(input)), store.settings());
+    const url = resolveTicketUrl(
+      store.chat(idSchema.parse(input)),
+      store.settings(),
+    );
     if (url) await shell.openExternal(url);
   });
   handle("deck:open-link", async (input) => {
-    await shell.openExternal(ticketUrl.parse(store.link(idSchema.parse(input)).url));
+    await shell.openExternal(
+      ticketUrl.parse(store.link(idSchema.parse(input)).url),
+    );
+  });
+  handle("deck:open-plan-link", async (input) => {
+    const { itemId, url } = z
+      .object({ itemId: idSchema, url: ticketUrl.refine((value) => !!value) })
+      .strict()
+      .parse(input);
+    const item = new PlanningStore(store)
+      .items()
+      .find((item) => item.id === itemId);
+    if (
+      !item ||
+      item.hiddenLinks.includes(url) ||
+      (!item.links.some((link) => link.url === url) &&
+        !store
+          .links()
+          .some(
+            (link) => item.chatIds.includes(link.chatId) && link.url === url,
+          ))
+    )
+      throw new Error("This URL is no longer linked to the task");
+    await shell.openExternal(ticketUrl.parse(url));
+  });
+  handle("deck:open-plan-ticket", async (input) => {
+    const { itemId, key } = z
+      .object({ itemId: idSchema, key: z.string().max(2000) })
+      .strict()
+      .parse(input);
+    const item = new PlanningStore(store)
+      .items()
+      .find((item) => item.id === itemId);
+    if (!item?.tickets.some((ticket) => ticket.key === key))
+      throw new Error("This ticket is no longer linked to the task");
+    const url = /^https?:\/\//i.test(key)
+      ? ticketUrl.parse(key)
+      : resolveTicketUrl({ jiraKey: key, jiraUrl: "" }, store.settings());
+    if (url) await shell.openExternal(url);
   });
   handle("deck:command", (input) => {
     const command = commandSchema.parse(input);
@@ -278,7 +329,12 @@ else {
   void app
     .whenReady()
     .then(async () => {
-      receiver = new HookReceiver(() => ({ store, inbox, root: dataRoot(), demo }));
+      receiver = new HookReceiver(() => ({
+        store,
+        inbox,
+        root: dataRoot(),
+        demo,
+      }));
       connection = await receiver.listen();
       openStore();
       try {
