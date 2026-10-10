@@ -9,7 +9,8 @@ test("visible naming and organization controls persist across archive and resume
   launchRenderer,
 }) => {
   const dir = mkdtempSync(join(tmpdir(), "acd-organization-"));
-  const launch = () => launchRenderer({ dataDirectory: dir });
+  const launch = () =>
+    launchRenderer({ dataDirectory: dir, commandReplyDelayMs: 200 });
   let app = await launch();
   try {
     let page = await app.firstWindow();
@@ -128,9 +129,23 @@ test("visible naming and organization controls persist across archive and resume
       .toBe("running");
 
     await page.getByRole("button", { name: "Try demo", exact: true }).click();
-
+    await expect(
+      page.getByRole("region", { name: "Daily tasks", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Leave demo", exact: true }),
+    ).toBeVisible();
+    // Switching from Settings makes the return to Today mark completion, even
+    // when the workspace-changed notification precedes the command reply.
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await expect(page.getByLabel("Jira base URL")).toHaveValue("");
     await page.getByRole("button", { name: "Leave demo", exact: true }).click();
-
+    await expect(
+      page.getByRole("region", { name: "Daily tasks", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Try demo", exact: true }),
+    ).toBeVisible();
     await page
       .getByRole("button", { name: "Repositories", exact: true })
       .click();
@@ -172,6 +187,11 @@ test("visible naming and organization controls persist across archive and resume
     ).toBe(null);
   } finally {
     await app.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 100,
+    });
   }
 });

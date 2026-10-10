@@ -50,7 +50,7 @@ async function launch(
   });
   let context: BrowserContext | undefined;
   let page: Page | undefined;
-  let closed = false;
+  let closing: Promise<void> | undefined;
   let sequence = 0;
   const pending = new Map<
     number,
@@ -108,20 +108,22 @@ async function launch(
         }
       });
     });
-  const close = async () => {
-    if (closed) return;
-    closed = true;
-    try {
-      await context?.close();
-    } finally {
-      if (child.connected) child.send({ method: "close" });
-      const timeout = setTimeout(() => child.kill(), 5000);
+  const close = (): Promise<void> => {
+    if (closing) return closing;
+    closing = (async () => {
       try {
-        await exited;
+        await context?.close();
       } finally {
-        clearTimeout(timeout);
+        if (child.connected) child.send({ method: "close" });
+        const timeout = setTimeout(() => child.kill(), 5000);
+        try {
+          await exited;
+        } finally {
+          clearTimeout(timeout);
+        }
       }
-    }
+    })();
+    return closing;
   };
   const startupTimeout = setTimeout(
     () => fail(new Error(`Renderer backend startup timed out. ${output}`)),
