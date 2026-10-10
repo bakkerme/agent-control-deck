@@ -1,61 +1,65 @@
-# Daily planning trial
+# Daily task workspace
 
-Open **Today** to plan from a daily card. Each entry is a plan item: an area of attention such as a product, research topic, document review, or conversation. You can keep entries broad.
+Today is the landing screen. Each dated card has Coding, Agentic, and Other sections. Use broad tasks that describe where you want to put your attention. Agent activity stays observational: an agent finishing never marks a task done.
 
-- **Coding**: coding work with AI.
-- **Agentic**: work delegated to AI.
-- **Other**: work where most of the effort is yours, including reviewing a document, asking someone about something, and following up.
+## Morning and evening
 
-Projects provide optional broader context. Select an item and assign a project yourself, or leave it unassigned. Link existing chats from the item's details. These links do not change the chats' project assignments, and one chat may provide context for several plan items. Chat activity remains observational; an agent finishing does not mark your work complete.
+Review Slack, reminders, and both sides of yesterday's physical card. Plan a fresh card, photograph it, and use Claude or your preferred transcription tool to produce YAML or Markdown. Paste that text into **Import card**, or upload a `.md`, `.markdown`, `.yaml`, or `.yml` file. The deck does not process photos or call an AI matching service.
 
-**Mark worked on** records attention on that day. **Reschedule** moves the item to another day and removes it from the current day, retaining notes, project context, and linked chats; the current day's worked-on mark is not carried over. Each day's category and worked-on mark remain separate. Removing an item from a day retains its context in **All plan items**, where it can be scheduled again.
+The import review shows a previous saved card's plan and wrap-up beside the proposed new entries. Edit the titles and explicitly choose **New task** or an existing task for each entry. Continuing preserves its notes, tickets, links, and chats; earlier dated titles remain unchanged. Two entries on one card cannot continue the same task. Matching names never automatically connect tasks. **Back to Today** pauses the review, and **Resume card review** restores it after restart. Identical source text is imported only once; edited text requires review again.
 
-## Importing a card
+At the end of the day, use **Mark as done** for work you consider complete on that day. **Wrap up day** shows the saved card with optional Markdown notes on its back. Click notes to edit, then Save or Cancel. Your physical card can remain the source for wrap-up instead.
 
-Photograph your card and have your existing OCR tool transcribe it into the YAML format below. The deck imports YAML, rather than processing photographs itself.
+## Tasks and context
+
+**+ Add task** opens an inline panel. Search at the top shows up to three existing tasks; choose one and its title and category for this card. The separate new-task form below accepts a name, category, optional ticket, and Markdown notes. Searching does not replace that draft.
+
+Select a task to edit its context inline. Hover its name for the rename pencil. Click rendered notes to edit their Markdown source; Save and Cancel appear only while editing. Unfinished notes, new-task forms, ticket/link editors, and card reviews persist as drafts locally.
+
+- **Tickets:** plus links a ticket key or full HTTP/S URL. Click the ticket to open it; hover or focus for edit and ×. Ticket keys use the Jira base URL in Settings.
+- **Tracked links:** includes URLs detected from linked chat responses and your own URLs. Each category has one label beside its links. Click the label to rename it, or choose a new category in the link editor. Hover or focus a link for edit and ×; removed URLs can be restored from **Removed links**.
+- **Linked chats:** plus chooses existing observed chats. Click a chat to expand its most recent observed round inline, including the exact request when the provider supplies one. Requests must be answered in the originating agent UI. **View chat history** opens the repository viewer; **Back to Today** retains your task context. × detaches a chat without deleting it.
+
+Drag cards to reorder or change category. With a card focused, Alt+Up/Down reorders and Alt+Left/Right changes category. **Move to another day** moves that placement and offers next, three, or five business days (Monday–Friday), plus any calendar date. It retains the task context and daily annotation, and resets that placement's done mark. To keep an earlier placement and add a later one, use **+ Add task** and continue the existing task.
+
+Removing a task from one day leaves its other days intact. Removing its final card asks for confirmation and removes its saved task context; linked chats and external tickets/URLs remain untouched. **Undo** restores the last planning change, including final removal, until another planning change replaces it. It never rewinds provider observations.
+
+## Card formats
 
 ```yaml
-date: 2026-10-09
-
+date: 2026-10-12
 coding:
-  - name: Installer signing
+  - name: Card import improvements
     tickets:
-      - key: DECK-101
+      - key: DECK-42
         status: backlog
-        note: Support for the new installer
-  - name: Test the staging lab
-    note: No ticket yet
-    related: [DECK-102, DECK-103]
-
+        note: Review validation
+    note: Check explicit task connections
 agentic:
-  - Research deployment options
-
+  - Review agent workflows
 other:
-  - name: Update runbook
-    note: Draft pending
-    related: [CHG-201]
   - Ask team about deployment
 ```
 
-A card has one `date` and any of the `coding`, `agentic`, and `other` lists (case-insensitive, and empty lists are allowed). An item is either a plain name or a mapping with these fields:
+A YAML card has one `date` and any of the `coding`, `agentic`, and `other` lists (case-insensitive). Each item is a name or a mapping containing `name` (up to 200 characters), `tickets` (keys or mappings with `key`, `status`, `note`), and `note` (up to 2,000 characters). Legacy `related` ticket arrays are accepted and placed in the task's Tickets section. Unknown fields and YAML aliases are rejected. Cards are limited to 200 tasks and 100,000 characters. Fenced YAML is accepted.
 
-| Field | Meaning |
-| --- | --- |
-| `name` | Required; up to 200 characters. |
-| `tickets` | The item's own Jira tickets. Each is a key (`DECK-101`) or a mapping of `key`, optional `status`, and optional `note` for that ticket. |
-| `related` | Adjacent tickets in the same shape, kept apart from `tickets`. |
-| `note` | An annotation about the item as a whole. |
+Markdown uses a date heading, category headings, and task bullets. Indented lines annotate the preceding task:
 
-Unknown fields and sections are errors instead of being ignored, so a typo is reported at review time. An item with no ticket simply omits `tickets`. YAML aliases are not supported. See [the sample card](examples/daily-card.yaml).
+```markdown
+# 2026-10-12
 
-Select **Import card** to choose a YAML file or paste a transcription. Alternatively, save `.yaml` or `.yml` files into the folder shown in **Plan inbox**; the deck checks this folder while running. It is separate from the provider event inbox.
+## Coding
+- Card import improvements
+  Check explicit task connections.
 
-Review the wording before importing. For each entry, explicitly choose an existing item to continue its notes and chats, or create a new item. Matching names never automatically create relationships. A newly created item starts with no project or chat links, and its notes are seeded with the card's annotation and ticket lists. Continuing an existing item never overwrites its notes. Reimporting an identical card has no effect; an edited card is a new import and needs review again.
+## Other
+- Ask team about deployment
+```
 
-Original transcriptions remain available through **View card**. Inbox files stay on disk after import; you can move them out yourself. The inbox scans the first 50 filenames and displays up to 20 pending files at once. Files are limited to 100,000 bytes; symlinks and nonregular files are rejected. Markdown cards from earlier versions are no longer imported; their stored originals remain viewable.
+A date in YAML frontmatter is also accepted. Original transcriptions remain available on the daily card. A new task's shared notes start with its annotation; continuing adds the new daily annotation without replacing shared notes or existing ticket details.
 
-## Trying it safely
+## Storage and demo
 
-Run `npm run build` followed by `npm run demo`, then select **Today**. Demo plans use separate storage and include human-led review and conversation examples. To plan with your own observed chats, use **Leave demo** and **Today**. Existing databases are backed up before the planning schema migration.
+All planning data stays in the local database. Existing databases are backed up before migration. Existing custom project records and user-owned chat fields are retained, while Today no longer assigns projects and Repositories groups chats by detected repository.
 
-Notes, project links, chat links, day placements, and import sources persist locally. This trial does not send instructions to agents or launch chats.
+Run `npm run build` followed by `npm run demo` to use separate sample storage. Use **Leave demo** to return to your own workspace. There is no planning inbox; paste or upload a transcription directly. Provider event inboxes continue to operate independently.

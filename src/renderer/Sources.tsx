@@ -155,19 +155,39 @@ export default function Sources({
               Send diagnostic event
             </button>
             <p>HTTP test command (reads JSON from stdin):</p>
-            <textarea className="config" aria-label="HTTP test command" readOnly rows={3} value={setup.testCommand} />
+            <textarea
+              className="config"
+              aria-label="HTTP test command"
+              readOnly
+              rows={3}
+              value={setup.testCommand}
+            />
             <p>
-              Test input: <code>{JSON.stringify(source.provider === "cursor"
-                ? { hook_event_name: "beforeSubmitPrompt", conversation_id: `http-diagnostic-${source.id}`, prompt: "Diagnostic chat — HTTP receiver test" }
-                : { hook_event_name: "UserPromptSubmit", session_id: `http-diagnostic-${source.id}`, prompt: "Diagnostic chat — HTTP receiver test" })}</code>.
-              Finish input with Ctrl+D in Bash or Ctrl+Z then Enter in Windows Command Prompt.
+              Test input:{" "}
+              <code>
+                {JSON.stringify(
+                  source.provider === "cursor"
+                    ? {
+                        hook_event_name: "beforeSubmitPrompt",
+                        conversation_id: `http-diagnostic-${source.id}`,
+                        prompt: "Diagnostic chat — HTTP receiver test",
+                      }
+                    : {
+                        hook_event_name: "UserPromptSubmit",
+                        session_id: `http-diagnostic-${source.id}`,
+                        prompt: "Diagnostic chat — HTTP receiver test",
+                      },
+                )}
+              </code>
+              . Finish input with Ctrl+D in Bash or Ctrl+Z then Enter in Windows
+              Command Prompt.
             </p>
             <h3>3. Add repository path aliases</h3>
             <p>
               Use paths exactly as the provider reports them. Add aliases to
-              group Windows and WSL locations into one repository project.
-              These mappings set the default for new chats. Move individual
-              chats using Project in chat details; their choices are preserved.
+              group Windows and WSL locations into one repository. These
+              mappings establish repository context for observed chats. Task
+              links are managed separately in Today.
             </p>
             <form
               className="mapping-form"
@@ -198,21 +218,27 @@ export default function Sources({
                 />
               </label>
               <label>
-                Repository project
+                Repository
                 <select name="project" required>
-                  {snapshot.projects.filter(p => p.kind === "repo").map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
+                  {snapshot.projects
+                    .filter((p) => p.kind === "repo")
+                    .map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
                 </select>
               </label>
-              <button disabled={!snapshot.projects.some(p => p.kind === "repo")}>Add alias</button>
+              <button
+                disabled={!snapshot.projects.some((p) => p.kind === "repo")}
+              >
+                Add alias
+              </button>
             </form>
-            {!snapshot.projects.some(p => p.kind === "repo") && (
+            {!snapshot.projects.some((p) => p.kind === "repo") && (
               <p>
-                Let the first real event discover a repository project, then add
-                other paths for that repository here.
+                Let the first real event discover a repository, then add other
+                paths for that repository here.
               </p>
             )}
             <ul className="mappings">
@@ -241,11 +267,12 @@ export default function Sources({
               </p>
               <p>
                 No PowerShell or Bash collector scripts are generated. Accepted
-                HTTP events are queued locally before processing, limited to
-                256 KiB each, and removed after ingestion. The app must be running
-                to receive events; events sent while it is closed are not captured.
-                Configuration contains a private token for this source. Remove old
-                deck command hooks when replacing them with this configuration.
+                HTTP events are queued locally before processing, limited to 256
+                KiB each, and removed after ingestion. The app must be running
+                to receive events; events sent while it is closed are not
+                captured. Configuration contains a private token for this
+                source. Remove old deck command hooks when replacing them with
+                this configuration.
               </p>
             </details>
           </section>
