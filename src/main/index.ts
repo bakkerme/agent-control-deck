@@ -45,15 +45,23 @@ function updateInputIndicator(force = false): void {
 function initializeInputIndicator(): void {
   if (process.platform === "win32") {
     const lamp = inputLamp();
-    inputIndicator = new InputIndicator(count => {
-      window?.setOverlayIcon(count ? lamp : null, count ? `${count} ${count === 1 ? "chat needs" : "chats need"} input` : "");
+    inputIndicator = new InputIndicator((count) => {
+      window?.setOverlayIcon(
+        count ? lamp : null,
+        count
+          ? `${count} ${count === 1 ? "chat needs" : "chats need"} input`
+          : "",
+      );
     });
   } else if (process.platform === "darwin") {
     // AppKit supplies the actual application icon at its native resolution.
     const original = nativeImage.createFromNamedImage("NSApplicationIcon");
-    if (original.isEmpty()) throw new Error("The application's Dock icon is unavailable");
+    if (original.isEmpty())
+      throw new Error("The application's Dock icon is unavailable");
     const lit = dockIconWithLamp(original);
-    inputIndicator = new InputIndicator(count => app.dock?.setIcon(count ? lit : original));
+    inputIndicator = new InputIndicator((count) =>
+      app.dock?.setIcon(count ? lit : original),
+    );
   }
 }
 const renderer = join(__dirname, "../renderer/index.html");
@@ -96,16 +104,30 @@ function handle(
 }
 function registerIpc(): void {
   handle("deck:load", () => workspace.snapshot());
-  handle("deck:activity", (input) => workspace.store.activity(idSchema.parse(input)));
+  handle("deck:activity", (input) =>
+    workspace.store.activity(idSchema.parse(input)),
+  );
   handle("deck:copy", (input) =>
     clipboard.writeText(z.string().max(100000).parse(input)),
   );
   handle("deck:open-ticket", async (input) => {
-    const url = resolveTicketUrl(workspace.store.chat(idSchema.parse(input)), workspace.store.settings());
+    const url = resolveTicketUrl(
+      workspace.store.chat(idSchema.parse(input)),
+      workspace.store.settings(),
+    );
     if (url) await shell.openExternal(url);
   });
   handle("deck:open-link", async (input) => {
-    await shell.openExternal(ticketUrl.parse(workspace.store.link(idSchema.parse(input)).url));
+    await shell.openExternal(
+      ticketUrl.parse(workspace.store.link(idSchema.parse(input)).url),
+    );
+  });
+  handle("deck:open-plan-link", async (input) => {
+    await shell.openExternal(workspace.planLinkUrl(input));
+  });
+  handle("deck:open-plan-ticket", async (input) => {
+    const url = workspace.planTicketUrl(input);
+    if (url) await shell.openExternal(url);
   });
   handle("deck:command", (input) => workspace.command(input));
 }

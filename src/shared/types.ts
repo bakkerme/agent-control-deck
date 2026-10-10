@@ -1,4 +1,9 @@
-import type { PlanningSnapshot, PlanCategory, PlanItem } from "./planning";
+import type {
+  PlanningSnapshot,
+  PlanCategory,
+  PlanItem,
+  PlanTicket,
+} from "./planning";
 export const states = [
   "running",
   "idle",
@@ -56,6 +61,15 @@ export interface Chat {
   subagents: Subagent[];
   backgroundTasks: BackgroundTask[];
   scheduledChecks: ScheduledCheck[];
+  latestRound?: ChatRound | null;
+}
+export interface ChatRound {
+  prompt: string;
+  response: string;
+  request: string;
+  requestKind: "approval" | "question" | "unavailable" | null;
+  observedAt: string;
+  truncated: boolean;
 }
 export interface BackgroundObservation {
   id: string;
@@ -124,15 +138,72 @@ export interface Snapshot {
   setups: Record<string, Setup>;
 }
 export type Command =
-  | { type: "createPlanItem"; day: string; category: PlanCategory; name: string }
-  | { type: "updatePlanItem"; id: string; patch: Partial<Pick<PlanItem, "name" | "notes" | "projectId">> }
+  | {
+      type: "createPlanItem";
+      day: string;
+      category: PlanCategory;
+      name: string;
+      notes?: string;
+      tickets?: PlanTicket[];
+    }
+  | {
+      type: "updatePlanItem";
+      id: string;
+      patch: Partial<
+        Pick<
+          PlanItem,
+          | "name"
+          | "notes"
+          | "projectId"
+          | "tickets"
+          | "links"
+          | "hiddenLinks"
+          | "categoryOverrides"
+        >
+      >;
+    }
+  | {
+      type: "updatePlanEntry";
+      id: string;
+      day: string;
+      name?: string;
+      category?: PlanCategory;
+    }
+  | {
+      type: "reorderPlanEntry";
+      id: string;
+      day: string;
+      category: PlanCategory;
+      beforeId: string | null;
+    }
+  | { type: "setDayWrapup"; day: string; notes: string }
+  | { type: "savePlanDraft"; key: string; value: string | null }
+  | { type: "undoPlanning"; undoId: string }
   | { type: "setPlanChats"; id: string; chatIds: string[] }
-  | { type: "schedulePlanItem"; id: string; day: string; category: PlanCategory }
-  | { type: "reschedulePlanItem"; id: string; fromDay: string; day: string; category: PlanCategory }
-  | { type: "removePlanEntry"; id: string; day: string }
+  | {
+      type: "schedulePlanItem";
+      id: string;
+      day: string;
+      category: PlanCategory;
+      name?: string;
+    }
+  | {
+      type: "reschedulePlanItem";
+      id: string;
+      fromDay: string;
+      day: string;
+      category: PlanCategory;
+    }
+  | { type: "removePlanEntry"; id: string; day: string; confirmLast?: boolean }
   | { type: "deletePlanItem"; id: string }
   | { type: "setPlanWorkedOn"; id: string; day: string; workedOn: boolean }
-  | { type: "importDailyPlan"; card: string; sourceName: string; itemIds: (string | null)[] }
+  | {
+      type: "importDailyPlan";
+      card: string;
+      sourceName: string;
+      itemIds: (string | null)[];
+      names?: string[];
+    }
   | { type: "updateSettings"; jiraBaseUrl?: string; linkRules?: LinkRule[] }
   | { type: "createProject"; name: string; chatId?: string }
   | { type: "renameProject"; id: string; name: string }
@@ -174,6 +245,8 @@ export interface DeckApi {
   copy(text: string): Promise<void>;
   openTicket(chatId: string): Promise<void>;
   openLink(linkId: string): Promise<void>;
+  openPlanLink(itemId: string, url: string): Promise<void>;
+  openPlanTicket(itemId: string, key: string): Promise<void>;
   onChanged(callback: () => void): () => void;
 }
 declare global {

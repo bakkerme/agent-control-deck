@@ -61,7 +61,7 @@ Command hooks finish quietly and successfully when the deck is unavailable, with
 
 ## Daily planning
 
-**Today** provides a daily card with Coding, Agentic, and Other sections. Other covers work mostly done by you, such as reviews and conversations. Add broad plan items, optionally connect projects and existing chats, record days worked on, and carry context forward. Import transcribed YAML cards through **Import card** or the separate **Plan inbox**, with review before saving. See [daily planning](docs/daily-planning.md) for the card format and demo instructions.
+**Today** is the main workspace: plan a dated card with Coding, Agentic, and Other sections, create or continue tasks, and keep their notes, tickets, links, and observed chats together. Open linked chats inline to see the latest question, approval request, prompt, and response. Import a pasted YAML/Markdown transcription or upload a file, review it beside the previous card, and save an optional evening wrap-up. **Repositories** provides observed chat history grouped by detected repository. See [daily planning](docs/daily-planning.md) for the workflow and card format.
 
 ## Local storage
 

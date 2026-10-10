@@ -1,4 +1,9 @@
-import type { Source, State, BackgroundTask, ScheduledCheck } from "../shared/types";
+import type {
+  Source,
+  State,
+  BackgroundTask,
+  ScheduledCheck,
+} from "../shared/types";
 import { codexPrompt, promptTitle } from "../shared/presentation";
 import { hookEvents } from "./setup";
 import { detectLinks } from "../shared/links";
@@ -17,6 +22,13 @@ export interface Observation {
   links?: ReturnType<typeof detectLinks>;
   backgroundTasks?: Omit<BackgroundTask, "state" | "lastEventAt">[];
   scheduledChecks?: Omit<ScheduledCheck, "state" | "lastEventAt">[];
+  round?: {
+    prompt?: string;
+    response?: string;
+    request?: string;
+    requestKind?: "approval" | "question";
+    truncated?: boolean;
+  };
 }
 const text = (p: Record<string, unknown>, key: string): string =>
   typeof p[key] === "string" ? (p[key] as string) : "";
@@ -36,13 +48,18 @@ export function normalize(
   const externalId =
     source.provider !== "cursor"
       ? text(payload, "session_id")
-      : (subagentEvent ? text(payload, "parent_conversation_id") : "") || text(payload, "conversation_id") || text(payload, "session_id");
+      : (subagentEvent ? text(payload, "parent_conversation_id") : "") ||
+        text(payload, "conversation_id") ||
+        text(payload, "session_id");
   const roots = payload.workspace_roots;
   const workspace =
     text(payload, "cwd") ||
     (Array.isArray(roots) && typeof roots[0] === "string" ? roots[0] : "") ||
     null;
-  const known = [...hookEvents(source.provider), source.provider === "cursor" ? "sessionStart" : "SessionStart"];
+  const known = [
+    ...hookEvents(source.provider),
+    source.provider === "cursor" ? "sessionStart" : "SessionStart",
+  ];
   if (!known.includes(event)) return null;
   if (!externalId || externalId.length > 2000)
     throw new Error("Event is missing a valid conversation/session ID");
@@ -52,58 +69,125 @@ export function normalize(
     kind: event,
     summary: event,
   };
-  if (source.provider === "claude" && (event === "Stop" || event === "SubagentStop") && payload.background_tasks !== undefined) {
-    if (!Array.isArray(payload.background_tasks) || payload.background_tasks.length > 1000)
+  if (
+    source.provider === "claude" &&
+    (event === "Stop" || event === "SubagentStop") &&
+    payload.background_tasks !== undefined
+  ) {
+    if (
+      !Array.isArray(payload.background_tasks) ||
+      payload.background_tasks.length > 1000
+    )
       throw new Error("Invalid background task snapshot");
     result.backgroundSubagents = [];
     result.backgroundTasks = [];
     const ids = new Set<string>();
     for (const task of payload.background_tasks) {
-      if (!task || typeof task !== "object" || Array.isArray(task)) throw new Error("Invalid background task");
+      if (!task || typeof task !== "object" || Array.isArray(task))
+        throw new Error("Invalid background task");
       const fields = task as Record<string, unknown>;
       const id = text(fields, "id");
       const type = text(fields, "type");
-      if (!id || id.length > 2000 || !type || type.length > 200) throw new Error("Background task is missing a valid ID or type");
+      if (!id || id.length > 2000 || !type || type.length > 200)
+        throw new Error("Background task is missing a valid ID or type");
       if (ids.has(id)) throw new Error("Duplicate background task ID");
       ids.add(id);
-      if (type === "subagent") result.backgroundSubagents.push({ id, type: preview(text(fields, "agent_type")).slice(0, 200) });
-      else result.backgroundTasks.push({ id, type, status: text(fields, "status").slice(0, 200), description: text(fields, "description").slice(0, 1000) });
+      if (type === "subagent")
+        result.backgroundSubagents.push({
+          id,
+          type: preview(text(fields, "agent_type")).slice(0, 200),
+        });
+      else
+        result.backgroundTasks.push({
+          id,
+          type,
+          status: text(fields, "status").slice(0, 200),
+          description: text(fields, "description").slice(0, 1000),
+        });
     }
   }
-  if (source.provider === "claude" && (event === "Stop" || event === "SubagentStop") && payload.session_crons !== undefined) {
-    if (!Array.isArray(payload.session_crons) || payload.session_crons.length > 1000) throw new Error("Invalid scheduled check snapshot");
+  if (
+    source.provider === "claude" &&
+    (event === "Stop" || event === "SubagentStop") &&
+    payload.session_crons !== undefined
+  ) {
+    if (
+      !Array.isArray(payload.session_crons) ||
+      payload.session_crons.length > 1000
+    )
+      throw new Error("Invalid scheduled check snapshot");
     const ids = new Set<string>();
-    result.scheduledChecks = payload.session_crons.map(value => {
-      if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid scheduled check");
+    result.scheduledChecks = payload.session_crons.map((value) => {
+      if (!value || typeof value !== "object" || Array.isArray(value))
+        throw new Error("Invalid scheduled check");
       const fields = value as Record<string, unknown>;
-      const id = text(fields, "id"), schedule = text(fields, "schedule");
-      if (!id || id.length > 2000 || !schedule || schedule.length > 200 || typeof fields.recurring !== "boolean") throw new Error("Scheduled check is missing a valid ID, schedule or recurrence");
+      const id = text(fields, "id"),
+        schedule = text(fields, "schedule");
+      if (
+        !id ||
+        id.length > 2000 ||
+        !schedule ||
+        schedule.length > 200 ||
+        typeof fields.recurring !== "boolean"
+      )
+        throw new Error(
+          "Scheduled check is missing a valid ID, schedule or recurrence",
+        );
       if (ids.has(id)) throw new Error("Duplicate scheduled check ID");
       ids.add(id);
-      return { id, schedule, recurring: fields.recurring, prompt: text(fields, "prompt").slice(0, 1000) };
+      return {
+        id,
+        schedule,
+        recurring: fields.recurring,
+        prompt: text(fields, "prompt").slice(0, 1000),
+      };
     });
   }
   if (subagentEvent) {
-    const id = text(payload, source.provider === "cursor" ? "subagent_id" : "agent_id");
+    const id = text(
+      payload,
+      source.provider === "cursor" ? "subagent_id" : "agent_id",
+    );
     const running = event.endsWith("Start");
-    if (id.length > 2000 || (running && !id)) throw new Error("Subagent is missing a valid ID");
-    const type = preview(text(payload, source.provider === "cursor" ? "subagent_type" : "agent_type")).slice(0, 200);
+    if (id.length > 2000 || (running && !id))
+      throw new Error("Subagent is missing a valid ID");
+    const type = preview(
+      text(
+        payload,
+        source.provider === "cursor" ? "subagent_type" : "agent_type",
+      ),
+    ).slice(0, 200);
     return {
       ...result,
       subagent: { id: id || null, type, running },
-      links: running ? undefined : detectLinks(text(payload, "last_assistant_message")),
-      summary: running ? `Subagent started${type ? `: ${type}` : ""}`
+      links: running
+        ? undefined
+        : detectLinks(text(payload, "last_assistant_message")),
+      summary: running
+        ? `Subagent started${type ? `: ${type}` : ""}`
         : `Subagent finished responding${type ? `: ${type}` : ""}${!id ? " — identity unavailable" : ""}`,
     };
   }
-  if (source.provider !== "cursor" && event === "SessionStart" && text(payload, "source") === "compact") {
+  if (
+    source.provider !== "cursor" &&
+    event === "SessionStart" &&
+    text(payload, "source") === "compact"
+  ) {
     // Compaction can occur mid-turn; it is not evidence that work stopped.
-    return { ...result, lifecycle: "open", summary: "Session context compacted" };
+    return {
+      ...result,
+      lifecycle: "open",
+      summary: "Session context compacted",
+    };
   }
   if (event === "Interrupt") {
     return { ...result, state: "idle", summary: "Turn interrupted" };
   }
-  if (event === "PostToolUse" || event === "PostToolUseFailure" || event === "ElicitationResult") {
+  if (
+    event === "PostToolUse" ||
+    event === "PostToolUseFailure" ||
+    event === "ElicitationResult"
+  ) {
     // Answers and permission decisions resume the current turn without a new
     // UserPromptSubmit. A tool failure also returns control to Claude; only
     // StopFailure is evidence that the whole turn failed.
@@ -112,11 +196,12 @@ export function normalize(
     return {
       ...result,
       state: "running",
-      summary: event === "ElicitationResult"
-        ? "Input received — work resumed"
-        : event === "PostToolUseFailure"
-          ? "Tool returned an error — turn continuing"
-          : "Tool completed — turn continuing",
+      summary:
+        event === "ElicitationResult"
+          ? "Input received — work resumed"
+          : event === "PostToolUseFailure"
+            ? "Tool returned an error — turn continuing"
+            : "Tool completed — turn continuing",
     };
   }
   if (event === "SessionStart" || event === "sessionStart") {
@@ -131,7 +216,11 @@ export function normalize(
     const rawPrompt = text(payload, "prompt");
     const codex = source.provider === "codex";
     const displayPrompt = codex ? codexPrompt(rawPrompt) : null;
-    const prompt = preview(displayPrompt ? displayPrompt.content || displayPrompt.attachment : rawPrompt);
+    const prompt = preview(
+      displayPrompt
+        ? displayPrompt.content || displayPrompt.attachment
+        : rawPrompt,
+    );
     return {
       ...result,
       state: "running",
@@ -139,6 +228,17 @@ export function normalize(
       preview: prompt || undefined,
       title: promptTitle(rawPrompt, codex) || undefined,
       summary: prompt ? `Prompt: ${prompt}`.slice(0, 500) : "Prompt submitted",
+      round: {
+        prompt: (displayPrompt
+          ? displayPrompt.content || displayPrompt.attachment
+          : rawPrompt
+        ).slice(0, 30000),
+        truncated:
+          (displayPrompt
+            ? displayPrompt.content || displayPrompt.attachment
+            : rawPrompt
+          ).length > 30000,
+      },
     };
   }
   if (event === "afterAgentResponse") {
@@ -148,6 +248,10 @@ export function normalize(
       preview: response || undefined,
       summary: response || "Assistant responded",
       links: detectLinks(text(payload, "text")),
+      round: {
+        response: text(payload, "text").slice(0, 30000),
+        truncated: text(payload, "text").length > 30000,
+      },
     };
   }
   if (event === "Stop" || event === "stop") {
@@ -158,6 +262,10 @@ export function normalize(
       state: failed ? "error" : "idle",
       preview: response || undefined,
       links: detectLinks(text(payload, "last_assistant_message")),
+      round: {
+        response: text(payload, "last_assistant_message").slice(0, 30000),
+        truncated: text(payload, "last_assistant_message").length > 30000,
+      },
       summary: failed
         ? "Turn failed"
         : text(payload, "status") === "aborted"
@@ -187,6 +295,11 @@ export function normalize(
         ...result,
         state: "waiting",
         summary: preview(text(payload, "message")) || "Needs your attention",
+        round: {
+          request: text(payload, "message").slice(0, 30000),
+          requestKind: type === "permission_prompt" ? "approval" : "question",
+          truncated: text(payload, "message").length > 30000,
+        },
       };
     if (type === "idle_prompt")
       return {

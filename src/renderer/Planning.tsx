@@ -1,1209 +1,2093 @@
 import {
   forwardRef,
+  useCallback,
   useEffect,
   useImperativeHandle,
   useRef,
   useState,
 } from "react";
-import type { Command, Snapshot } from "../shared/types";
+import type { Command, Snapshot, Chat } from "../shared/types";
 import {
   categoryDescription,
   localPlanDay,
   nextPlanDay,
+  nextBusinessDay,
   parseDailyPlan,
   planCategories,
+  validPlanDay,
   type PlanCategory,
-  type PlanInboxFile,
-  type PlanItem,
+  type PlanEntry,
 } from "../shared/planning";
+import { parseTicket } from "../shared/tickets";
+import { attentionReason } from "../shared/status";
 import {
   displayName,
-  displayPreview,
-  age,
+  providerLabel,
   message,
-  Modal,
+  age,
   Status,
+  Modal,
 } from "./components";
-import { effectiveState } from "../shared/status";
 import MarkdownPreview from "./MarkdownPreview";
+import Icon from "./Icon";
+import { TaskTickets, TaskLinks, LatestRound } from "./TaskContext";
 export interface PlanningHandle {
-  flush(): Promise<boolean>;
+  flush: () => Promise<boolean>;
+  selectTask: (id: string) => void;
 }
 const dayLabel = (day: string) =>
-  new Date(day + "T12:00:00").toLocaleDateString(undefined, {
+  new Date(day + "T12:00:00Z").toLocaleDateString(undefined, {
     weekday: "short",
     day: "numeric",
     month: "short",
+    timeZone: "UTC",
   });
-const example = (day: string) =>
-  `date: ${day}\ncoding:\n  - Agent Control Deck\nagentic:\n  - Research workflows\nother:\n  - name: Review design document\n    tickets:\n      - key: DECK-42\n        status: backlog\n    note: Focus on the rollout section\n  - Ask about deployment\n`;
-export default forwardRef<
+const newTask = () => ({
+  name: "",
+  category: "Coding" as PlanCategory,
+  ticket: "",
+  notes: "",
+  query: "",
+  picked: "",
+  continueName: "",
+  continueCategory: "Coding" as PlanCategory,
+});
+interface ReviewDraft {
+  card: string;
+  sourceName: string;
+  reviewing: boolean;
+  names: string[];
+  itemIds: (string | null)[];
+  reference: string;
+}
+const newReview = (): ReviewDraft => ({
+  card: "",
+  sourceName: "Pasted card",
+  reviewing: false,
+  names: [],
+  itemIds: [],
+  reference: "",
+});
+function readDraft<T>(value: string | undefined, fallback: T): T {
+  try {
+    return value ? { ...fallback, ...JSON.parse(value) } : fallback;
+  } catch {
+    return fallback;
+  }
+}
+const Planning = forwardRef<
   PlanningHandle,
   {
     snapshot: Snapshot;
-    mutate: (command: Command) => Promise<void>;
-    report: (error: string) => void;
-    allChats: () => void;
+    mutate: (c: Command) => Promise<void>;
     openChat: (id: string) => void;
-    createProject: () => void;
+    configureJira: () => void;
   }
->(function Planning(
-  { snapshot, mutate, report, allChats, openChat, createProject },
-  ref,
-) {
+>(function Planning({ snapshot, mutate, openChat, configureJira }, ref) {
   const { planning } = snapshot;
-  const [day, setDay] = useState(localPlanDay);
-  const [project, setProject] = useState("day");
-  const [selected, setSelected] = useState("");
-  const [notice, setNotice] = useState("");
-  const [modal, setModal] = useState<
-    | "add"
-    | "link"
-    | "import"
-    | "original"
-    | "inbox"
-    | "schedule"
-    | "reschedule"
-    | null
-  >(null);
-  const [modalError, setModalError] = useState("");
-  const [category, setCategory] = useState<PlanCategory>("Coding");
-  const [name, setName] = useState("");
-  const [note, setNote] = useState("");
-  const [noteEditing, setNoteEditing] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const [chatIds, setChatIds] = useState<string[]>([]);
-  const [chatQuery, setChatQuery] = useState("");
-  const needle = chatQuery.trim().toLowerCase();
-  const lastSeen = (c: Snapshot["chats"][number]) =>
-    Date.parse(c.lastEventAt ?? c.createdAt);
-  const linkableChats = [...snapshot.chats]
-    .sort((a, b) => lastSeen(b) - lastSeen(a))
-    .filter(
-      (c) =>
-        !needle ||
-        [displayName(c), c.providerTitle, c.provider, c.preview, c.jiraKey]
-          .join("\n")
-          .toLowerCase()
-          .includes(needle),
-    );
-  const [card, setCard] = useState({
-    name: "Pasted card",
-    text: example(localPlanDay()),
-  });
-  const [review, setReview] = useState<ReturnType<
-    typeof parseDailyPlan
-  > | null>(null);
-  const [connections, setConnections] = useState<(string | null)[]>([]);
-  const [targetDay, setTargetDay] = useState(nextPlanDay(localPlanDay()));
-  const dirty = useRef(false),
-    notesRef = useRef<HTMLTextAreaElement>(null);
-  const item = planning.items.find((i) => i.id === selected);
-  const [renaming, setRenaming] = useState(false);
-  const [nameDraft, setNameDraft] = useState("");
-  useEffect(() => {
-    setConfirmDelete(false);
-    setRenaming(false);
-  }, [item?.id]);
-  const itemRef = useRef(item);
-  itemRef.current = item;
-  const noteRef = useRef(note);
-  noteRef.current = note;
-  const flight = useRef<Promise<boolean> | null>(null);
-  const flush = (): Promise<boolean> => {
-    if (flight.current) return flight.current;
-    const promise = (async () => {
-      while (dirty.current && itemRef.current) {
-        const current = itemRef.current,
-          value = noteRef.current;
+  const scope = snapshot.demo ? "demo" : "live";
+  const initialDay = localStorage.getItem(`planning-day-${scope}`);
+  const [day, setDay] = useState(
+    initialDay && validPlanDay(initialDay) ? initialDay : localPlanDay(),
+  );
+  const [view, setView] = useState<"day" | "all" | "attention">("day"),
+    [selected, setSelected] = useState(""),
+    [search, setSearch] = useState("");
+  const [panel, setPanel] = useState<"task" | "create" | "import" | "card">(
+    "task",
+  );
+  const [creator, setCreator] = useState(() =>
+    readDraft(planning.drafts["task-create"], newTask()),
+  );
+  const [reviewDraft, setReviewDraft] = useState(() =>
+    readDraft(planning.drafts["card-review"], newReview()),
+  );
+  const [notesEdit, setNotesEdit] = useState(false),
+    [notesText, setNotesText] = useState("");
+  const [wrapEdit, setWrapEdit] = useState(false),
+    [wrapText, setWrapText] = useState("");
+  const [rename, setRename] = useState<string | null>(null),
+    [expanded, setExpanded] = useState<string | null>(null);
+  const [notice, setNotice] = useState(""),
+    [error, setError] = useState(""),
+    [busy, setBusy] = useState(false);
+  const [modal, setModal] = useState<"move" | "chats" | "last-day" | null>(
+      null,
+    ),
+    [removeDay, setRemoveDay] = useState(""),
+    [targetDay, setTargetDay] = useState(nextBusinessDay(day)),
+    [targetCategory, setTargetCategory] = useState<PlanCategory>("Coding");
+  const [chatChoices, setChatChoices] = useState<string[]>([]),
+    [chatSearch, setChatSearch] = useState("");
+  const [attentionChat, setAttentionChat] = useState("");
+  const [discardReview, setDiscardReview] = useState(false);
+  const [dragging, setDragging] = useState<string | null>(null),
+    [dropTarget, setDropTarget] = useState<{
+      category: PlanCategory;
+      beforeId: string | null;
+    } | null>(null);
+  const panelRef = useRef<HTMLElement>(null),
+    lock = useRef(false),
+    draftQueue = useRef(new Map<string, string | null>()),
+    draftFlight = useRef<Promise<boolean> | null>(null),
+    draftTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined),
+    createdBefore = useRef<Set<string> | null>(null);
+  const flush = useCallback((): Promise<boolean> => {
+    clearTimeout(draftTimer.current);
+    if (draftFlight.current) return draftFlight.current;
+    const operation = (async () => {
+      while (draftQueue.current.size) {
+        const [key, value] = draftQueue.current.entries().next().value!;
+        draftQueue.current.delete(key);
         try {
-          await mutate({
-            type: "updatePlanItem",
-            id: current.id,
-            patch: { notes: value },
-          });
-          if (noteRef.current === value) {
-            dirty.current = false;
-            setNotice("Saved");
-          }
+          await mutate({ type: "savePlanDraft", key, value });
         } catch (e) {
-          report(message(e));
+          if (!draftQueue.current.has(key)) draftQueue.current.set(key, value);
+          setError(message(e));
           return false;
         }
       }
       return true;
-    })();
-    flight.current = promise;
-    void promise.finally(() => {
-      if (flight.current === promise) flight.current = null;
+    })().finally(() => {
+      if (draftFlight.current === operation) draftFlight.current = null;
     });
-    return promise;
+    draftFlight.current = operation;
+    return operation;
+  }, [mutate]);
+  const draft = (key: string, value: string | null) => {
+    draftQueue.current.set(key, value);
+    clearTimeout(draftTimer.current);
+    draftTimer.current = setTimeout(() => void flush(), 300);
   };
-  useImperativeHandle(ref, () => ({ flush }));
+  useImperativeHandle(
+    ref,
+    () => ({
+      flush,
+      selectTask: (id: string) => {
+        setSelected(id);
+        setView("all");
+        setSearch("");
+        setPanel("task");
+        setNotesEdit(false);
+        setRename(null);
+        setExpanded(null);
+      },
+    }),
+    [flush],
+  );
   useEffect(() => {
-    const before = (e: BeforeUnloadEvent) => {
-      if (dirty.current) {
-        e.preventDefault();
-        e.returnValue = "";
+    const guard = (event: BeforeUnloadEvent) => {
+      if (draftQueue.current.size || draftFlight.current) {
+        event.preventDefault();
+        event.returnValue = "";
+        void flush();
       }
     };
-    window.addEventListener("beforeunload", before);
-    return () => window.removeEventListener("beforeunload", before);
-  }, []);
+    window.addEventListener("beforeunload", guard);
+    return () => {
+      clearTimeout(draftTimer.current);
+      window.removeEventListener("beforeunload", guard);
+    };
+  }, [flush]);
   useEffect(() => {
-    if (!noteEditing && !dirty.current) setNote(item?.notes ?? "");
-  }, [item?.id, item?.notes, noteEditing]);
-  // Worked-on items sink to the bottom of their category; the sort is stable.
-  const todayEntries = planning.entries
-    .filter((e) => e.day === day)
-    .sort((a, b) => Number(a.workedOn) - Number(b.workedOn));
-  const visible =
-    project === "day"
-      ? todayEntries
-          .map((e) => planning.items.find((i) => i.id === e.itemId)!)
-          .filter(Boolean)
-      : planning.items.filter(
-          (i) =>
-            project === "all" ||
-            (project === "unassigned" ? !i.projectId : i.projectId === project),
-        );
+    localStorage.setItem(`planning-day-${scope}`, day);
+  }, [day, scope]);
   useEffect(() => {
-    if (!selected && visible.length) setSelected(visible[0].id);
-  }, [selected, visible.map((i) => i.id).join("|")]);
-  async function navigate(action: () => void) {
-    if (await flush()) {
-      setNoteEditing(false);
-      action();
+    if (createdBefore.current) {
+      const item = planning.items.find(
+        (i) => !createdBefore.current!.has(i.id),
+      );
+      if (item) {
+        setSelected(item.id);
+        createdBefore.current = null;
+      }
     }
-  }
-  async function run(command: Command, success = "Saved") {
-    if (busy) return false;
+  }, [planning.items]);
+  const run = async (command: Command, text = "Saved"): Promise<boolean> => {
+    if (lock.current) return false;
+    lock.current = true;
     setBusy(true);
+    setError("");
     try {
       if (!(await flush())) return false;
       await mutate(command);
-      setNotice(success);
+      setNotice(text);
       return true;
     } catch (e) {
-      report(message(e));
+      setError(message(e));
       return false;
     } finally {
+      lock.current = false;
       setBusy(false);
     }
-  }
-  function show(kind: typeof modal) {
-    setModalError("");
-    setModal(kind);
-  }
-  function selectItem(i: PlanItem) {
-    void navigate(() => {
-      setSelected(i.id);
-      setNote(i.notes);
-    });
-  }
-  function loadCard(file: PlanInboxFile) {
-    setCard({ name: file.name, text: file.card });
-    setReview(null);
-    setConnections([]);
-    show("import");
-    if (file.error) setModalError(file.error);
-  }
-  const entry = todayEntries.find((e) => e.itemId === item?.id);
-  const days = [
+  };
+  const allEntries = planning.entries
+    .filter((e) => e.day === day)
+    .sort((a, b) => a.position - b.position);
+  const current =
+    planning.items.find((i) => i.id === selected) ||
+    planning.items.find((i) => i.id === allEntries[0]?.itemId) ||
+    (view === "all" ? planning.items[0] : undefined);
+  const entry = current && allEntries.find((e) => e.itemId === current.id);
+  useEffect(() => {
+    panelRef.current?.scrollTo(0, 0);
+  }, [panel, current?.id, view, attentionChat, day]);
+  const nameOf = (id: string) =>
+    (view !== "all" && allEntries.find((e) => e.itemId === id)?.name) ||
+    planning.items.find((i) => i.id === id)?.name ||
+    "Task";
+  const shown = (
+    view === "all"
+      ? planning.items
+      : allEntries.map((e) => planning.items.find((i) => i.id === e.itemId)!)
+  ).filter(
+    (i) =>
+      i &&
+      `${nameOf(i.id)} ${i.notes} ${i.tickets.map((t) => t.key + " " + t.note).join(" ")} ${planning.entries
+        .filter((e) => e.itemId === i.id)
+        .map((e) => e.name)
+        .join(" ")}`
+        .toLowerCase()
+        .includes(search.toLowerCase()),
+  );
+  const attention = snapshot.chats.filter(
+    (c) => !c.archived && attentionReason(c),
+  );
+  const changeDay = async (value: string) => {
+    if (!validPlanDay(value) || !(await flush())) return;
+    setDay(value);
+    setView("day");
+    setSelected("");
+    setPanel("task");
+    setNotesEdit(false);
+    setRename(null);
+    setWrapEdit(false);
+    setExpanded(null);
+  };
+  const selectTask = async (id: string) => {
+    if (!(await flush())) return;
+    setSelected(id);
+    setPanel("task");
+    setNotesEdit(false);
+    setRename(null);
+    setExpanded(null);
+  };
+  const showPanel = async (next: typeof panel) => {
+    if (!(await flush())) return;
+    setPanel(next);
+    setNotesEdit(false);
+    setRename(null);
+    setError("");
+    panelRef.current?.scrollTo(0, 0);
+  };
+  const updateCreator = (patch: Partial<typeof creator>) => {
+    const next = { ...creator, ...patch };
+    setCreator(next);
+    draft("task-create", JSON.stringify(next));
+  };
+  const updateReview = (patch: Partial<ReviewDraft>) => {
+    const next = { ...reviewDraft, ...patch };
+    setReviewDraft(next);
+    draft("card-review", JSON.stringify(next));
+  };
+  const cardReview = (() => {
+    try {
+      return reviewDraft.reviewing ? parseDailyPlan(reviewDraft.card) : null;
+    } catch {
+      return null;
+    }
+  })();
+  const previousDays = [
     ...new Set(
       planning.entries
         .map((e) => e.day)
-        .concat(planning.imports.map((i) => i.day)),
+        .concat(
+          Object.keys(planning.wrapups),
+          planning.imports.map((i) => i.day),
+        ),
     ),
   ]
+    .filter((d) => d < (cardReview?.day || day))
     .sort()
     .reverse();
-  const row = (i: PlanItem) => {
-    const current = todayEntries.find((e) => e.itemId === i.id),
-      linked = snapshot.chats.filter((c) => i.chatIds.includes(c.id)),
-      waiting = linked.filter(
+  const reference = previousDays.includes(reviewDraft.reference)
+    ? reviewDraft.reference
+    : previousDays[0];
+  const requestLabel = (c: Chat) =>
+    c.state === "waiting"
+      ? c.latestRound?.requestKind === "approval"
+        ? "Approval needed"
+        : c.latestRound?.requestKind === "question"
+          ? "Question"
+          : "Needs input"
+      : attentionReason(c) || "";
+  const taskRow = (id: string) => {
+    const item = planning.items.find((i) => i.id === id)!,
+      e = allEntries.find((e) => e.itemId === id),
+      waiting = snapshot.chats.filter(
         (c) =>
-          !c.archived &&
-          c.lifecycle === "open" &&
-          ["waiting", "error"].includes(effectiveState(c)),
-      ).length,
-      running = linked.filter(
-        (c) =>
-          !c.archived &&
-          c.lifecycle === "open" &&
-          effectiveState(c) === "running",
-      ).length;
+          item.chatIds.includes(c.id) && c.state === "waiting" && !c.archived,
+      );
     return (
       <button
-        key={i.id}
-        className={`plan-row ${selected === i.id ? "selected" : ""} ${waiting ? "plan-attention" : ""}`}
-        aria-label={`Select plan item ${i.name}`}
-        onClick={() => selectItem(i)}
+        key={id}
+        type="button"
+        data-task-card={id}
+        className={`plan-row ${current?.id === id ? "selected" : ""} ${waiting.length ? "plan-attention" : ""} ${dragging === id ? "dragging" : ""} ${dropTarget?.beforeId === id ? "drop-before" : ""}`}
+        aria-label={`Select task ${nameOf(id)}`}
+        aria-pressed={current?.id === id}
+        aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown Alt+ArrowLeft Alt+ArrowRight"
+        title={
+          view === "day"
+            ? "Drag to reorder or change category · Alt+arrow keys"
+            : ""
+        }
+        onClick={() => {
+          if (Date.now() < suppressClick.current) return;
+          void selectTask(id);
+        }}
+        onPointerDown={(event) => startDrag(event, id)}
+        onKeyDown={(event) => {
+          if (
+            !event.altKey ||
+            view !== "day" ||
+            !e ||
+            !event.key.startsWith("Arrow")
+          )
+            return;
+          event.preventDefault();
+          const peers = allEntries.filter((row) => row.category === e.category),
+            index = peers.findIndex((row) => row.itemId === id);
+          if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+            const offset = event.key === "ArrowLeft" ? -1 : 1,
+              category =
+                planCategories[planCategories.indexOf(e.category) + offset];
+            if (category)
+              void run(
+                { type: "reorderPlanEntry", id, day, category, beforeId: null },
+                "Card moved",
+              );
+          } else {
+            const offset = event.key === "ArrowUp" ? -1 : 1;
+            if (index + offset < 0 || index + offset >= peers.length) return;
+            void run(
+              {
+                type: "reorderPlanEntry",
+                id,
+                day,
+                category: e.category,
+                beforeId:
+                  offset < 0
+                    ? peers[index - 1].itemId
+                    : peers[index + 2]?.itemId || null,
+              },
+              "Card reordered",
+            );
+          }
+        }}
       >
         <span
-          className={`plan-work-mark ${current?.workedOn ? "worked" : ""}`}
-          aria-label={
-            current?.workedOn ? "Worked on this day" : "Not marked worked on"
-          }
+          className={`plan-work-mark ${e?.workedOn ? "worked" : ""}`}
+          aria-hidden="true"
         >
-          {current?.workedOn ? "✓" : ""}
+          {e?.workedOn ? "✓" : ""}
         </span>
         <span>
-          <strong>{i.name}</strong>
+          <strong>{nameOf(id)}</strong>
           <small>
-            {snapshot.projects.find((p) => p.id === i.projectId)?.name ||
-              "Project optional"}
-            {current?.workedOn ? " · Worked on" : ""}
+            {item.tickets.map((t) => t.key).join(" · ") || "No ticket linked"}
+            {item.chatIds.length ? ` · ${item.chatIds.length} chats` : ""}
           </small>
-          <span className="plan-row-chats">
-            {waiting > 0 && (
-              <span className="plan-needs-input">
-                {waiting} need attention ·{" "}
-              </span>
-            )}
-            {running > 0 && <span>{running} running · </span>}
-            {linked.length
-              ? `${linked.length} linked chat${linked.length === 1 ? "" : "s"}`
-              : "No linked chats"}
-          </span>
+          {waiting.length > 0 && (
+            <small className="plan-needs-input">
+              {waiting.map(requestLabel).join(" · ")}
+            </small>
+          )}
         </span>
       </button>
     );
   };
-  return (
-    <main className="board planning-board">
-      <aside className="projects plan-rail">
-        <nav aria-label="Planning navigation">
-          <button
-            className={project === "day" ? "selected" : ""}
-            onClick={() =>
-              void navigate(() => {
-                setProject("day");
-                setDay(localPlanDay());
-                setSelected("");
-              })
+  const drag = useRef<{
+      id: string;
+      x: number;
+      y: number;
+      active: boolean;
+      pointer: number;
+      clientX: number;
+      clientY: number;
+      list: HTMLElement;
+      frame?: number;
+      timer?: ReturnType<typeof setTimeout>;
+      category?: PlanCategory;
+      beforeId?: string | null;
+    } | null>(null),
+    suppressClick = useRef(0);
+  useEffect(
+    () => () => {
+      clearTimeout(drag.current?.timer);
+      if (drag.current?.frame !== undefined)
+        cancelAnimationFrame(drag.current.frame);
+    },
+    [],
+  );
+  function startDrag(event: React.PointerEvent, id: string) {
+    if (view !== "day" || busy || event.button !== 0) return;
+    const list = event.currentTarget.closest<HTMLElement>(".daily-plan");
+    if (!list) return;
+    const value = {
+      id,
+      x: event.clientX,
+      y: event.clientY,
+      active: false,
+      pointer: event.pointerId,
+      clientX: event.clientX,
+      clientY: event.clientY,
+      list,
+      timer: undefined as ReturnType<typeof setTimeout> | undefined,
+    };
+    drag.current = value;
+    if (event.pointerType !== "mouse")
+      value.timer = setTimeout(() => {
+        if (drag.current === value) {
+          value.active = true;
+          setDragging(id);
+        }
+      }, 350);
+  }
+  function pointerMove(event: React.PointerEvent) {
+    const value = drag.current;
+    if (!value || value.pointer !== event.pointerId) return;
+    value.clientX = event.clientX;
+    value.clientY = event.clientY;
+    const distance = Math.hypot(
+      event.clientX - value.x,
+      event.clientY - value.y,
+    );
+    if (!value.active) {
+      if (event.pointerType !== "mouse") {
+        if (distance > 8) {
+          clearTimeout(value.timer);
+          drag.current = null;
+        }
+        return;
+      }
+      if (distance < 6) return;
+      value.active = true;
+      setDragging(value.id);
+    }
+    if (!event.currentTarget.hasPointerCapture(event.pointerId))
+      event.currentTarget.setPointerCapture(event.pointerId);
+    event.preventDefault();
+    updateDragTarget(value);
+    if (value.frame === undefined) scrollDrag(value);
+  }
+  function updateDragTarget(value: NonNullable<typeof drag.current>) {
+    const rect = value.list.getBoundingClientRect();
+    const inside =
+      value.clientX >= rect.left &&
+      value.clientX < rect.right &&
+      value.clientY >= rect.top &&
+      value.clientY < rect.bottom;
+    const target = inside
+        ? document.elementFromPoint(value.clientX, value.clientY)
+        : null,
+      group = target?.closest<HTMLElement>("[data-card-category]");
+    if (!group || !value.list.contains(group)) {
+      value.category = undefined;
+      value.beforeId = undefined;
+      setDropTarget(null);
+      return;
+    }
+    const row = target?.closest<HTMLElement>("[data-task-card]"),
+      category = group.dataset.cardCategory as PlanCategory;
+    let beforeId = row?.dataset.taskCard || null;
+    if (
+      row &&
+      value.clientY >
+        row.getBoundingClientRect().top + row.getBoundingClientRect().height / 2
+    ) {
+      const peers = allEntries.filter((e) => e.category === category),
+        index = peers.findIndex((e) => e.itemId === beforeId);
+      beforeId = peers[index + 1]?.itemId || null;
+    }
+    value.category = category;
+    value.beforeId = beforeId;
+    setDropTarget({ category, beforeId });
+  }
+  function scrollDrag(value: NonNullable<typeof drag.current>) {
+    value.frame = requestAnimationFrame(() => {
+      value.frame = undefined;
+      if (drag.current !== value || !value.active) return;
+      const rect = value.list.getBoundingClientRect();
+      if (
+        value.clientX >= rect.left &&
+        value.clientX < rect.right &&
+        value.clientY >= rect.top &&
+        value.clientY < rect.bottom
+      ) {
+        const direction =
+          value.clientY < rect.top + 35
+            ? -1
+            : value.clientY > rect.bottom - 35
+              ? 1
+              : 0;
+        const before = value.list.scrollTop;
+        value.list.scrollTop += direction * 10;
+        if (value.list.scrollTop !== before) updateDragTarget(value);
+      }
+      scrollDrag(value);
+    });
+  }
+  function finishDrag(event: React.PointerEvent, cancel = false) {
+    const value = drag.current;
+    if (!value || value.pointer !== event.pointerId) return;
+    clearTimeout(value.timer);
+    if (value.frame !== undefined) cancelAnimationFrame(value.frame);
+    if (value.active && !cancel) {
+      value.clientX = event.clientX;
+      value.clientY = event.clientY;
+      updateDragTarget(value);
+    }
+    drag.current = null;
+    setDragging(null);
+    setDropTarget(null);
+    if (event.currentTarget.hasPointerCapture(event.pointerId))
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    if (value.active) {
+      suppressClick.current = Date.now() + 500;
+      if (!cancel && value.category && value.beforeId !== value.id)
+        void run(
+          {
+            type: "reorderPlanEntry",
+            id: value.id,
+            day,
+            category: value.category,
+            beforeId: value.beforeId || null,
+          },
+          "Card moved",
+        );
+    }
+  }
+  const renderCard = (cardDay: string, includeBack = true) => (
+    <>
+      <section className="card-front" aria-label="Card front">
+        <h3>Plan · {dayLabel(cardDay)}</h3>
+        {planCategories.map((category) => (
+          <section key={category}>
+            <h3>{category}</h3>
+            {planning.entries
+              .filter((e) => e.day === cardDay && e.category === category)
+              .sort((a, b) => a.position - b.position)
+              .map((e) => (
+                <div className="card-entry" key={e.itemId}>
+                  <strong>{e.name}</strong>
+                  {e.note && <MarkdownPreview text={e.note} />}
+                </div>
+              ))}
+          </section>
+        ))}
+        {!planning.entries.some((e) => e.day === cardDay) && (
+          <small>No tasks saved on this day.</small>
+        )}
+      </section>
+      {includeBack && (
+        <section
+          className="plan-detail-section card-back"
+          aria-label="Card back"
+        >
+          <h3>Wrap-up · {dayLabel(cardDay)}</h3>
+          <MarkdownPreview
+            text={
+              planning.wrapups[cardDay] ||
+              "No wrap-up saved. Your physical card can stay the source."
             }
-          >
-            Today
-          </button>
-          <button onClick={allChats}>
-            All chats <span>{snapshot.chats.length}</span>
-          </button>
-          <button onClick={() => show("inbox")}>
-            Plan inbox <span>{planning.inbox.files.length}</span>
-          </button>
-        </nav>
-        <h3>Projects</h3>
-        <nav aria-label="Planning projects">
-          <button
-            className={project === "all" ? "selected" : ""}
-            onClick={() =>
-              void navigate(() => {
-                setProject("all");
-                setSelected("");
-              })
-            }
-          >
-            All plan items
-          </button>
-          <button
-            className={project === "unassigned" ? "selected" : ""}
-            onClick={() =>
-              void navigate(() => {
-                setProject("unassigned");
-                setSelected("");
-              })
-            }
-          >
-            No project
-          </button>
-          {snapshot.projects.map((p) => (
-            <button
-              key={p.id}
-              className={project === p.id ? "selected" : ""}
-              onClick={() =>
-                void navigate(() => {
-                  setProject(p.id);
-                  setSelected("");
-                })
-              }
-            >
-              {p.name}
-              <span>
-                {planning.items.filter((i) => i.projectId === p.id).length}
-              </span>
-            </button>
-          ))}
-          <button onClick={createProject}>+ Add a new project</button>
-        </nav>
-        <h3>Daily cards</h3>
-        <nav aria-label="Daily cards">
-          {days.slice(0, 30).map((d) => (
-            <button
-              key={d}
-              className={project === "day" && day === d ? "selected" : ""}
-              onClick={() =>
-                void navigate(() => {
-                  setDay(d);
-                  setProject("day");
-                  setSelected("");
-                })
-              }
-            >
-              {dayLabel(d)}
-            </button>
-          ))}
-        </nav>
-        <div className="project-note">
-          Projects are optional context. Each card records where you put your
-          attention.
-        </div>
-      </aside>
-      <section className="chat-list daily-plan" aria-label="Plan items">
+          />
+        </section>
+      )}
+    </>
+  );
+  let detail: React.ReactNode;
+  if (panel === "create") {
+    const matches = planning.items
+        .filter((i) =>
+          `${i.name} ${planning.entries
+            .filter((e) => e.itemId === i.id)
+            .map((e) => e.name)
+            .join(" ")} ${i.tickets.map((t) => t.key).join(" ")}`
+            .toLowerCase()
+            .includes(creator.query.toLowerCase()),
+        )
+        .sort(
+          (a, b) =>
+            Number(allEntries.some((e) => e.itemId === a.id)) -
+              Number(allEntries.some((e) => e.itemId === b.id)) ||
+            b.updatedAt.localeCompare(a.updatedAt),
+        )
+        .slice(0, 3),
+      picked = planning.items.find((i) => i.id === creator.picked);
+    detail = (
+      <div className="task-composer">
         <div className="section-heading">
-          <div>
-            <span className="eyebrow">
-              {project === "day" ? "Daily card" : "Broader context"}
-            </span>
-            <h2>
-              {project === "day"
-                ? day === localPlanDay()
-                  ? "Today"
-                  : dayLabel(day)
-                : project === "all"
-                  ? "All plan items"
-                  : project === "unassigned"
-                    ? "No project"
-                    : snapshot.projects.find((p) => p.id === project)?.name}
-            </h2>
-          </div>
+          <h2>Add task to card</h2>
           <button
-            onClick={() => {
-              setReview(null);
-              setCard({ name: "Pasted card", text: example(day) });
-              show("import");
-            }}
+            aria-label="Close task form"
+            onClick={() => void showPanel("task")}
           >
-            Import card
+            <Icon name="x" />
           </button>
         </div>
-        <div className="plan-date">
+        <small>{dayLabel(day)}</small>
+        <section className="plan-detail-section">
+          <h3>Continue an existing task</h3>
           <label>
-            Day
+            Search existing tasks
             <input
-              type="date"
-              value={day}
-              min="1900-01-01"
-              max="9999-12-31"
-              onChange={(e) => {
-                const value = e.target.value;
-                if (value)
-                  void navigate(() => {
-                    setDay(value);
-                    setProject("day");
-                    setSelected("");
-                  });
-              }}
+              type="search"
+              autoFocus
+              value={creator.query}
+              onChange={(e) => updateCreator({ query: e.target.value })}
+              placeholder="Search tasks or tickets"
             />
           </label>
-          <div>
-            <button
-              aria-label="Previous planning day"
-              onClick={() =>
-                void navigate(() => {
-                  setDay(nextPlanDay(day, -1));
-                  setProject("day");
-                  setSelected("");
-                })
-              }
-            >
-              ‹
-            </button>
-            <button
-              aria-label="Next planning day"
-              onClick={() =>
-                void navigate(() => {
-                  setDay(nextPlanDay(day));
-                  setProject("day");
-                  setSelected("");
-                })
-              }
-            >
-              ›
-            </button>
+          <div aria-live="polite">
+            {matches.map((i) => (
+              <button
+                key={i.id}
+                className="existing-task-choice"
+                disabled={busy || allEntries.some((e) => e.itemId === i.id)}
+                onClick={() =>
+                  updateCreator({
+                    picked: i.id,
+                    continueName: i.name,
+                    continueCategory:
+                      planning.entries.filter((e) => e.itemId === i.id).at(-1)
+                        ?.category || "Coding",
+                  })
+                }
+              >
+                <strong>{i.name}</strong>
+                <small>
+                  {allEntries.some((e) => e.itemId === i.id)
+                    ? "Already on this day"
+                    : `${i.chatIds.length} chats · ${i.tickets.length} tickets · ${i.links.length} saved links`}
+                </small>
+              </button>
+            ))}
+            {!matches.length && <small>No matching existing tasks.</small>}
           </div>
-        </div>
-        <div className="plan-source">
-          <small>
-            {project === "day"
-              ? `${dayLabel(day)} · ${todayEntries.length} items`
-              : `${visible.length} plan items across days`}
-          </small>
-          {planning.imports.some((i) => i.day === day) && (
-            <button onClick={() => show("original")}>View card</button>
-          )}
-        </div>
-        {project === "day"
-          ? planCategories.map((c) => (
-              <section
-                className="plan-category"
-                key={c}
-                aria-label={`${c} plan items`}
-              >
-                <div className="plan-category-title">
-                  <h3>{c}</h3>
-                  <small>
-                    {todayEntries.filter((e) => e.category === c).length}
-                  </small>
-                </div>
-                <p className="plan-category-caption">
-                  {categoryDescription[c]}
-                </p>
-                {todayEntries
-                  .filter((e) => e.category === c)
-                  .map((e) =>
-                    row(planning.items.find((i) => i.id === e.itemId)!),
-                  )}
-                <button
-                  className="plan-add"
-                  onClick={() => {
-                    setCategory(c);
-                    setName("");
-                    show("add");
-                  }}
-                >
-                  + Add item
-                </button>
-              </section>
-            ))
-          : visible.map(row)}
-        {project === "day" && (
-          <p className="plan-summary">
-            {todayEntries.filter((e) => e.workedOn).length} of{" "}
-            {todayEntries.length} items worked on this day
-          </p>
-        )}
-        {notice && (
-          <p role="status" className="saved plan-notice">
-            {notice}
-          </p>
-        )}
-      </section>
-      <section className="details plan-details" aria-label="Plan item details">
-        {item ? (
-          <>
-            <span className="eyebrow">Plan item</span>
-            {renaming ? (
-              <form
-                className="plan-actions"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  const next = nameDraft.trim();
-                  if (!next || next === item.name) {
-                    setRenaming(false);
-                    return;
-                  }
-                  void run(
-                    {
-                      type: "updatePlanItem",
-                      id: item.id,
-                      patch: { name: next },
-                    },
-                    "Renamed",
-                  ).then((ok) => {
-                    if (ok) setRenaming(false);
-                  });
-                }}
-              >
+          {picked && !allEntries.some((e) => e.itemId === picked.id) && (
+            <div>
+              <label>
+                Title on this card
                 <input
-                  aria-label="Plan item name"
                   required
                   maxLength={200}
-                  value={nameDraft}
-                  autoFocus
-                  onChange={(e) => setNameDraft(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Escape") setRenaming(false);
-                  }}
-                />
-                <button disabled={busy}>Save name</button>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => setRenaming(false)}
-                >
-                  Cancel
-                </button>
-              </form>
-            ) : (
-              <div className="section-heading">
-                <h2>{item.name}</h2>
-                <button
-                  aria-label="Rename plan item"
-                  onClick={() => {
-                    setNameDraft(item.name);
-                    setRenaming(true);
-                  }}
-                >
-                  Rename
-                </button>
-              </div>
-            )}
-            <small>
-              {entry?.category ?? "Not scheduled on this day"} · {dayLabel(day)}
-            </small>
-            <div className="plan-actions">
-              {entry ? (
-                <button
-                  className={entry.workedOn ? "plan-worked" : "plan-primary"}
-                  aria-pressed={entry.workedOn}
-                  disabled={busy}
-                  onClick={() =>
-                    void run(
-                      {
-                        type: "setPlanWorkedOn",
-                        id: item.id,
-                        day,
-                        workedOn: !entry.workedOn,
-                      },
-                      entry.workedOn
-                        ? "Worked-on mark removed"
-                        : "Worked on this day",
-                    )
-                  }
-                >
-                  {entry.workedOn ? "✓ Worked on this day" : "Mark worked on"}
-                </button>
-              ) : (
-                <button
-                  onClick={() => {
-                    setTargetDay(day);
-                    setCategory("Coding");
-                    show("schedule");
-                  }}
-                >
-                  Schedule on this day
-                </button>
-              )}
-              {entry && (
-                <button
-                  onClick={() => {
-                    setTargetDay(nextPlanDay(day));
-                    setCategory(entry.category);
-                    show("reschedule");
-                  }}
-                >
-                  Reschedule
-                </button>
-              )}
-            </div>
-            <section className="plan-detail-section">
-              <h3>Planning context</h3>
-              <label>
-                Project · optional
-                <select
-                  aria-label="Plan item project"
-                  value={item.projectId ?? ""}
-                  disabled={busy}
+                  value={creator.continueName}
                   onChange={(e) =>
-                    void run({
-                      type: "updatePlanItem",
-                      id: item.id,
-                      patch: { projectId: e.target.value || null },
+                    updateCreator({ continueName: e.target.value })
+                  }
+                />
+              </label>
+              <label>
+                Category on this card
+                <select
+                  value={creator.continueCategory}
+                  onChange={(e) =>
+                    updateCreator({
+                      continueCategory: e.target.value as PlanCategory,
                     })
                   }
-                >
-                  <option value="">No project assigned</option>
-                  {snapshot.projects.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <p className="muted">
-                Choose the broader goal this work belongs to.
-              </p>
-              {entry && (
-                <label>
-                  Category for this day
-                  <select
-                    value={entry.category}
-                    disabled={busy}
-                    onChange={(e) =>
-                      void run({
-                        type: "schedulePlanItem",
-                        id: item.id,
-                        day,
-                        category: e.target.value as PlanCategory,
-                      })
-                    }
-                  >
-                    {planCategories.map((c) => (
-                      <option key={c}>{c}</option>
-                    ))}
-                  </select>
-                </label>
-              )}
-            </section>
-            <section className="plan-detail-section">
-              <div className="section-heading">
-                <h3>
-                  Linked chats <small>{item.chatIds.length}</small>
-                </h3>
-                <button
-                  onClick={() => {
-                    setChatIds(item.chatIds);
-                    setChatQuery("");
-                    show("link");
-                  }}
-                >
-                  Link chat
-                </button>
-              </div>
-              {snapshot.chats
-                .filter((c) => item.chatIds.includes(c.id))
-                .map((c) => (
-                  <div
-                    key={c.id}
-                    className={`plan-chat ${!c.archived && ["waiting", "error"].includes(effectiveState(c)) ? "plan-attention" : ""}`}
-                  >
-                    <button
-                      className="plan-chat-open"
-                      onClick={() => openChat(c.id)}
-                    >
-                      <strong>{displayName(c)}</strong>
-                      <small>
-                        {c.archived ? "Archived · " : ""}
-                        {c.lifecycle === "ended" ? "Session ended · " : ""}
-                        {c.provider} · {age(c.lastEventAt)}
-                      </small>
-                      <Status chat={c} />
-                      {c.preview && (
-                        <div className="plan-chat-preview">
-                          {displayPreview(c).slice(0, 240)}
-                        </div>
-                      )}
-                    </button>
-                    <button
-                      aria-label={`Unlink chat ${displayName(c)}`}
-                      disabled={busy}
-                      onClick={() =>
-                        void run({
-                          type: "setPlanChats",
-                          id: item.id,
-                          chatIds: item.chatIds.filter((id) => id !== c.id),
-                        })
-                      }
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))}
-              {!item.chatIds.length && (
-                <p className="muted">
-                  Link a conversation when it is relevant.
-                </p>
-              )}
-              <p className="plan-category-caption">
-                Chat activity is separate from your planning progress.
-              </p>
-            </section>
-            <section className="plan-detail-section">
-              <div className="section-heading">
-                <h3>Your notes</h3>
-                {!noteEditing && (
-                  <button
-                    onClick={() => {
-                      setNote(item.notes);
-                      setNoteEditing(true);
-                    }}
-                  >
-                    Edit notes
-                  </button>
-                )}
-              </div>
-              {noteEditing ? (
-                <>
-                  <textarea
-                    ref={notesRef}
-                    aria-label="Plan item notes"
-                    value={note}
-                    onChange={(e) => {
-                      setNote(e.target.value);
-                      noteRef.current = e.target.value;
-                      dirty.current = true;
-                      setNotice("Unsaved notes");
-                    }}
-                    onBlur={() => void flush()}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                        e.preventDefault();
-                        void flush().then((saved) => {
-                          if (saved) setNoteEditing(false);
-                        });
-                      }
-                    }}
-                  />
-                  <button
-                    onClick={() =>
-                      void flush().then((saved) => {
-                        if (saved) setNoteEditing(false);
-                      })
-                    }
-                  >
-                    Done
-                  </button>
-                </>
-              ) : (
-                <div
-                  className="plan-notes"
-                  onClick={() => {
-                    setNote(item.notes);
-                    setNoteEditing(true);
-                  }}
-                >
-                  <MarkdownPreview
-                    text={item.notes || "Add notes in Markdown…"}
-                  />
-                </div>
-              )}
-            </section>
-            <section className="plan-detail-section">
-              <h3>On your cards</h3>
-              <div className="plan-history">
-                {planning.entries
-                  .filter((e) => e.itemId === item.id)
-                  .map((e) => (
-                    <button
-                      key={e.day}
-                      onClick={() =>
-                        void navigate(() => {
-                          setDay(e.day);
-                          setProject("day");
-                        })
-                      }
-                    >
-                      {dayLabel(e.day)}
-                      {e.workedOn ? " · worked on" : ""}
-                    </button>
-                  ))}
-              </div>
-              {entry && (
-                <button
-                  className="plan-remove"
-                  disabled={busy}
-                  onClick={() =>
-                    void run(
-                      { type: "removePlanEntry", id: item.id, day },
-                      "Removed from this day; notes and chats retained",
-                    )
-                  }
-                >
-                  Remove from this day
-                </button>
-              )}
-              {confirmDelete ? (
-                <div className="plan-actions" role="alert">
-                  <span>
-                    Delete this item, its notes, chat links, and every day it
-                    is scheduled? Linked chats are not affected.
-                  </span>
-                  <button
-                    className="plan-remove"
-                    disabled={busy}
-                    onClick={() =>
-                      void run(
-                        { type: "deletePlanItem", id: item.id },
-                        "Plan item deleted",
-                      ).then((ok) => {
-                        if (!ok) return;
-                        dirty.current = false;
-                        setConfirmDelete(false);
-                        setSelected("");
-                        setNoteEditing(false);
-                      })
-                    }
-                  >
-                    Confirm delete
-                  </button>
-                  <button
-                    disabled={busy}
-                    onClick={() => setConfirmDelete(false)}
-                  >
-                    Cancel
-                  </button>
-                </div>
-              ) : (
-                <button
-                  className="plan-remove"
-                  disabled={busy}
-                  onClick={() => setConfirmDelete(true)}
-                >
-                  Delete item
-                </button>
-              )}
-            </section>
-          </>
-        ) : (
-          <div className="empty">
-            <h2>Select a plan item</h2>
-            <p>
-              Import your card or add broad areas of work. Project assignments
-              and chat links are optional.
-            </p>
-          </div>
-        )}
-      </section>
-      {modal && (
-        <Modal
-          title={
-            {
-              add: "Add a plan item",
-              link: "Link existing chats",
-              import: "Import daily card",
-              original: "Original daily card",
-              inbox: "Plan inbox",
-              schedule: "Schedule this item",
-              reschedule: "Reschedule this item",
-            }[modal]
-          }
-          close={() => {
-            if (!busy) setModal(null);
-          }}
-        >
-          {modal === "add" && (
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                void run(
-                  { type: "createPlanItem", day, category, name },
-                  "Plan item added",
-                ).then((ok) => {
-                  if (ok) {
-                    setNoteEditing(false);
-                    setSelected("");
-                    setModal(null);
-                  }
-                });
-              }}
-            >
-              <p>
-                {category} · {dayLabel(day)}
-              </p>
-              <label>
-                Plan item name
-                <input
-                  required
-                  maxLength={200}
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="An area of work or a specific task"
-                  autoFocus
-                />
-              </label>
-              <button disabled={busy}>Add item</button>
-            </form>
-          )}
-          {(modal === "schedule" || modal === "reschedule") && item && (
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                void run(
-                  modal === "reschedule"
-                    ? {
-                        type: "reschedulePlanItem",
-                        id: item.id,
-                        fromDay: day,
-                        day: targetDay,
-                        category,
-                      }
-                    : {
-                        type: "schedulePlanItem",
-                        id: item.id,
-                        day: targetDay,
-                        category,
-                      },
-                  modal === "reschedule"
-                    ? "Rescheduled; notes and chat links retained"
-                    : "Scheduled; notes and chat links retained",
-                ).then((ok) => {
-                  if (ok) setModal(null);
-                });
-              }}
-            >
-              <p>{item.name}</p>
-              <label>
-                Planning day
-                <input
-                  type="date"
-                  required
-                  min="1900-01-01"
-                  max="9999-12-31"
-                  value={targetDay}
-                  onChange={(e) => setTargetDay(e.target.value)}
-                />
-              </label>
-              <label>
-                Category
-                <select
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value as PlanCategory)}
                 >
                   {planCategories.map((c) => (
                     <option key={c}>{c}</option>
                   ))}
                 </select>
               </label>
-              <button disabled={busy}>
-                {modal === "reschedule" ? "Reschedule item" : "Schedule item"}
-              </button>
-            </form>
+              <small>
+                Existing notes, tickets, links, and chats stay with the task.
+                Earlier cards keep their titles.
+              </small>
+              <div className="plan-actions">
+                <button
+                  className="primary"
+                  disabled={busy || !creator.continueName.trim()}
+                  onClick={() =>
+                    void run(
+                      {
+                        type: "schedulePlanItem",
+                        id: picked.id,
+                        day,
+                        category: creator.continueCategory,
+                        name: creator.continueName,
+                      },
+                      "Continued on this card",
+                    ).then((ok) => {
+                      if (ok) {
+                        setSelected(picked.id);
+                        setPanel("task");
+                      }
+                    })
+                  }
+                >
+                  Continue on this card
+                </button>
+              </div>
+            </div>
           )}
-          {modal === "link" && item && (
+        </section>
+        <section className="plan-detail-section">
+          <h3>Create a new task</h3>
+          <form
+            aria-label="Create a new task"
+            onSubmit={(event) => {
+              event.preventDefault();
+              let tickets = [] as {
+                key: string;
+                status: string;
+                note: string;
+              }[];
+              try {
+                if (creator.ticket.trim()) {
+                  const parsed = parseTicket(creator.ticket);
+                  tickets = [
+                    {
+                      key: parsed.jiraUrl || parsed.jiraKey,
+                      status: "",
+                      note: "",
+                    },
+                  ];
+                }
+              } catch (e) {
+                setError(message(e));
+                return;
+              }
+              createdBefore.current = new Set(planning.items.map((i) => i.id));
+              void run(
+                {
+                  type: "createPlanItem",
+                  day,
+                  name: creator.name,
+                  category: creator.category,
+                  notes: creator.notes,
+                  tickets,
+                },
+                "Task created on this card",
+              ).then((ok) => {
+                if (ok) {
+                  setCreator(newTask());
+                  setPanel("task");
+                  setSearch("");
+                  setView("day");
+                } else createdBefore.current = null;
+              });
+            }}
+          >
+            <label>
+              Task name
+              <input
+                required
+                maxLength={200}
+                value={creator.name}
+                onChange={(e) => updateCreator({ name: e.target.value })}
+                placeholder="What will you work on?"
+              />
+            </label>
+            <label>
+              Task category
+              <select
+                aria-label="Task category"
+                value={creator.category}
+                onChange={(e) =>
+                  updateCreator({ category: e.target.value as PlanCategory })
+                }
+              >
+                {planCategories.map((c) => (
+                  <option key={c}>{c}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Link ticket (optional)
+              <input
+                maxLength={2000}
+                value={creator.ticket}
+                onChange={(e) => updateCreator({ ticket: e.target.value })}
+                placeholder="Ticket number or URL"
+              />
+            </label>
+            <label>
+              Notes (optional)
+              <textarea
+                maxLength={100000}
+                value={creator.notes}
+                onChange={(e) => updateCreator({ notes: e.target.value })}
+                placeholder="Write Markdown…"
+              />
+            </label>
+            <div className="plan-actions">
+              <button className="primary" disabled={busy}>
+                Create task
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  setCreator(newTask());
+                  draft("task-create", null);
+                  void showPanel("task");
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        </section>
+      </div>
+    );
+  } else if (panel === "import") {
+    detail = !cardReview ? (
+      <div>
+        <div className="section-heading">
+          <h2>Import card</h2>
+          <button className="quiet" onClick={() => void showPanel("task")}>
+            Back to Today
+          </button>
+        </div>
+        <label>
+          Card text
+          <textarea
+            className="card-transcription"
+            aria-label="Card text"
+            value={reviewDraft.card}
+            maxLength={100000}
+            onChange={(e) =>
+              updateReview({ card: e.target.value, reviewing: false })
+            }
+            placeholder="Paste YAML or Markdown from Claude…"
+          />
+        </label>
+        <label>
+          Or upload a file
+          <input
+            type="file"
+            accept=".yaml,.yml,.md,.markdown,text/plain,text/markdown"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              if (file.size > 100000) {
+                setError("File exceeds 100 KB");
+                return;
+              }
+              void file
+                .text()
+                .then((card) => {
+                  updateReview({
+                    card,
+                    sourceName: file.name,
+                    reviewing: false,
+                  });
+                  setError("");
+                })
+                .catch((e) => setError(message(e)));
+            }}
+          />
+        </label>
+        <button
+          className="primary"
+          disabled={busy}
+          onClick={() => {
+            try {
+              const parsed = parseDailyPlan(reviewDraft.card);
+              updateReview({
+                reviewing: true,
+                names: parsed.items.map((i) => i.name),
+                itemIds: parsed.items.map(() => null),
+                reference: previousDays[0] || "",
+              });
+              setError("");
+            } catch (e) {
+              setError(message(e));
+            }
+          }}
+        >
+          Review card
+        </button>
+      </div>
+    ) : (
+      <div className="card-import-review" aria-label="Daily card review">
+        <div className="section-heading">
+          <h2>Review {dayLabel(cardReview.day)}</h2>
+          <button className="quiet" onClick={() => void showPanel("task")}>
+            Back to Today
+          </button>
+        </div>
+        <small>
+          {reviewDraft.sourceName} · {cardReview.items.length} entries
+        </small>
+        <p className="muted">
+          Keep the wording from this card. Choose existing context where the
+          work continues.
+        </p>
+        {cardReview.items.map((row, index) => (
+          <div className="plan-import-row" key={index}>
+            <small>{row.category}</small>
+            <label>
+              Title on this card
+              <input
+                aria-label={`Title on card ${index + 1}`}
+                required
+                maxLength={200}
+                value={reviewDraft.names[index] ?? row.name}
+                onChange={(e) =>
+                  updateReview({
+                    names: cardReview.items.map((r, n) =>
+                      n === index
+                        ? e.target.value
+                        : (reviewDraft.names[n] ?? r.name),
+                    ),
+                  })
+                }
+              />
+            </label>
+            {[...row.tickets, ...row.related].map((ticket, n) => (
+              <small className="import-ticket" key={n}>
+                {[ticket.key, ticket.status, ticket.note]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </small>
+            ))}
+            {row.note && <MarkdownPreview text={row.note} />}
+            <label>
+              Task context
+              <select
+                aria-label={`Task context ${index + 1}`}
+                value={reviewDraft.itemIds[index] || ""}
+                onChange={(e) =>
+                  updateReview({
+                    itemIds: cardReview.items.map((_, n) =>
+                      n === index
+                        ? e.target.value || null
+                        : reviewDraft.itemIds[n] || null,
+                    ),
+                  })
+                }
+              >
+                <option value="">New task</option>
+                {planning.items.map((i) => (
+                  <option key={i.id} value={i.id}>
+                    Continue: {i.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {reviewDraft.itemIds[index] && (
+              <details>
+                <summary>Existing task context</summary>
+                {(() => {
+                  const item = planning.items.find(
+                    (i) => i.id === reviewDraft.itemIds[index],
+                  );
+                  return item ? (
+                    <>
+                      <small>
+                        {item.chatIds.length} chats ·{" "}
+                        {item.tickets.map((t) => t.key).join(" · ") ||
+                          "No tickets"}{" "}
+                        · {item.links.length} saved links
+                      </small>
+                      <MarkdownPreview text={item.notes} />
+                    </>
+                  ) : (
+                    <small>
+                      This task was removed; choose another context.
+                    </small>
+                  );
+                })()}
+              </details>
+            )}
+          </div>
+        ))}
+        <div className="plan-actions">
+          <button
+            className="primary"
+            disabled={busy}
+            onClick={() =>
+              void run(
+                {
+                  type: "importDailyPlan",
+                  card: reviewDraft.card,
+                  sourceName: reviewDraft.sourceName,
+                  itemIds: reviewDraft.itemIds,
+                  names: reviewDraft.names,
+                },
+                "Card imported",
+              ).then((ok) => {
+                if (ok) {
+                  setDay(cardReview.day);
+                  setSelected(
+                    reviewDraft.itemIds.find((id): id is string => !!id) || "",
+                  );
+                  setView("day");
+                  setPanel("task");
+                  setReviewDraft(newReview());
+                  setExpanded(null);
+                  setSearch("");
+                }
+              })
+            }
+          >
+            Import card
+          </button>
+          <button
+            disabled={busy}
+            onClick={() => updateReview({ reviewing: false })}
+          >
+            Edit transcription
+          </button>
+          <button disabled={busy} onClick={() => setDiscardReview(true)}>
+            Cancel
+          </button>
+        </div>
+        {discardReview && (
+          <div className="discard-review" role="alert">
+            <strong>Discard this card review?</strong>
+            <div className="plan-actions">
+              <button onClick={() => setDiscardReview(false)}>
+                Keep reviewing
+              </button>
+              <button
+                onClick={() => {
+                  setReviewDraft(newReview());
+                  draft("card-review", null);
+                  setDiscardReview(false);
+                  void showPanel("task");
+                }}
+              >
+                Discard review
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  } else if (panel === "card") {
+    detail = (
+      <div className="daily-card">
+        <div className="section-heading">
+          <h2>Daily card · {dayLabel(day)}</h2>
+          <button className="quiet" onClick={() => void showPanel("task")}>
+            Back to tasks
+          </button>
+        </div>
+        {renderCard(day, false)}
+        <section
+          className="plan-detail-section card-back"
+          aria-label="Card back"
+        >
+          <h3>Wrap-up notes</h3>
+          {wrapEdit ? (
+            <div>
+              <textarea
+                aria-label="Day wrap-up"
+                autoFocus
+                maxLength={100000}
+                value={wrapText}
+                onChange={(e) => {
+                  setWrapText(e.target.value);
+                  draft(`wrap:${day}`, e.target.value);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    setWrapEdit(false);
+                    draft(`wrap:${day}`, null);
+                  }
+                  if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+                    e.preventDefault();
+                    void run(
+                      { type: "setDayWrapup", day, notes: wrapText },
+                      "Wrap-up saved",
+                    ).then((ok) => {
+                      if (ok) setWrapEdit(false);
+                    });
+                  }
+                }}
+              />
+              <div className="plan-actions">
+                <button
+                  disabled={busy}
+                  onClick={() =>
+                    void run(
+                      { type: "setDayWrapup", day, notes: wrapText },
+                      "Wrap-up saved",
+                    ).then((ok) => {
+                      if (ok) setWrapEdit(false);
+                    })
+                  }
+                >
+                  Save wrap-up
+                </button>
+                <button
+                  disabled={busy}
+                  onClick={() => {
+                    setWrapEdit(false);
+                    draft(`wrap:${day}`, null);
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              className="task-note-display"
+              aria-label={
+                planning.drafts[`wrap:${day}`] !== undefined
+                  ? "Resume wrap-up"
+                  : "Edit wrap-up"
+              }
+              onClick={() => {
+                setWrapText(
+                  planning.drafts[`wrap:${day}`] ?? planning.wrapups[day] ?? "",
+                );
+                setWrapEdit(true);
+              }}
+            >
+              <MarkdownPreview
+                text={planning.wrapups[day] || "Click to write wrap-up notes…"}
+              />
+              {planning.drafts[`wrap:${day}`] !== undefined && (
+                <small>Unsaved draft · click to resume</small>
+              )}
+            </button>
+          )}
+          <small>
+            Optional. You can keep the back of your physical card as your
+            wrap-up.
+          </small>
+        </section>
+        {planning.imports
+          .filter((i) => i.day === day)
+          .map((i) => (
+            <details key={i.id}>
+              <summary>Original transcription · {i.sourceName}</summary>
+              <pre className="plan-card-source">{i.card}</pre>
+            </details>
+          ))}
+      </div>
+    );
+  } else if (view === "attention") {
+    const chat = attention.find((c) => c.id === attentionChat) || attention[0];
+    detail = chat ? (
+      <>
+        <h2>{displayName(chat)}</h2>
+        <LatestRound chat={chat} fullHistory={() => openChat(chat.id)} />
+      </>
+    ) : (
+      <div className="empty">
+        <h2>Nothing needs attention</h2>
+        <p>New requests will appear here when observed.</p>
+      </div>
+    );
+  } else if (current) {
+    detail = (
+      <div key={current.id}>
+        <small>
+          Task ·{" "}
+          {entry ? `${entry.category} · ${dayLabel(day)}` : "Not on this day"}
+        </small>
+        <div className="task-name-heading">
+          {rename !== null ? (
             <form
               onSubmit={(e) => {
                 e.preventDefault();
                 void run(
-                  { type: "setPlanChats", id: item.id, chatIds },
-                  "Chat links saved",
+                  entry
+                    ? {
+                        type: "updatePlanEntry",
+                        id: current.id,
+                        day,
+                        name: rename,
+                      }
+                    : {
+                        type: "updatePlanItem",
+                        id: current.id,
+                        patch: { name: rename },
+                      },
+                  "Task renamed",
                 ).then((ok) => {
-                  if (ok) setModal(null);
+                  if (ok) setRename(null);
                 });
               }}
             >
-              <p>
-                Link chats to {item.name}. Their existing project assignments
-                stay intact.
-              </p>
-              <input
-                type="search"
-                aria-label="Search chats"
-                placeholder="Search chats"
-                value={chatQuery}
-                onChange={(e) => setChatQuery(e.target.value)}
-              />
-              <div className="plan-chat-picker">
-                {linkableChats.map((c) => (
-                  <label key={c.id}>
-                    <input
-                      type="checkbox"
-                      checked={chatIds.includes(c.id)}
-                      onChange={(e) =>
-                        setChatIds(
-                          e.target.checked
-                            ? [...chatIds, c.id]
-                            : chatIds.filter((id) => id !== c.id),
+              <label>
+                Task name
+                <input
+                  aria-label="Rename task name"
+                  autoFocus
+                  required
+                  maxLength={200}
+                  value={rename}
+                  onChange={(e) => setRename(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") setRename(null);
+                  }}
+                />
+              </label>
+              <button disabled={busy}>Save name</button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => setRename(null)}
+              >
+                Cancel
+              </button>
+            </form>
+          ) : (
+            <>
+              <h2>{nameOf(current.id)}</h2>
+              <button
+                className="rename-task"
+                aria-label="Rename task"
+                title="Rename task"
+                onClick={() => setRename(nameOf(current.id))}
+              >
+                <Icon name="pencil" />
+              </button>
+            </>
+          )}
+        </div>
+        <div className="plan-actions">
+          {entry ? (
+            <>
+              <button
+                className={entry.workedOn ? "plan-worked" : "primary"}
+                aria-pressed={entry.workedOn}
+                disabled={busy}
+                onClick={() =>
+                  void run(
+                    {
+                      type: "setPlanWorkedOn",
+                      id: current.id,
+                      day,
+                      workedOn: !entry.workedOn,
+                    },
+                    entry.workedOn
+                      ? "Marked as not done"
+                      : "Marked as done on this day",
+                  )
+                }
+              >
+                {entry.workedOn ? "✓ Done" : "Mark as done"}
+              </button>
+              <button
+                className="quiet"
+                disabled={busy}
+                onClick={() => {
+                  setTargetDay(nextBusinessDay(day));
+                  setTargetCategory(entry.category);
+                  setModal("move");
+                  setError("");
+                }}
+              >
+                Move to another day
+              </button>
+            </>
+          ) : (
+            <button
+              disabled={busy}
+              onClick={() => {
+                updateCreator({
+                  picked: current.id,
+                  continueName: current.name,
+                  continueCategory:
+                    planning.entries
+                      .filter((e) => e.itemId === current.id)
+                      .at(-1)?.category || "Coding",
+                });
+                void showPanel("create");
+              }}
+            >
+              Continue on this day
+            </button>
+          )}
+        </div>
+        {entry && (
+          <label className="task-day-category">
+            Category for this day
+            <select
+              value={entry.category}
+              disabled={busy}
+              onChange={(e) =>
+                void run(
+                  {
+                    type: "updatePlanEntry",
+                    id: current.id,
+                    day,
+                    category: e.target.value as PlanCategory,
+                  },
+                  "Category changed",
+                )
+              }
+            >
+              {planCategories.map((c) => (
+                <option key={c}>{c}</option>
+              ))}
+            </select>
+          </label>
+        )}
+        {entry?.note && entry.note !== current.notes && (
+          <section className="plan-detail-section">
+            <h3>On this card</h3>
+            <MarkdownPreview text={entry.note} />
+          </section>
+        )}
+        <TaskTickets
+          key={`tickets:${current.id}`}
+          item={current}
+          settings={snapshot.settings}
+          save={run}
+          busy={busy}
+          drafts={planning.drafts}
+          onDraft={draft}
+          configureJira={configureJira}
+        />
+        <TaskLinks
+          key={`links:${current.id}`}
+          item={current}
+          links={snapshot.links}
+          chats={snapshot.chats}
+          settings={snapshot.settings}
+          save={run}
+          busy={busy}
+          drafts={planning.drafts}
+          onDraft={draft}
+        />
+        <section className="plan-detail-section" aria-label="Linked chats">
+          <div className="section-heading">
+            <h3>Linked chats</h3>
+            <button
+              className="context-plus"
+              aria-label="Link chat"
+              title="Link chat"
+              disabled={busy}
+              onClick={() => {
+                setChatChoices(current.chatIds);
+                setChatSearch("");
+                setModal("chats");
+              }}
+            >
+              +
+            </button>
+          </div>
+          {snapshot.chats
+            .filter((c) => current.chatIds.includes(c.id))
+            .map((c) => (
+              <div
+                className={`task-linked-chat ${c.state === "waiting" ? "needs-input" : ""}`}
+                key={c.id}
+              >
+                <div className="task-context-row">
+                  <button
+                    className="task-chat-open"
+                    aria-expanded={expanded === c.id}
+                    onClick={() => setExpanded(expanded === c.id ? null : c.id)}
+                  >
+                    <strong>{displayName(c)}</strong>
+                    <small>
+                      {snapshot.projects.find((p) => p.id === c.repoProjectId)
+                        ?.name || "No repository"}{" "}
+                      · {providerLabel(c.provider)} · Last event{" "}
+                      {age(c.lastEventAt)}
+                    </small>
+                    <Status chat={c} />
+                    {c.state === "waiting" && (
+                      <small className="plan-needs-input">
+                        {requestLabel(c)}
+                      </small>
+                    )}
+                  </button>
+                  <div className="context-row-tools">
+                    <button
+                      aria-label={`Remove linked chat ${displayName(c)}`}
+                      title="Remove from task"
+                      disabled={busy}
+                      onClick={() =>
+                        void run(
+                          {
+                            type: "setPlanChats",
+                            id: current.id,
+                            chatIds: current.chatIds.filter(
+                              (id) => id !== c.id,
+                            ),
+                          },
+                          "Chat removed from task",
                         )
                       }
-                    />
-                    <span>
-                      {displayName(c)}
-                      <small>
-                        {c.provider}
-                        {c.archived ? " · Archived" : ""}
-                      </small>
-                    </span>
-                  </label>
-                ))}
-              </div>
-              {!snapshot.chats.length && (
-                <p>
-                  No chats yet. Existing provider chats appear here after they
-                  are observed.
-                </p>
-              )}
-              {!!snapshot.chats.length && !linkableChats.length && (
-                <p>No chats match your search.</p>
-              )}
-              <button disabled={busy}>Save links</button>
-            </form>
-          )}
-          {modal === "original" &&
-            planning.imports
-              .filter((i) => i.day === day)
-              .map((i) => (
-                <section key={i.id}>
-                  <h3>{i.sourceName}</h3>
-                  <small>
-                    Imported {new Date(i.importedAt).toLocaleString()}
-                  </small>
-                  <pre className="plan-card-source">{i.card}</pre>
-                </section>
-              ))}
-          {modal === "inbox" && (
-            <>
-              <p>
-                Save transcribed YAML cards (.yaml or .yml) to this folder, then review them
-                here.
-              </p>
-              <div className="plan-inbox-path">
-                <code>{planning.inbox.path}</code>
-                <button
-                  onClick={() => void window.deck.copy(planning.inbox.path)}
-                >
-                  Copy folder path
-                </button>
-              </div>
-              {planning.inbox.error && (
-                <p role="alert">{planning.inbox.error}</p>
-              )}
-              {planning.inbox.files.map((f) => (
-                <div className="plan-inbox-file" key={f.name}>
-                  <strong>{f.name}</strong>
-                  {f.error && <p role="alert">{f.error}</p>}
-                  <button disabled={!!f.error} onClick={() => loadCard(f)}>
-                    Review card {f.name}
-                  </button>
-                </div>
-              ))}
-              {!planning.inbox.files.length && (
-                <p>
-                  No cards waiting. Imported files stay on disk and are skipped
-                  on later scans.
-                </p>
-              )}
-            </>
-          )}
-          {modal === "import" && (
-            <>
-              {!review ? (
-                <>
-                  <label>
-                    Choose a YAML card
-                    <input
-                      type="file"
-                      accept=".yaml,.yml,text/yaml,text/plain"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (!file) return;
-                        if (file.size > 100000) {
-                          setModalError("File exceeds 100 KB");
-                          return;
-                        }
-                        void file
-                          .text()
-                          .then((text) => {
-                            setCard({ name: file.name, text });
-                            setModalError("");
-                          })
-                          .catch((e) => setModalError(message(e)));
-                      }}
-                    />
-                  </label>
-                  <label>
-                    Card transcription
-                    <textarea
-                      aria-label="Card transcription"
-                      value={card.text}
-                      onChange={(e) =>
-                        setCard({ ...card, text: e.target.value })
-                      }
-                    />
-                  </label>
-                  <button
-                    onClick={() => {
-                      try {
-                        const parsed = parseDailyPlan(card.text);
-                        setReview(parsed);
-                        setConnections(parsed.items.map(() => null));
-                        setModalError("");
-                      } catch (e) {
-                        setModalError(message(e));
-                      }
-                    }}
-                  >
-                    Review items
-                  </button>
-                </>
-              ) : (
-                <>
-                  <p>
-                    {dayLabel(review.day)} · {card.name}
-                  </p>
-                  <p>
-                    Choose existing work to keep its notes and chats, or create
-                    a new item. Project links start empty.
-                  </p>
-                  {review.items.map((r, index) => (
-                    <div className="plan-import-row" key={index}>
-                      <strong>{r.name}</strong>
-                      <small>{r.category}</small>
-                      {[...r.tickets, ...r.related].length > 0 && (
-                        <small>
-                          {r.tickets.map((t) => t.key).join(", ")}
-                          {r.related.length > 0 &&
-                            ` · related ${r.related.map((t) => t.key).join(", ")}`}
-                        </small>
-                      )}
-                      {r.note && <small>{r.note}</small>}
-                      <label>
-                        Connect {r.name}
-                        <select
-                          aria-label={`Connect ${r.name}`}
-                          value={connections[index] ?? ""}
-                          onChange={(e) =>
-                            setConnections(
-                              connections.map((id, n) =>
-                                n === index ? e.target.value || null : id,
-                              ),
-                            )
-                          }
-                        >
-                          <option value="">Create a new plan item</option>
-                          {planning.items.map((i) => (
-                            <option key={i.id} value={i.id}>
-                              Continue: {i.name}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    </div>
-                  ))}
-                  <div className="plan-actions">
-                    <button disabled={busy} onClick={() => setReview(null)}>
-                      Edit transcription
-                    </button>
-                    <button
-                      disabled={busy}
-                      onClick={() => {
-                        if (busy) return;
-                        setBusy(true);
-                        void (async () => {
-                          if (!(await flush()))
-                            throw new Error(
-                              "Save your notes before importing the card",
-                            );
-                          await mutate({
-                            type: "importDailyPlan",
-                            sourceName: card.name,
-                            card: card.text,
-                            itemIds: connections,
-                          });
-                        })()
-                          .then(() => {
-                            setNoteEditing(false);
-                            setDay(review.day);
-                            setProject("day");
-                            setSelected("");
-                            setModal(null);
-                            setNotice("Daily card imported");
-                          })
-                          .catch((e) => setModalError(message(e)))
-                          .finally(() => setBusy(false));
-                      }}
                     >
-                      Import day plan
+                      <Icon name="x" />
                     </button>
                   </div>
+                </div>
+                {expanded === c.id && (
+                  <LatestRound chat={c} fullHistory={() => openChat(c.id)} />
+                )}
+              </div>
+            ))}
+          {!current.chatIds.length && <small>No chat linked yet.</small>}
+        </section>
+        <section className="plan-detail-section" aria-label="Task notes">
+          <h3>Notes</h3>
+          {notesEdit ? (
+            <div>
+              <textarea
+                aria-label="Task notes"
+                autoFocus
+                maxLength={100000}
+                value={notesText}
+                onChange={(e) => {
+                  setNotesText(e.target.value);
+                  draft(`notes:${current.id}`, e.target.value);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    setNotesEdit(false);
+                    draft(`notes:${current.id}`, null);
+                  }
+                  if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+                    e.preventDefault();
+                    void run(
+                      {
+                        type: "updatePlanItem",
+                        id: current.id,
+                        patch: { notes: notesText },
+                      },
+                      "Notes saved",
+                    ).then((ok) => {
+                      if (ok) setNotesEdit(false);
+                    });
+                  }
+                }}
+              />
+              <div className="plan-actions">
+                <button
+                  disabled={busy}
+                  onClick={() =>
+                    void run(
+                      {
+                        type: "updatePlanItem",
+                        id: current.id,
+                        patch: { notes: notesText },
+                      },
+                      "Notes saved",
+                    ).then((ok) => {
+                      if (ok) setNotesEdit(false);
+                    })
+                  }
+                >
+                  Save notes
+                </button>
+                <button
+                  disabled={busy}
+                  onClick={() => {
+                    setNotesEdit(false);
+                    draft(`notes:${current.id}`, null);
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div
+              className="task-note-display"
+              onClick={(e) => {
+                if ((e.target as HTMLElement).closest("button")) return;
+                setNotesText(
+                  planning.drafts[`notes:${current.id}`] ?? current.notes,
+                );
+                setNotesEdit(true);
+              }}
+            >
+              <button
+                className="task-note-edit"
+                aria-label="Edit task notes"
+                title="Edit notes"
+                onClick={() => {
+                  setNotesText(
+                    planning.drafts[`notes:${current.id}`] ?? current.notes,
+                  );
+                  setNotesEdit(true);
+                }}
+              >
+                <Icon name="pencil" />
+              </button>
+              <MarkdownPreview
+                text={current.notes || "Click to add notes in Markdown…"}
+              />
+              {planning.drafts[`notes:${current.id}`] !== undefined && (
+                <small>Unsaved draft · click to resume</small>
+              )}
+            </div>
+          )}
+        </section>
+        <section className="plan-detail-section">
+          <h3>On your cards</h3>
+          <div className="plan-history">
+            {planning.entries
+              .filter((e) => e.itemId === current.id)
+              .map((e) => (
+                <span className="task-day-chip" key={e.day}>
+                  <button
+                    className={e.day === day ? "selected" : ""}
+                    onClick={() => {
+                      void changeDay(e.day).then(() => setSelected(current.id));
+                    }}
+                    title={e.name}
+                  >
+                    {dayLabel(e.day)}
+                    {e.workedOn ? " · Done" : ""}
+                  </button>
+                  <button
+                    aria-label={`Remove task from ${e.day}`}
+                    title="Remove from this day"
+                    disabled={busy}
+                    onClick={() => {
+                      const count = planning.entries.filter(
+                        (row) => row.itemId === current.id,
+                      ).length;
+                      if (count === 1) {
+                        setRemoveDay(e.day);
+                        setModal("last-day");
+                      } else
+                        void run(
+                          {
+                            type: "removePlanEntry",
+                            id: current.id,
+                            day: e.day,
+                          },
+                          "Removed from this day",
+                        ).then((ok) => {
+                          if (ok && e.day === day) setSelected("");
+                        });
+                    }}
+                  >
+                    <Icon name="x" />
+                  </button>
+                </span>
+              ))}
+          </div>
+        </section>
+      </div>
+    );
+  } else
+    detail = (
+      <div className="empty">
+        <h2>Your daily workspace</h2>
+        <p>Add a task or import a dated card.</p>
+      </div>
+    );
+  return (
+    <main
+      className="today-workspace"
+      onPointerMove={pointerMove}
+      onPointerUp={(e) => finishDrag(e)}
+      onPointerCancel={(e) => finishDrag(e, true)}
+    >
+      <div className="today-columns">
+        <section className="daily-plan" aria-label="Daily tasks">
+          <div className="plan-date">
+            <h2>
+              {view === "all"
+                ? "All tasks"
+                : view === "attention"
+                  ? "Needs attention"
+                  : day === localPlanDay()
+                    ? "Today"
+                    : dayLabel(day)}
+            </h2>
+            {(view !== "day" || day === localPlanDay()) && (
+              <small>{dayLabel(day)}</small>
+            )}
+          </div>
+          <div className="day-navigation">
+            <button
+              aria-label="Previous planning day"
+              onClick={() => void changeDay(nextPlanDay(day, -1))}
+            >
+              ‹
+            </button>
+            <input
+              type="date"
+              aria-label="Plan date"
+              min="1900-01-01"
+              max="9999-12-31"
+              value={day}
+              onChange={(e) => void changeDay(e.target.value)}
+            />
+            <button
+              aria-label="Next planning day"
+              onClick={() => void changeDay(nextPlanDay(day))}
+            >
+              ›
+            </button>
+            {day !== localPlanDay() && (
+              <button onClick={() => void changeDay(localPlanDay())}>
+                Today
+              </button>
+            )}
+          </div>
+          <nav className="planning-views" aria-label="Task views">
+            {(
+              [
+                ["day", "This day"],
+                ["attention", `Needs attention ${attention.length}`],
+                ["all", "All tasks"],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                aria-pressed={view === value}
+                className={view === value ? "selected" : ""}
+                onClick={() => {
+                  void flush().then((ok) => {
+                    if (ok) {
+                      setView(value);
+                      setPanel("task");
+                      setNotesEdit(false);
+                      setRename(null);
+                    }
+                  });
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </nav>
+          {panel === "import" && cardReview ? (
+            <div className="previous-card-reference">
+              <h3>Previous card</h3>
+              {previousDays.length ? (
+                <>
+                  <label>
+                    Reference card
+                    <select
+                      value={reference}
+                      onChange={(e) =>
+                        updateReview({ reference: e.target.value })
+                      }
+                    >
+                      {previousDays.map((d) => (
+                        <option key={d} value={d}>
+                          {dayLabel(d)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {renderCard(reference)}
+                </>
+              ) : (
+                <small>
+                  No earlier saved card. Your physical card can be the
+                  reference.
+                </small>
+              )}
+            </div>
+          ) : view === "attention" ? (
+            <>
+              <label>
+                Search requests
+                <input
+                  type="search"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </label>
+              {attention
+                .filter((c) =>
+                  `${displayName(c)} ${c.latestRound?.request || c.preview}`
+                    .toLowerCase()
+                    .includes(search.toLowerCase()),
+                )
+                .map((c) => (
+                  <button
+                    key={c.id}
+                    className={`plan-row ${c.id === attentionChat ? "selected" : ""}`}
+                    onClick={() => setAttentionChat(c.id)}
+                  >
+                    <span>
+                      <strong>{displayName(c)}</strong>
+                      <small>
+                        {requestLabel(c)} · {providerLabel(c.provider)}
+                      </small>
+                    </span>
+                  </button>
+                ))}
+            </>
+          ) : (
+            <>
+              <div className="plan-actions">
+                <button
+                  className="quiet"
+                  onClick={() => void showPanel("import")}
+                >
+                  {reviewDraft.card ? "Resume card review" : "Import card"}
+                </button>
+              </div>
+              <label className="task-search">
+                <span className="sr-only">Search tasks</span>
+                <input
+                  type="search"
+                  aria-label="Search tasks"
+                  value={search}
+                  placeholder="Search tasks, tickets, or notes"
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </label>
+              {view === "day" && (
+                <div className="plan-source">
+                  <small>
+                    Daily card
+                    {planning.imports.filter((i) => i.day === day).length
+                      ? ` · ${planning.imports.filter((i) => i.day === day).length} imports`
+                      : ""}
+                  </small>
+                  <button
+                    className="quiet"
+                    onClick={() => void showPanel("card")}
+                  >
+                    View card
+                  </button>
+                </div>
+              )}
+              {view === "day" ? (
+                planCategories.map((category) => (
+                  <section
+                    className={`plan-category ${dropTarget?.category === category && !dropTarget.beforeId ? "drop-category" : ""}`}
+                    data-card-category={category}
+                    key={category}
+                  >
+                    <div className="plan-category-title">
+                      <h3>{category}</h3>
+                      <small>
+                        {
+                          shown.filter(
+                            (i) =>
+                              allEntries.find((e) => e.itemId === i.id)
+                                ?.category === category,
+                          ).length
+                        }
+                      </small>
+                    </div>
+                    <p className="plan-category-caption">
+                      {categoryDescription[category]}
+                    </p>
+                    {shown
+                      .filter(
+                        (i) =>
+                          allEntries.find((e) => e.itemId === i.id)
+                            ?.category === category,
+                      )
+                      .map((i) => taskRow(i.id))}
+                  </section>
+                ))
+              ) : (
+                <>
+                  {shown.map((i) => taskRow(i.id))}
+                  {!shown.length && <small>No matching tasks.</small>}
                 </>
               )}
-              {modalError && <p role="alert">{modalError}</p>}
+              <div className="plan-add-row">
+                <button
+                  className="quiet"
+                  onClick={() => void showPanel("create")}
+                >
+                  + Add task
+                </button>
+              </div>
+              {view === "day" && (
+                <>
+                  <p className="plan-summary">
+                    {allEntries.filter((e) => e.workedOn).length} of{" "}
+                    {allEntries.length} tasks done on this day
+                  </p>
+                  <button
+                    className="quiet"
+                    onClick={() => {
+                      setWrapText(
+                        planning.drafts[`wrap:${day}`] ??
+                          planning.wrapups[day] ??
+                          "",
+                      );
+                      setWrapEdit(true);
+                      void showPanel("card");
+                    }}
+                  >
+                    Wrap up day
+                  </button>
+                </>
+              )}
             </>
+          )}
+        </section>
+        <section
+          className="plan-details"
+          ref={panelRef}
+          aria-label="Task workspace"
+        >
+          {detail}
+          {error && (
+            <p className="error" role="alert">
+              {error}
+            </p>
+          )}
+        </section>
+      </div>
+      <footer className="planning-footer" aria-live="polite">
+        <span>
+          {notice || "Read-only agent observations · Task completion is manual"}
+        </span>
+        {planning.undoId && (
+          <button
+            className="quiet"
+            disabled={busy}
+            onClick={() =>
+              void run(
+                { type: "undoPlanning", undoId: planning.undoId! },
+                "Undid the last planning change",
+              )
+            }
+          >
+            Undo
+          </button>
+        )}
+      </footer>
+      {modal === "move" && current && (
+        <Modal
+          title="Move to another day"
+          close={() => {
+            if (!busy) setModal(null);
+          }}
+        >
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void run(
+                {
+                  type: "reschedulePlanItem",
+                  id: current.id,
+                  fromDay: day,
+                  day: targetDay,
+                  category: targetCategory,
+                },
+                "Task moved; context retained",
+              ).then((ok) => {
+                if (ok) {
+                  setModal(null);
+                  setDay(targetDay);
+                  setSelected(current.id);
+                }
+              });
+            }}
+          >
+            <strong>{nameOf(current.id)}</strong>
+            <div className="plan-actions">
+              {[1, 3, 5].map((n) => (
+                <button
+                  type="button"
+                  key={n}
+                  onClick={() => setTargetDay(nextBusinessDay(day, n))}
+                >
+                  {n === 1 ? "Next business day" : `+${n} business days`}
+                </button>
+              ))}
+            </div>
+            <small>
+              Business days are Monday–Friday. Choose any date below.
+            </small>
+            <label>
+              Day
+              <input
+                type="date"
+                required
+                min="1900-01-01"
+                max="9999-12-31"
+                value={targetDay}
+                onChange={(e) => setTargetDay(e.target.value)}
+              />
+            </label>
+            <label>
+              Category
+              <select
+                value={targetCategory}
+                onChange={(e) =>
+                  setTargetCategory(e.target.value as PlanCategory)
+                }
+              >
+                {planCategories.map((c) => (
+                  <option key={c}>{c}</option>
+                ))}
+              </select>
+            </label>
+            <p>
+              Moves this task off {dayLabel(day)}. Notes, tickets, chats, and
+              links stay with it. The done mark is reset on the destination day.
+            </p>
+            {error && (
+              <p className="error" role="alert">
+                {error}
+              </p>
+            )}
+            <div className="plan-actions">
+              <button className="primary" disabled={busy}>
+                Move to day
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => setModal(null)}
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+      {modal === "chats" && current && (
+        <Modal
+          title="Link chats"
+          close={() => {
+            if (!busy) setModal(null);
+          }}
+        >
+          <label>
+            Search chats to link
+            <input
+              autoFocus
+              type="search"
+              value={chatSearch}
+              onChange={(e) => setChatSearch(e.target.value)}
+            />
+          </label>
+          <div className="plan-chat-picker">
+            {snapshot.chats
+              .filter((c) =>
+                `${displayName(c)} ${providerLabel(c.provider)} ${snapshot.projects.find((p) => p.id === c.repoProjectId)?.name || ""}`
+                  .toLowerCase()
+                  .includes(chatSearch.toLowerCase()),
+              )
+              .sort((a, b) =>
+                (b.lastEventAt || b.createdAt).localeCompare(
+                  a.lastEventAt || a.createdAt,
+                ),
+              )
+              .map((c) => (
+                <label key={c.id}>
+                  <input
+                    type="checkbox"
+                    checked={chatChoices.includes(c.id)}
+                    onChange={(e) =>
+                      setChatChoices(
+                        e.target.checked
+                          ? [...chatChoices, c.id]
+                          : chatChoices.filter((id) => id !== c.id),
+                      )
+                    }
+                  />
+                  <span>
+                    {displayName(c)}
+                    <small>
+                      {providerLabel(c.provider)}
+                      {c.archived ? " · Archived" : ""}
+                    </small>
+                  </span>
+                </label>
+              ))}
+          </div>
+          {error && (
+            <p className="error" role="alert">
+              {error}
+            </p>
+          )}
+          <div className="plan-actions">
+            <button
+              disabled={busy}
+              onClick={() =>
+                void run(
+                  {
+                    type: "setPlanChats",
+                    id: current.id,
+                    chatIds: chatChoices,
+                  },
+                  "Chats linked",
+                ).then((ok) => {
+                  if (ok) setModal(null);
+                })
+              }
+            >
+              Save links
+            </button>
+            <button disabled={busy} onClick={() => setModal(null)}>
+              Cancel
+            </button>
+          </div>
+        </Modal>
+      )}
+      {modal === "last-day" && current && (
+        <Modal
+          title="Remove this task?"
+          close={() => {
+            if (!busy) setModal(null);
+          }}
+        >
+          <p>
+            This is the final card containing{" "}
+            <strong>{nameOf(current.id)}</strong>. Removing it also removes the
+            task's notes, tickets, saved links, and chat associations.
+          </p>
+          <p>
+            The original chats, tickets, and linked pages remain. Undo can
+            restore the task.
+          </p>
+          <div className="plan-actions">
+            <button
+              data-initial-focus
+              autoFocus
+              disabled={busy}
+              onClick={() => setModal(null)}
+            >
+              Cancel
+            </button>
+            <button
+              className="danger"
+              disabled={busy}
+              onClick={() =>
+                void run(
+                  {
+                    type: "removePlanEntry",
+                    id: current.id,
+                    day: removeDay,
+                    confirmLast: true,
+                  },
+                  "Final card removed; task removed",
+                ).then((ok) => {
+                  if (ok) {
+                    setModal(null);
+                    setSelected("");
+                  }
+                })
+              }
+            >
+              Remove task
+            </button>
+          </div>
+          {error && (
+            <p className="error" role="alert">
+              {error}
+            </p>
           )}
         </Modal>
       )}
     </main>
   );
 });
+export default Planning;
