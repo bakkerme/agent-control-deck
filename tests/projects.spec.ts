@@ -1,14 +1,13 @@
-import { test, expect, _electron as electron } from "@playwright/test";
+import { test, expect } from "./renderer-fixture";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 
-test("long project names use the full row while hover controls overlay without shifting it", async () => {
+test("long project names use the full row while hover controls overlay without shifting it", async ({ launchRenderer }) => {
   const dir = mkdtempSync(join(tmpdir(), "acd-project-layout-"));
-  const env = Object.fromEntries(Object.entries(process.env).filter(([key, value]) => key !== "ELECTRON_RUN_AS_NODE" && value !== undefined)) as Record<string, string>;
-  const app = await electron.launch({ executablePath: process.env.ACD_PACKAGED_EXECUTABLE, args: [...(process.env.ACD_PACKAGED_EXECUTABLE ? [] : [resolve(".")]), `--data-dir=${dir}`], env: { ...env, ACD_HTTP_PORT: "0" } });
+  const app = await launchRenderer({ dataDirectory: dir });
   try {
     const page = await app.firstWindow();
     const names = ["agent-control-deck", "agent-control-deck-desktop-integrations", "agent-control-deck-desktop-integrations-windows-wsl"];
@@ -16,7 +15,7 @@ test("long project names use the full row while hover controls overlay without s
     const rowFor = (name: string) => page.locator(".project-row").filter({ has: page.getByText(name, { exact: true }) });
     const heading = page.getByRole("heading", { name: "Projects", exact: true });
     for (const width of [1280, 980]) {
-      await app.evaluate(({ BrowserWindow }, width) => BrowserWindow.getAllWindows()[0].setSize(width, 650), width);
+      await app.resize(width, 650);
       await expect.poll(() => page.evaluate(() => innerWidth)).toBe(width);
       await heading.hover();
       for (const name of names) {
@@ -79,14 +78,13 @@ test("long project names use the full row while hover controls overlay without s
   } finally { await app.close(); rmSync(dir, { recursive: true, force: true }); }
 });
 
-test("rename repository labels, move chats completely, and group real worktrees by default", async () => {
+test("rename repository labels, move chats completely, and group real worktrees by default", async ({ launchRenderer }) => {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "acd-projects-")));
   const root = join(dir, "agent-control-deck"), worktree = join(dir, "temporary-worktree");
   execFileSync("git", ["init", "--initial-branch=main", root], { stdio: "pipe" });
   execFileSync("git", ["-C", root, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "--allow-empty", "-m", "Fixture"], { stdio: "pipe" });
   execFileSync("git", ["-C", root, "worktree", "add", "--detach", worktree], { stdio: "pipe" });
-  const env = Object.fromEntries(Object.entries(process.env).filter(([key, value]) => key !== "ELECTRON_RUN_AS_NODE" && value !== undefined)) as Record<string, string>;
-  const launch = () => electron.launch({ executablePath: process.env.ACD_PACKAGED_EXECUTABLE, args: [...(process.env.ACD_PACKAGED_EXECUTABLE ? [] : [resolve(".")]), `--data-dir=${dir}`], env: { ...env, ACD_HTTP_PORT: "0" } });
+  const launch = () => launchRenderer({ dataDirectory: dir });
   let app = await launch();
   try {
     let page = await app.firstWindow();

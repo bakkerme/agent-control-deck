@@ -1,13 +1,12 @@
-import { test, expect, _electron as electron } from "@playwright/test";
+import { test, expect } from "./renderer-fixture";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 
-test("compact links, editable rules, source context and project membership survive restart", async () => {
+test("compact links, editable rules, source context and project membership survive restart", async ({ launchRenderer }) => {
   const dir = mkdtempSync(join(tmpdir(), "acd-links-ui-"));
-  const env = Object.fromEntries(Object.entries(process.env).filter(([key, value]) => key !== "ELECTRON_RUN_AS_NODE" && value !== undefined)) as Record<string, string>;
-  const launch = () => electron.launch({ executablePath: process.env.ACD_PACKAGED_EXECUTABLE, args: [...(process.env.ACD_PACKAGED_EXECUTABLE ? [] : [resolve(".")]), `--data-dir=${dir}`], env: { ...env, ACD_HTTP_PORT: "0" } });
+  const launch = () => launchRenderer({ dataDirectory: dir });
   let app = await launch();
   try {
     let page = await app.firstWindow();
@@ -55,12 +54,8 @@ test("compact links, editable rules, source context and project membership survi
     await expect(projectLinks()).toHaveCount(0);
     await expect(chatLinks().getByRole("button", { name: /^Open link / })).toHaveCount(3);
     await page.locator(".projects").getByRole("button", { name: /^payments 2$/ }).click();
-    await app.evaluate(({ shell }) => {
-      (globalThis as unknown as { openedLinks: string[] }).openedLinks = [];
-      shell.openExternal = async (url: string) => { (globalThis as unknown as { openedLinks: string[] }).openedLinks.push(url); };
-    });
     await chatLinks().getByRole("button", { name: "Open link team.example/browse/PAY-142", exact: true }).click();
-    await expect.poll(() => app.evaluate(() => (globalThis as unknown as { openedLinks: string[] }).openedLinks)).toEqual(["https://team.example/browse/PAY-142"]);
+    await expect.poll(() => app.openedUrls()).toEqual(["https://team.example/browse/PAY-142"]);
     await expect(page.evaluate(() => window.deck.openLink("missing"))).rejects.toThrow(/no longer exists/);
     await page.getByRole("region", { name: "Chat organization" }).getByRole("button", { name: "Archive chat", exact: true }).click();
     await expect(projectLinks().getByRole("button", { name: /^Open link / })).toHaveCount(3);
@@ -73,7 +68,7 @@ test("compact links, editable rules, source context and project membership survi
     await expect(projectLinks().getByRole("button", { name: /^Open link / })).toHaveCount(1);
     await page.locator(".projects").getByRole("button", { name: /^Release work 1$/ }).click();
     await expect(projectLinks().getByRole("button", { name: /^Open link / })).toHaveCount(3);
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(980, 650));
+    await app.resize(980, 650);
     expect(await projectLinks().locator(".detected-link").first().evaluate(el => el.getBoundingClientRect().height)).toBeLessThanOrEqual(28);
     expect(await page.locator(".link-destination").evaluateAll(elements => elements.every(el => { const row=el.closest('.detected-link')!.getBoundingClientRect(), box=el.getBoundingClientRect();return box.left>=row.left && box.right<=row.right; }))).toBe(true);
     await page.screenshot({ path: "test-results/links-minimum.png" });

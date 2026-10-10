@@ -1,15 +1,11 @@
-import { test, expect, _electron as electron } from "@playwright/test";
+import { test, expect } from "./renderer-fixture";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 
-test("Claude monitoring uses existing HTTP hooks, stays visible between turns and clears explicitly", async () => {
+test("Claude monitoring uses existing HTTP hooks, stays visible between turns and clears explicitly", async ({ launchRenderer }) => {
   const dir = mkdtempSync(join(tmpdir(), "acd-monitoring-ui-"));
-  const env = Object.fromEntries(Object.entries(process.env).filter(([key, value]) => key !== "ELECTRON_RUN_AS_NODE" && value !== undefined)) as Record<string, string>;
-  const app = await electron.launch({
-    executablePath: process.env.ACD_PACKAGED_EXECUTABLE,
-    args: [...(process.env.ACD_PACKAGED_EXECUTABLE ? [] : [resolve(".")]), `--data-dir=${dir}`], env: { ...env, ACD_HTTP_PORT: "0" },
-  });
+  const app = await launchRenderer({ dataDirectory: dir });
   try {
     const page = await app.firstWindow();
     const errors: string[] = [];
@@ -48,7 +44,7 @@ test("Claude monitoring uses existing HTTP hooks, stays visible between turns an
     await expect(observations).toContainText("Recurring · */10 * * * *");
     await expect(observations).toContainText("Last observation");
     await expect(observations.locator("script, img, a")).toHaveCount(0);
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(980, 650));
+    await app.resize(980, 650);
     await page.screenshot({ path: "test-results/monitoring-minimum.png", fullPage: true });
     await filters.getByRole("button", { name: /^All / }).click();
     await emit("UserPromptSubmit", { prompt: "Check again" });

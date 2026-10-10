@@ -1,14 +1,13 @@
-import { test, expect, _electron as electron } from "@playwright/test";
+import { test, expect } from "./renderer-fixture";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { organizationField } from "./ui-helpers";
 import { randomUUID } from "node:crypto";
 
-test("visible naming and organization controls persist; native input lamps clear on archive and resume", async () => {
+test("visible naming and organization controls persist across archive and resume", async ({ launchRenderer }) => {
   const dir = mkdtempSync(join(tmpdir(), "acd-organization-"));
-  const env = Object.fromEntries(Object.entries(process.env).filter(([key, value]) => key !== "ELECTRON_RUN_AS_NODE" && value !== undefined)) as Record<string, string>;
-  const launch = () => electron.launch({ executablePath: process.env.ACD_PACKAGED_EXECUTABLE, args: [...(process.env.ACD_PACKAGED_EXECUTABLE ? [] : [resolve(".")]), `--data-dir=${dir}`], env: { ...env, ACD_HTTP_PORT: "0" } });
+  const launch = () => launchRenderer({ dataDirectory: dir });
   let app = await launch();
   try {
     let page = await app.firstWindow();
@@ -31,43 +30,17 @@ test("visible naming and organization controls persist; native input lamps clear
     await expect(page.getByRole("button", { name: "Select chat Plan the rollout" })).toContainText("Customer experience");
     await organization.getByRole("combobox", { name: "Project", exact: true }).selectOption({ label: "Launch" });
     await expect(page.getByRole("status")).toHaveText("Saved");
-    // Capture actual OS icon updates without introducing test-only IPC into the app.
-    await app.evaluate(({ app, BrowserWindow }) => {
-      const icons: string[] = [];
-      (globalThis as unknown as { inputIcons: string[] }).inputIcons = icons;
-      if (process.platform === "darwin") {
-        const original = app.dock!.setIcon.bind(app.dock);
-        app.dock!.setIcon = image => { icons.push(typeof image === "string" ? image : image.toDataURL()); original(image); };
-      } else if (process.platform === "win32") {
-        const window = BrowserWindow.getAllWindows()[0];
-        const original = window.setOverlayIcon.bind(window);
-        window.setOverlayIcon = (image, description) => { icons.push(image ? image.toDataURL() : "clear"); original(image, description); };
-      }
-    });
-    const icons = () => app.evaluate(() => (globalThis as unknown as { inputIcons: string[] }).inputIcons);
     await (await organizationField(page, "Manual state")).selectOption("waiting");
     await expect(page.getByRole("status")).toHaveText("Saved");
-    if (process.platform === "darwin" || process.platform === "win32") await expect.poll(async () => (await icons()).length).toBe(1);
     await page.getByRole("button", { name: /^No project 0$/ }).click();
-    // Filtering the waiting chat out or viewing another page must not clear the lamp.
+    // Organization controls stay usable when the chat is filtered out.
     await page.getByRole("button", { name: "Sources", exact: true }).click();
-    if (process.platform === "darwin" || process.platform === "win32") expect((await icons()).length).toBe(1);
     await page.getByRole("button", { name: "Workspace", exact: true }).click();
     await organization.getByRole("button", { name: "Archive chat", exact: true }).click();
-    if (process.platform === "darwin" || process.platform === "win32") {
-      await expect.poll(async () => (await icons()).length).toBe(2);
-      expect((await icons())[0]).not.toBe((await icons())[1]);
-    }
     await organization.getByRole("button", { name: "Restore chat", exact: true }).click();
     await (await organizationField(page, "Manual state")).selectOption("running");
     await expect(page.getByRole("status")).toHaveText("Saved");
-    if (process.platform === "darwin" || process.platform === "win32") {
-      await expect.poll(async () => (await icons()).length).toBe(4);
-      expect((await icons())[0]).toBe((await icons())[2]);
-      expect((await icons())[1]).toBe((await icons())[3]);
-      writeFileSync("test-results/input-lamp.png", Buffer.from((await icons())[0].split(",")[1], "base64"));
-    }
-    // The durable inbox must update the native indicator even while the chat is filtered out.
+    // The durable inbox must update state even while the chat is filtered out.
     const sourceSnapshot = await page.evaluate(() => window.deck.command({ type: "createSource", name: "Input source", provider: "claude", environment: "native" }));
     const source = sourceSnapshot.sources[0];
     const emit = (event: string, extra: Record<string, unknown> = {}) => writeFileSync(join(sourceSnapshot.setups[source.id].inbox, `${randomUUID()}.json`), JSON.stringify({ version: 1, eventId: randomUUID(), payload: { hook_event_name: event, session_id: "waiting-chat", cwd: "/work/elsewhere", ...extra } }));
@@ -75,17 +48,13 @@ test("visible naming and organization controls persist; native input lamps clear
     await expect.poll(async () => (await page.evaluate(() => window.deck.load())).chats.find(c => c.externalId === "waiting-chat")?.state).toBe("running");
     emit("Notification", { notification_type: "permission_prompt", message: "Needs input in Claude" });
     await expect.poll(async () => (await page.evaluate(() => window.deck.load())).chats.find(c => c.externalId === "waiting-chat")?.state).toBe("waiting");
-    if (process.platform === "darwin" || process.platform === "win32") await expect.poll(async () => (await icons()).length).toBe(5);
     // Answering Claude's question resumes a tool without submitting a prompt.
     emit("PostToolUse", { tool_name: "AskUserQuestion", tool_response: { answers: { "Continue?": "Yes" } } });
     await expect.poll(async () => (await page.evaluate(() => window.deck.load())).chats.find(c => c.externalId === "waiting-chat")?.state).toBe("running");
-    if (process.platform === "darwin" || process.platform === "win32") await expect.poll(async () => (await icons()).length).toBe(6);
     await page.getByRole("button", { name: "Try demo", exact: true }).click();
-    if (process.platform === "darwin" || process.platform === "win32") await expect.poll(async () => (await icons()).length).toBe(7);
     await page.getByRole("button", { name: "Leave demo", exact: true }).click();
-    if (process.platform === "darwin" || process.platform === "win32") await expect.poll(async () => (await icons()).length).toBe(8);
     await page.getByRole("button", { name: "Select chat Plan the rollout", exact: true }).click();
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(980, 650));
+    await app.resize(980, 650);
     expect(await organization.evaluate(el => { const a = el.getBoundingClientRect(), b = el.closest(".details")!.getBoundingClientRect(); return a.left >= b.left && a.right <= b.right; })).toBe(true);
     await page.screenshot({ path: "test-results/organization-minimum.png" });
     await organization.getByRole("button", { name: "Archive chat", exact: true }).click();

@@ -1,13 +1,12 @@
-import { test, expect, _electron as electron } from "@playwright/test";
+import { test, expect } from "./renderer-fixture";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { notesField } from "./ui-helpers";
 
-test("Operations notes, inline tickets, browser destinations and Jira settings survive restart", async () => {
+test("Operations notes, inline tickets, browser destinations and Jira settings survive restart", async ({ launchRenderer }) => {
   const dir = mkdtempSync(join(tmpdir(), "acd-operations-"));
-  const env = Object.fromEntries(Object.entries(process.env).filter(([key, value]) => key !== "ELECTRON_RUN_AS_NODE" && value !== undefined)) as Record<string, string>;
-  const launch = () => electron.launch({ executablePath: process.env.ACD_PACKAGED_EXECUTABLE, args: [...(process.env.ACD_PACKAGED_EXECUTABLE ? [] : [resolve(".")]), `--data-dir=${dir}`], env: { ...env, ACD_HTTP_PORT: "0" } });
+  const launch = () => launchRenderer({ dataDirectory: dir });
   let app = await launch();
   try {
     let page = await app.firstWindow();
@@ -39,12 +38,8 @@ test("Operations notes, inline tickets, browser destinations and Jira settings s
     await expect(page.getByRole("button", { name: "Open Jira ticket DECK-42" })).toHaveText("DECK-42");
     const snapshot = await page.evaluate(() => window.deck.load());
     expect(snapshot.chats[0].jiraUrl).toBe("");
-    await app.evaluate(({ shell }) => {
-      (globalThis as unknown as { openedTickets: string[] }).openedTickets = [];
-      shell.openExternal = async (url: string) => { (globalThis as unknown as { openedTickets: string[] }).openedTickets.push(url); };
-    });
     await page.getByRole("button", { name: "Open Jira ticket DECK-42" }).click();
-    await expect.poll(() => app.evaluate(() => (globalThis as unknown as { openedTickets: string[] }).openedTickets)).toEqual(["https://company.example/jira/browse/DECK-42"]);
+    await expect.poll(() => app.openedUrls()).toEqual(["https://company.example/jira/browse/DECK-42"]);
     await page.getByRole("button", { name: "Edit ticket", exact: true }).click();
     await expect(page.locator(".detail-title form")).toBeVisible();
     await ticket.fill("DECK-999");
@@ -55,9 +50,9 @@ test("Operations notes, inline tickets, browser destinations and Jira settings s
     await ticket.fill("https://other.example/jira/browse/OTHER-7");
     await ticket.press("Enter");
     await page.getByRole("button", { name: "Open Jira ticket OTHER-7" }).click();
-    await expect.poll(() => app.evaluate(() => (globalThis as unknown as { openedTickets: string[] }).openedTickets)).toEqual(["https://company.example/jira/browse/DECK-42", "https://other.example/jira/browse/OTHER-7"]);
+    await expect.poll(() => app.openedUrls()).toEqual(["https://company.example/jira/browse/DECK-42", "https://other.example/jira/browse/OTHER-7"]);
     // The long URL editor stays inside the sidebar even at minimum window size.
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(980, 650));
+    await app.resize(980, 650);
     await page.getByRole("button", { name: "Edit ticket", exact: true }).click();
     expect(await page.locator(".ticket-inline").evaluate(el => { const a=el.getBoundingClientRect(), b=el.closest(".details")!.getBoundingClientRect(); return a.left >= b.left && a.right <= b.right; })).toBe(true);
     await ticket.press("Escape");
