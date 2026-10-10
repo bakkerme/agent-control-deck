@@ -6,65 +6,156 @@ import { notesField } from "./ui-helpers";
 
 test("Operations notes, inline tickets, browser destinations and Jira settings survive restart", async () => {
   const dir = mkdtempSync(join(tmpdir(), "acd-operations-"));
-  const env = Object.fromEntries(Object.entries(process.env).filter(([key, value]) => key !== "ELECTRON_RUN_AS_NODE" && value !== undefined)) as Record<string, string>;
-  const launch = () => electron.launch({ executablePath: process.env.ACD_PACKAGED_EXECUTABLE, args: [...(process.env.ACD_PACKAGED_EXECUTABLE ? [] : [resolve(".")]), `--data-dir=${dir}`], env: { ...env, ACD_HTTP_PORT: "0" } });
+  const env = Object.fromEntries(
+    Object.entries(process.env).filter(
+      ([key, value]) => key !== "ELECTRON_RUN_AS_NODE" && value !== undefined,
+    ),
+  ) as Record<string, string>;
+  const launch = () =>
+    electron.launch({
+      executablePath: process.env.ACD_PACKAGED_EXECUTABLE,
+      args: [
+        ...(process.env.ACD_PACKAGED_EXECUTABLE ? [] : [resolve(".")]),
+        `--data-dir=${dir}`,
+      ],
+      env: { ...env, ACD_HTTP_PORT: "0" },
+    });
   let app = await launch();
   try {
     let page = await app.firstWindow();
+    await page
+      .getByRole("button", { name: "Repositories", exact: true })
+      .click();
     const errors: string[] = [];
-    page.on("pageerror", e => errors.push(e.message));
+    page.on("pageerror", (e) => errors.push(e.message));
     await page.getByRole("button", { name: "Settings", exact: true }).click();
-    await page.getByLabel("Jira base URL").fill("https://company.example/jira/");
+    await page
+      .getByLabel("Jira base URL")
+      .fill("https://company.example/jira/");
     await page.getByRole("button", { name: "Save settings" }).click();
     await expect(page.getByRole("status")).toHaveText("Saved");
-    await page.getByRole("button", { name: "Workspace", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Repositories", exact: true })
+      .click();
     await page.getByRole("button", { name: "New chat", exact: true }).click();
-    await page.getByRole("dialog").getByLabel("Chat name").fill("Operations notes");
-    await page.getByRole("dialog").getByRole("button", { name: "Create chat", exact: true }).click();
-    const markdown = "## Follow-up\n\n**Keep** notes in Markdown.\n\n- [x] Check `curl.exe`\n- [ ] Review the results\n\n<script>alert(1)</script>\n\n![Remote](https://example.com/image.png)";
+    await page
+      .getByRole("dialog")
+      .getByLabel("Name", { exact: true })
+      .fill("Operations notes");
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Create chat", exact: true })
+      .click();
+    const markdown =
+      "## Follow-up\n\n**Keep** notes in Markdown.\n\n- [x] Check `curl.exe`\n- [ ] Review the results\n\n<script>alert(1)</script>\n\n![Remote](https://example.com/image.png)";
     await (await notesField(page)).fill(markdown);
-    await (await notesField(page)).press(process.platform === "darwin" ? "Meta+Enter" : "Control+Enter");
+    await (
+      await notesField(page)
+    ).press(process.platform === "darwin" ? "Meta+Enter" : "Control+Enter");
     await expect(page.locator(".rendered-notes h2")).toHaveText("Follow-up");
     await expect(page.locator(".rendered-notes strong")).toHaveText("Keep");
     await expect(page.locator(".rendered-notes code")).toHaveText("curl.exe");
-    await expect(page.locator(".rendered-notes script, .rendered-notes img")).toHaveCount(0);
-    await expect(page.getByRole("textbox", { name: "Notes", exact: true })).toHaveCount(0);
+    await expect(
+      page.locator(".rendered-notes script, .rendered-notes img"),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("textbox", { name: "Notes", exact: true }),
+    ).toHaveCount(0);
     await page.locator(".rendered-notes").click();
-    await expect(page.getByRole("textbox", { name: "Notes", exact: true })).toHaveValue(markdown);
+    await expect(
+      page.getByRole("textbox", { name: "Notes", exact: true }),
+    ).toHaveValue(markdown);
     await page.getByRole("button", { name: "Done", exact: true }).click();
     await page.getByRole("button", { name: "Add ticket", exact: true }).click();
     const ticket = page.getByLabel("Ticket number or full URL");
     await ticket.fill("deck-42");
     await ticket.press("Enter");
-    await expect(page.getByRole("button", { name: "Open Jira ticket DECK-42" })).toHaveText("DECK-42");
+    await expect(
+      page.getByRole("button", { name: "Open Jira ticket DECK-42" }),
+    ).toHaveText("DECK-42");
     const snapshot = await page.evaluate(() => window.deck.load());
     expect(snapshot.chats[0].jiraUrl).toBe("");
     await app.evaluate(({ shell }) => {
       (globalThis as unknown as { openedTickets: string[] }).openedTickets = [];
-      shell.openExternal = async (url: string) => { (globalThis as unknown as { openedTickets: string[] }).openedTickets.push(url); };
+      shell.openExternal = async (url: string) => {
+        (
+          globalThis as unknown as { openedTickets: string[] }
+        ).openedTickets.push(url);
+      };
     });
-    await page.getByRole("button", { name: "Open Jira ticket DECK-42" }).click();
-    await expect.poll(() => app.evaluate(() => (globalThis as unknown as { openedTickets: string[] }).openedTickets)).toEqual(["https://company.example/jira/browse/DECK-42"]);
-    await page.getByRole("button", { name: "Edit ticket", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Open Jira ticket DECK-42" })
+      .click();
+    await expect
+      .poll(() =>
+        app.evaluate(
+          () =>
+            (globalThis as unknown as { openedTickets: string[] })
+              .openedTickets,
+        ),
+      )
+      .toEqual(["https://company.example/jira/browse/DECK-42"]);
+    await page
+      .getByRole("button", { name: "Edit ticket", exact: true })
+      .click();
     await expect(page.locator(".detail-title form")).toBeVisible();
     await ticket.fill("DECK-999");
     await ticket.press("Escape");
-    await expect(page.getByRole("button", { name: "Open Jira ticket DECK-42" })).toBeVisible();
-    expect((await page.evaluate(() => window.deck.load())).chats[0].jiraKey).toBe("DECK-42");
-    await page.getByRole("button", { name: "Edit ticket", exact: true }).click();
+    await expect(
+      page.getByRole("button", { name: "Open Jira ticket DECK-42" }),
+    ).toBeVisible();
+    expect(
+      (await page.evaluate(() => window.deck.load())).chats[0].jiraKey,
+    ).toBe("DECK-42");
+    await page
+      .getByRole("button", { name: "Edit ticket", exact: true })
+      .click();
     await ticket.fill("https://other.example/jira/browse/OTHER-7");
     await ticket.press("Enter");
-    await page.getByRole("button", { name: "Open Jira ticket OTHER-7" }).click();
-    await expect.poll(() => app.evaluate(() => (globalThis as unknown as { openedTickets: string[] }).openedTickets)).toEqual(["https://company.example/jira/browse/DECK-42", "https://other.example/jira/browse/OTHER-7"]);
+    await page
+      .getByRole("button", { name: "Open Jira ticket OTHER-7" })
+      .click();
+    await expect
+      .poll(() =>
+        app.evaluate(
+          () =>
+            (globalThis as unknown as { openedTickets: string[] })
+              .openedTickets,
+        ),
+      )
+      .toEqual([
+        "https://company.example/jira/browse/DECK-42",
+        "https://other.example/jira/browse/OTHER-7",
+      ]);
     // The long URL editor stays inside the sidebar even at minimum window size.
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(980, 650));
-    await page.getByRole("button", { name: "Edit ticket", exact: true }).click();
-    expect(await page.locator(".ticket-inline").evaluate(el => { const a=el.getBoundingClientRect(), b=el.closest(".details")!.getBoundingClientRect(); return a.left >= b.left && a.right <= b.right; })).toBe(true);
+    await app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()[0].setSize(980, 650),
+    );
+    await page
+      .getByRole("button", { name: "Edit ticket", exact: true })
+      .click();
+    expect(
+      await page.locator(".ticket-inline").evaluate((el) => {
+        const a = el.getBoundingClientRect(),
+          b = el.closest(".details")!.getBoundingClientRect();
+        return a.left >= b.left && a.right <= b.right;
+      }),
+    ).toBe(true);
     await ticket.press("Escape");
-    await page.getByRole("navigation", { name: "Quick status filters" }).getByRole("button", { name: /^Finished turns/ }).click();
-    await expect(page.getByRole("button", { name: "Select chat Operations notes" })).toHaveCount(0);
-    await page.getByRole("navigation", { name: "Quick status filters" }).getByRole("button", { name: /^All / }).click();
-    await expect(page.getByRole("button", { name: "Select chat Operations notes" })).toBeVisible();
+    await page
+      .getByRole("navigation", { name: "Quick status filters" })
+      .getByRole("button", { name: /^Finished turns/ })
+      .click();
+    await expect(
+      page.getByRole("button", { name: "Select chat Operations notes" }),
+    ).toHaveCount(0);
+    await page
+      .getByRole("navigation", { name: "Quick status filters" })
+      .getByRole("button", { name: /^All / })
+      .click();
+    await expect(
+      page.getByRole("button", { name: "Select chat Operations notes" }),
+    ).toBeVisible();
     await page.screenshot({ path: "test-results/operations-minimum.png" });
     await page.getByRole("button", { name: "Try demo", exact: true }).click();
     await page.getByRole("button", { name: "Settings", exact: true }).click();
@@ -74,21 +165,40 @@ test("Operations notes, inline tickets, browser destinations and Jira settings s
     await expect(page.getByRole("status")).toHaveText("Saved");
     await page.getByRole("button", { name: "Leave demo", exact: true }).click();
     await page.getByRole("button", { name: "Settings", exact: true }).click();
-    await expect(page.getByLabel("Jira base URL")).toHaveValue("https://company.example/jira");
+    await expect(page.getByLabel("Jira base URL")).toHaveValue(
+      "https://company.example/jira",
+    );
     await page.getByLabel("Jira base URL").fill("javascript:alert(1)");
-    await page.getByRole("button", { name: "Workspace", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Repositories", exact: true })
+      .click();
     await expect(page.getByRole("alert")).toBeVisible();
-    await expect(page.getByLabel("Jira base URL")).toHaveValue("javascript:alert(1)");
+    await expect(page.getByLabel("Jira base URL")).toHaveValue(
+      "javascript:alert(1)",
+    );
     await page.getByLabel("Jira base URL").fill("https://company.example/jira");
     await page.getByRole("button", { name: "Save settings" }).click();
     await expect(page.getByRole("status")).toHaveText("Saved");
     await app.close();
-    app = await launch(); page = await app.firstWindow();
-    await page.getByRole("button", { name: "Select chat Operations notes" }).click();
+    app = await launch();
+    page = await app.firstWindow();
+    await page
+      .getByRole("button", { name: "Repositories", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Select chat Operations notes" })
+      .click();
     await expect(page.locator(".rendered-notes h2")).toHaveText("Follow-up");
-    await expect(page.getByRole("button", { name: "Open Jira ticket OTHER-7" })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Open Jira ticket OTHER-7" }),
+    ).toBeVisible();
     await page.getByRole("button", { name: "Settings", exact: true }).click();
-    await expect(page.getByLabel("Jira base URL")).toHaveValue("https://company.example/jira");
+    await expect(page.getByLabel("Jira base URL")).toHaveValue(
+      "https://company.example/jira",
+    );
     expect(errors).toEqual([]);
-  } finally { await app.close(); rmSync(dir, { recursive: true, force: true }); }
+  } finally {
+    await app.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

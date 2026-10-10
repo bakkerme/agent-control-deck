@@ -12,18 +12,36 @@ import type {
   Settings,
   Subagent,
   ChatLink,
+  ChatRound,
 } from "../shared/types";
 import { PlanningStore } from "./planning-store";
 import { commandSchema, envelopeSchema } from "../shared/validation";
 import { normalize, type Observation } from "./providers";
-import { canonicalPath, repositoryLocation, repositoryRoot } from "./repositories";
+import {
+  canonicalPath,
+  repositoryLocation,
+  repositoryRoot,
+} from "./repositories";
 import { MAX_CHAT_LINKS } from "../shared/links";
+import { parseDailyPlan } from "../shared/planning";
 export { canonicalPath } from "./repositories";
 
-type ChatRow = Omit<Chat, "subagents" | "backgroundTasks" | "scheduledChecks"> & { subagentBaselineAt: string | null };
-type BackgroundSnapshotRow = { chatId: string; kind: "backgroundTasks" | "scheduledChecks"; state: "observed" | "unknown"; lastEventAt: string; items: string };
+type ChatRow = Omit<
+  Chat,
+  "subagents" | "backgroundTasks" | "scheduledChecks" | "latestRound"
+> & { subagentBaselineAt: string | null };
+type BackgroundSnapshotRow = {
+  chatId: string;
+  kind: "backgroundTasks" | "scheduledChecks";
+  state: "observed" | "unknown";
+  lastEventAt: string;
+  items: string;
+};
 type SubagentRow = Subagent & { chatId: string };
-type ProjectRow = Project & { repositoryPath: string | null; mergedInto: string | null };
+type ProjectRow = Project & {
+  repositoryPath: string | null;
+  mergedInto: string | null;
+};
 
 const now = () => new Date().toISOString();
 const uuid = () => randomUUID();
@@ -39,11 +57,11 @@ export class Store {
       const version = this.db.pragma("user_version", {
         simple: true,
       }) as number;
-      if (version > 10)
+      if (version > 11)
         throw new Error(
           "This database was created by a newer version of Agent Control Deck",
         );
-      if (version < 10 && existed) {
+      if (version < 11 && existed) {
         this.db.pragma("wal_checkpoint(TRUNCATE)");
         copyFileSync(filename, `${filename}.bak-${Date.now()}`);
       }
@@ -75,7 +93,9 @@ export class Store {
               PRAGMA user_version = 2;
             `);
             if ((this.db.pragma("foreign_key_check") as unknown[]).length)
-              throw new Error("Database migration failed its relationship check");
+              throw new Error(
+                "Database migration failed its relationship check",
+              );
           })();
         } finally {
           this.db.pragma("foreign_keys = ON");
@@ -104,24 +124,51 @@ export class Store {
           // groupings so no user organization or project names are lost.
           const repositories = new Map<string, Workspace[]>();
           for (const workspace of this.workspaces()) {
-            const root = repositoryRoot(workspace.path, this.source(workspace.sourceId));
-            if (root) repositories.set(root, [...(repositories.get(root) ?? []), workspace]);
+            const root = repositoryRoot(
+              workspace.path,
+              this.source(workspace.sourceId),
+            );
+            if (root)
+              repositories.set(root, [
+                ...(repositories.get(root) ?? []),
+                workspace,
+              ]);
           }
           for (const [root, workspaces] of repositories) {
-            const primary = workspaces.find(w => {
-              if (canonicalPath(w.path) === root) return true;
-              try { return canonicalPath(realpathSync.native(w.path)) === root; }
-              catch { return false; }
-            }) ?? workspaces[0];
+            const primary =
+              workspaces.find((w) => {
+                if (canonicalPath(w.path) === root) return true;
+                try {
+                  return canonicalPath(realpathSync.native(w.path)) === root;
+                } catch {
+                  return false;
+                }
+              }) ?? workspaces[0];
             for (const workspace of workspaces) {
-              this.db.prepare("UPDATE chats SET repoProjectId=? WHERE sourceId=? AND repoProjectId=?")
-                .run(primary.projectId, workspace.sourceId, workspace.projectId);
-              this.db.prepare("UPDATE workspaces SET projectId=? WHERE id=?").run(primary.projectId, workspace.id);
-              this.db.prepare("INSERT INTO workspaces VALUES (?,?,?,?) ON CONFLICT(sourceId,path) DO NOTHING")
+              this.db
+                .prepare(
+                  "UPDATE chats SET repoProjectId=? WHERE sourceId=? AND repoProjectId=?",
+                )
+                .run(
+                  primary.projectId,
+                  workspace.sourceId,
+                  workspace.projectId,
+                );
+              this.db
+                .prepare("UPDATE workspaces SET projectId=? WHERE id=?")
+                .run(primary.projectId, workspace.id);
+              this.db
+                .prepare(
+                  "INSERT INTO workspaces VALUES (?,?,?,?) ON CONFLICT(sourceId,path) DO NOTHING",
+                )
                 .run(uuid(), workspace.sourceId, primary.projectId, root);
             }
           }
-          this.db.prepare("UPDATE projects SET kind='custom' WHERE id NOT IN (SELECT projectId FROM workspaces)").run();
+          this.db
+            .prepare(
+              "UPDATE projects SET kind='custom' WHERE id NOT IN (SELECT projectId FROM workspaces)",
+            )
+            .run();
         })();
       }
       if (version < 5) {
@@ -190,8 +237,65 @@ export class Store {
           `);
         })();
       }
+      if (version < 11) {
+        this.db.transaction(() => {
+          this.db.exec(`
+            ALTER TABLE plan_items ADD COLUMN tickets TEXT NOT NULL DEFAULT '[]';
+            ALTER TABLE plan_items ADD COLUMN links TEXT NOT NULL DEFAULT '[]';
+            ALTER TABLE plan_items ADD COLUMN hiddenLinks TEXT NOT NULL DEFAULT '[]';
+            ALTER TABLE plan_items ADD COLUMN categoryOverrides TEXT NOT NULL DEFAULT '{}';
+            ALTER TABLE plan_entries ADD COLUMN name TEXT NOT NULL DEFAULT '';
+            ALTER TABLE plan_entries ADD COLUMN note TEXT NOT NULL DEFAULT '';
+            UPDATE plan_entries SET name=(SELECT name FROM plan_items WHERE id=itemId);
+            CREATE TABLE plan_wrapups (day TEXT PRIMARY KEY, notes TEXT NOT NULL);
+            CREATE TABLE plan_drafts (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            CREATE TABLE plan_undo (id TEXT PRIMARY KEY, beforeState TEXT NOT NULL, afterDigest TEXT NOT NULL);
+            CREATE TABLE chat_rounds (chatId TEXT PRIMARY KEY REFERENCES chats(id), prompt TEXT NOT NULL DEFAULT '', response TEXT NOT NULL DEFAULT '', request TEXT NOT NULL DEFAULT '', requestKind TEXT, observedAt TEXT NOT NULL, truncated INTEGER NOT NULL DEFAULT 0);
+            PRAGMA user_version = 11;
+          `);
+          // Only recover explicit original import associations that are still
+          // unambiguous. Existing notes, custom groupings and chat fields stay intact.
+          const imports = new PlanningStore(this).imports();
+          for (const original of imports) {
+            try {
+              const parsed = parseDailyPlan(original.card);
+              for (const row of parsed.items) {
+                const entries = this.db
+                  .prepare(
+                    "SELECT e.itemId,i.tickets FROM plan_entries e JOIN plan_items i ON i.id=e.itemId WHERE e.day=? AND e.name=?",
+                  )
+                  .all(parsed.day, row.name) as {
+                  itemId: string;
+                  tickets: string;
+                }[];
+                if (entries.length !== 1) continue;
+                const entry = entries[0];
+                this.db
+                  .prepare(
+                    "UPDATE plan_entries SET note=? WHERE day=? AND itemId=? AND note=''",
+                  )
+                  .run(row.note, parsed.day, entry.itemId);
+                if (entry.tickets === "[]")
+                  this.db
+                    .prepare("UPDATE plan_items SET tickets=? WHERE id=?")
+                    .run(
+                      JSON.stringify(
+                        [...row.tickets, ...row.related].filter(
+                          (t, n, all) =>
+                            all.findIndex((other) => other.key === t.key) === n,
+                        ),
+                      ),
+                      entry.itemId,
+                    );
+              }
+            } catch {
+              /* Preserve unsupported legacy originals verbatim. */
+            }
+          }
+        })();
+      }
       this.reconcileRepositories(() => {
-        if (version >= 10 && existed) {
+        if (version >= 11 && existed) {
           this.db.pragma("wal_checkpoint(TRUNCATE)");
           copyFileSync(filename, `${filename}.bak-${Date.now()}`);
         }
@@ -205,43 +309,93 @@ export class Store {
     this.db.close();
   }
   projects(): Project[] {
-    return (this.db
-      .prepare("SELECT id,name,createdAt,kind,priority FROM projects WHERE mergedInto IS NULL ORDER BY name COLLATE NOCASE, id")
-      .all() as Project[]).map(p => ({ ...p, priority: !!p.priority }));
+    return (
+      this.db
+        .prepare(
+          "SELECT id,name,createdAt,kind,priority FROM projects WHERE mergedInto IS NULL ORDER BY name COLLATE NOCASE, id",
+        )
+        .all() as Project[]
+    ).map((p) => ({ ...p, priority: !!p.priority }));
   }
   settings(): Settings {
-    const row = this.db.prepare("SELECT value FROM settings WHERE key='jiraBaseUrl'").get() as { value: string } | undefined;
-    const rules = this.db.prepare("SELECT value FROM settings WHERE key='linkRules'").get() as { value: string } | undefined;
-    return { jiraBaseUrl: row?.value ?? "", linkRules: rules ? JSON.parse(rules.value) : [] };
+    const row = this.db
+      .prepare("SELECT value FROM settings WHERE key='jiraBaseUrl'")
+      .get() as { value: string } | undefined;
+    const rules = this.db
+      .prepare("SELECT value FROM settings WHERE key='linkRules'")
+      .get() as { value: string } | undefined;
+    return {
+      jiraBaseUrl: row?.value ?? "",
+      linkRules: rules ? JSON.parse(rules.value) : [],
+    };
   }
   links(): ChatLink[] {
-    return this.db.prepare("SELECT * FROM chat_links ORDER BY lastSeenAt DESC,id").all() as ChatLink[];
+    return this.db
+      .prepare("SELECT * FROM chat_links ORDER BY lastSeenAt DESC,id")
+      .all() as ChatLink[];
   }
   link(id: string): ChatLink {
-    const row = this.db.prepare("SELECT * FROM chat_links WHERE id=?").get(id) as ChatLink | undefined;
+    const row = this.db
+      .prepare("SELECT * FROM chat_links WHERE id=?")
+      .get(id) as ChatLink | undefined;
     if (!row) throw new Error("Link no longer exists");
     return row;
   }
   chats(): Chat[] {
     const background = this.backgroundObservations();
+    const rounds = new Map(
+      (
+        this.db.prepare("SELECT * FROM chat_rounds").all() as (ChatRound & {
+          chatId: string;
+        })[]
+      ).map(({ chatId, ...round }) => [
+        chatId,
+        { ...round, truncated: !!round.truncated },
+      ]),
+    );
     const agents = new Map<string, Subagent[]>();
-    for (const { chatId, ...agent } of this.db.prepare("SELECT * FROM subagents WHERE state!='finished' ORDER BY id").all() as SubagentRow[]) {
+    for (const { chatId, ...agent } of this.db
+      .prepare("SELECT * FROM subagents WHERE state!='finished' ORDER BY id")
+      .all() as SubagentRow[]) {
       const group = agents.get(chatId) ?? [];
       group.push(agent);
       agents.set(chatId, group);
     }
-    return (this.db.prepare("SELECT * FROM chats ORDER BY createdAt,id").all() as ChatRow[])
-      .map(({ subagentBaselineAt, ...c }) => ({ ...c, archived: !!c.archived, subagents: agents.get(c.id) ?? [],
-        ...(background.get(c.id) ?? { backgroundTasks: [], scheduledChecks: [] }) }));
+    return (
+      this.db
+        .prepare("SELECT * FROM chats ORDER BY createdAt,id")
+        .all() as ChatRow[]
+    ).map(({ subagentBaselineAt, ...c }) => ({
+      ...c,
+      archived: !!c.archived,
+      subagents: agents.get(c.id) ?? [],
+      latestRound: rounds.get(c.id) ?? null,
+      ...(background.get(c.id) ?? { backgroundTasks: [], scheduledChecks: [] }),
+    }));
   }
-  private backgroundObservations(chatId?: string): Map<string, Pick<Chat, "backgroundTasks" | "scheduledChecks">> {
-    const result = new Map<string, Pick<Chat, "backgroundTasks" | "scheduledChecks">>();
-    const rows = chatId === undefined
-      ? this.db.prepare("SELECT * FROM background_snapshots").all()
-      : this.db.prepare("SELECT * FROM background_snapshots WHERE chatId=?").all(chatId);
+  private backgroundObservations(
+    chatId?: string,
+  ): Map<string, Pick<Chat, "backgroundTasks" | "scheduledChecks">> {
+    const result = new Map<
+      string,
+      Pick<Chat, "backgroundTasks" | "scheduledChecks">
+    >();
+    const rows =
+      chatId === undefined
+        ? this.db.prepare("SELECT * FROM background_snapshots").all()
+        : this.db
+            .prepare("SELECT * FROM background_snapshots WHERE chatId=?")
+            .all(chatId);
     for (const row of rows as BackgroundSnapshotRow[]) {
-      const group = result.get(row.chatId) ?? { backgroundTasks: [], scheduledChecks: [] };
-      const items = JSON.parse(row.items).map((item: { id: string }) => ({ ...item, state: row.state, lastEventAt: row.lastEventAt }));
+      const group = result.get(row.chatId) ?? {
+        backgroundTasks: [],
+        scheduledChecks: [],
+      };
+      const items = JSON.parse(row.items).map((item: { id: string }) => ({
+        ...item,
+        state: row.state,
+        lastEventAt: row.lastEventAt,
+      }));
       group[row.kind] = items;
       result.set(row.chatId, group);
     }
@@ -260,13 +414,33 @@ export class Store {
       .all() as Workspace[];
   }
   chat(id: string): Chat {
-    const row = this.db.prepare("SELECT * FROM chats WHERE id=?").get(id) as ChatRow | undefined;
+    const row = this.db.prepare("SELECT * FROM chats WHERE id=?").get(id) as
+      | ChatRow
+      | undefined;
     if (!row) throw new Error("Chat no longer exists");
     const { subagentBaselineAt, ...chat } = row;
-    const subagents = (this.db.prepare("SELECT * FROM subagents WHERE chatId=? AND state!='finished' ORDER BY id").all(id) as SubagentRow[])
-      .map(({ chatId, ...agent }) => agent);
-    return { ...chat, archived: !!chat.archived, subagents,
-      ...(this.backgroundObservations(id).get(id) ?? { backgroundTasks: [], scheduledChecks: [] }) };
+    const subagents = (
+      this.db
+        .prepare(
+          "SELECT * FROM subagents WHERE chatId=? AND state!='finished' ORDER BY id",
+        )
+        .all(id) as SubagentRow[]
+    ).map(({ chatId, ...agent }) => agent);
+    const round = this.db
+      .prepare(
+        "SELECT prompt,response,request,requestKind,observedAt,truncated FROM chat_rounds WHERE chatId=?",
+      )
+      .get(id) as ChatRound | undefined;
+    return {
+      ...chat,
+      archived: !!chat.archived,
+      subagents,
+      latestRound: round ? { ...round, truncated: !!round.truncated } : null,
+      ...(this.backgroundObservations(id).get(id) ?? {
+        backgroundTasks: [],
+        scheduledChecks: [],
+      }),
+    };
   }
   source(id: string): Source {
     const source = this.sources().find((s) => s.id === id);
@@ -281,12 +455,18 @@ export class Store {
       .all(id) as Activity[];
   }
   private requireProject(id: string): void {
-    if (!this.db.prepare("SELECT id FROM projects WHERE id=? AND mergedInto IS NULL").get(id))
+    if (
+      !this.db
+        .prepare("SELECT id FROM projects WHERE id=? AND mergedInto IS NULL")
+        .get(id)
+    )
       throw new Error("Choose an existing project");
   }
   createProject(name: string, kind: Project["kind"] = "custom"): string {
     const id = uuid();
-    this.db.prepare("INSERT INTO projects (id,name,createdAt,kind) VALUES (?,?,?,?)").run(id, name, now(), kind);
+    this.db
+      .prepare("INSERT INTO projects (id,name,createdAt,kind) VALUES (?,?,?,?)")
+      .run(id, name, now(), kind);
     return id;
   }
   command(raw: Command): void {
@@ -295,16 +475,23 @@ export class Store {
     switch (c.type) {
       case "updateSettings":
         this.db.transaction(() => {
-          const save = this.db.prepare("INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value");
-          if (c.jiraBaseUrl !== undefined) save.run("jiraBaseUrl", c.jiraBaseUrl);
-          if (c.linkRules !== undefined) save.run("linkRules", JSON.stringify(c.linkRules));
+          const save = this.db.prepare(
+            "INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+          );
+          if (c.jiraBaseUrl !== undefined)
+            save.run("jiraBaseUrl", c.jiraBaseUrl);
+          if (c.linkRules !== undefined)
+            save.run("linkRules", JSON.stringify(c.linkRules));
         })();
         break;
       case "createProject":
         this.db.transaction(() => {
           if (c.chatId) this.chat(c.chatId);
           const projectId = this.createProject(c.name);
-          if (c.chatId) this.db.prepare("UPDATE chats SET projectId=?,updatedAt=? WHERE id=?").run(projectId, now(), c.chatId);
+          if (c.chatId)
+            this.db
+              .prepare("UPDATE chats SET projectId=?,updatedAt=? WHERE id=?")
+              .run(projectId, now(), c.chatId);
         })();
         break;
       case "renameProject":
@@ -315,7 +502,9 @@ export class Store {
         break;
       case "setProjectPriority":
         this.requireProject(c.id);
-        this.db.prepare("UPDATE projects SET priority=? WHERE id=?").run(c.priority ? 1 : 0, c.id);
+        this.db
+          .prepare("UPDATE projects SET priority=? WHERE id=?")
+          .run(c.priority ? 1 : 0, c.id);
         break;
       case "createChat": {
         if (c.projectId !== null) this.requireProject(c.projectId);
@@ -375,14 +564,24 @@ export class Store {
         const path = root ?? reported;
         this.db.transaction(() => {
           this.reconcileRepositories();
-          const established = location?.identity ? this.repositoryProject(location.identity) : undefined;
+          const established = location?.identity
+            ? this.repositoryProject(location.identity)
+            : undefined;
           if (established && established.id !== c.projectId)
-            throw new Error("Use the existing repository project for this path");
-          const existing = this.workspaces().find(w => w.path === path &&
-            (w.sourceId === c.sourceId || (root && this.source(w.sourceId).environment === "native")));
+            throw new Error(
+              "Use the existing repository project for this path",
+            );
+          const existing = this.workspaces().find(
+            (w) =>
+              w.path === path &&
+              (w.sourceId === c.sourceId ||
+                (root && this.source(w.sourceId).environment === "native")),
+          );
           if (existing && existing.projectId !== c.projectId)
             throw new Error("A repository's project cannot be changed");
-          this.db.prepare("UPDATE projects SET kind='repo' WHERE id=?").run(c.projectId);
+          this.db
+            .prepare("UPDATE projects SET kind='repo' WHERE id=?")
+            .run(c.projectId);
           this.db
             .prepare(
               "INSERT INTO workspaces VALUES (?,?,?,?) ON CONFLICT(sourceId,path) DO NOTHING",
@@ -393,7 +592,7 @@ export class Store {
         break;
       }
       case "removeWorkspace":
-        if (this.workspaces().some(w => w.id === c.id))
+        if (this.workspaces().some((w) => w.id === c.id))
           throw new Error("Repository mappings are permanent");
         break;
       default:
@@ -401,18 +600,32 @@ export class Store {
     }
   }
   private repositoryProject(identity: string): ProjectRow | undefined {
-    return this.db.prepare("SELECT * FROM projects WHERE repositoryPath=? AND mergedInto IS NULL ORDER BY createdAt,id LIMIT 1").get(identity) as ProjectRow | undefined;
+    return this.db
+      .prepare(
+        "SELECT * FROM projects WHERE repositoryPath=? AND mergedInto IS NULL ORDER BY createdAt,id LIMIT 1",
+      )
+      .get(identity) as ProjectRow | undefined;
   }
   private reconcileRepositories(beforeChange?: () => void): void {
-    const projects = this.db.prepare("SELECT * FROM projects WHERE mergedInto IS NULL ORDER BY createdAt,id").all() as ProjectRow[];
-    const sources = new Map(this.sources().map(s => [s.id, s]));
-    const groups = new Map<string, { workspaces: Workspace[]; ids: Set<string> }>();
+    const projects = this.db
+      .prepare(
+        "SELECT * FROM projects WHERE mergedInto IS NULL ORDER BY createdAt,id",
+      )
+      .all() as ProjectRow[];
+    const sources = new Map(this.sources().map((s) => [s.id, s]));
+    const groups = new Map<
+      string,
+      { workspaces: Workspace[]; ids: Set<string> }
+    >();
     const identities = new Map<string, Set<string>>();
     for (const workspace of this.workspaces()) {
       const source = sources.get(workspace.sourceId);
       const location = source && repositoryLocation(workspace.path, source);
       if (!location?.identity) continue;
-      const group = groups.get(location.identity) ?? { workspaces: [], ids: new Set<string>() };
+      const group = groups.get(location.identity) ?? {
+        workspaces: [],
+        ids: new Set<string>(),
+      };
       group.workspaces.push(workspace);
       group.ids.add(workspace.projectId);
       groups.set(location.identity, group);
@@ -420,45 +633,87 @@ export class Store {
       keys.add(location.identity);
       identities.set(workspace.projectId, keys);
     }
-    const plans: { identity: string; primary: ProjectRow; duplicates: ProjectRow[] }[] = [];
+    const plans: {
+      identity: string;
+      primary: ProjectRow;
+      duplicates: ProjectRow[];
+    }[] = [];
     for (const [identity, group] of groups) {
       // Explicit aliases can span separate clones. Keep those choices; neither
       // folder names nor a shared assignment prove Git identity.
-      if ([...group.ids].some(id => (identities.get(id)?.size ?? 0) > 1)) continue;
-      const eligible = (p: ProjectRow) => !identities.has(p.id) || identities.get(p.id)!.has(identity);
-      const established = projects.filter(p => p.repositoryPath === identity && eligible(p));
-      const candidates = projects.filter(p => group.ids.has(p.id));
+      if ([...group.ids].some((id) => (identities.get(id)?.size ?? 0) > 1))
+        continue;
+      const eligible = (p: ProjectRow) =>
+        !identities.has(p.id) || identities.get(p.id)!.has(identity);
+      const established = projects.filter(
+        (p) => p.repositoryPath === identity && eligible(p),
+      );
+      const candidates = projects.filter((p) => group.ids.has(p.id));
       const mainPath = identity.endsWith("/.git") ? dirname(identity) : null;
-      const mainId = [...group.workspaces].sort((a, b) => a.path.length - b.path.length)
-        .find(w => repositoryRoot(w.path, sources.get(w.sourceId)!) === mainPath)?.projectId;
-      const primary = established[0] ?? candidates.find(p => p.id === mainId) ?? candidates[0];
+      const mainId = [...group.workspaces]
+        .sort((a, b) => a.path.length - b.path.length)
+        .find(
+          (w) => repositoryRoot(w.path, sources.get(w.sourceId)!) === mainPath,
+        )?.projectId;
+      const primary =
+        established[0] ??
+        candidates.find((p) => p.id === mainId) ??
+        candidates[0];
       if (!primary) continue;
-      const duplicates = projects.filter(p => p.id !== primary.id && (group.ids.has(p.id) || (p.repositoryPath === identity && eligible(p))));
-      if (duplicates.length || primary.repositoryPath !== identity) plans.push({ identity, primary, duplicates });
+      const duplicates = projects.filter(
+        (p) =>
+          p.id !== primary.id &&
+          (group.ids.has(p.id) ||
+            (p.repositoryPath === identity && eligible(p))),
+      );
+      if (duplicates.length || primary.repositoryPath !== identity)
+        plans.push({ identity, primary, duplicates });
     }
     if (!plans.length) return;
     beforeChange?.();
     this.db.transaction(() => {
       for (const { identity, primary, duplicates } of plans) {
-        this.db.prepare("UPDATE projects SET repositoryPath=?,priority=? WHERE id=?")
-          .run(identity, Number(!!primary.priority || duplicates.some(p => !!p.priority)), primary.id);
+        this.db
+          .prepare("UPDATE projects SET repositoryPath=?,priority=? WHERE id=?")
+          .run(
+            identity,
+            Number(!!primary.priority || duplicates.some((p) => !!p.priority)),
+            primary.id,
+          );
         for (const duplicate of duplicates) {
           // Consolidate repository defaults, keeping unrelated custom choices
           // and all chat content, activity, subagents, and archive state intact.
-          this.db.prepare("UPDATE chats SET repoProjectId=? WHERE repoProjectId=?").run(primary.id, duplicate.id);
-          this.db.prepare("UPDATE chats SET projectId=? WHERE projectId=?").run(primary.id, duplicate.id);
-          this.db.prepare("UPDATE plan_items SET projectId=? WHERE projectId=?").run(primary.id, duplicate.id);
-          this.db.prepare("UPDATE workspaces SET projectId=? WHERE projectId=?").run(primary.id, duplicate.id);
-          this.db.prepare("UPDATE projects SET mergedInto=? WHERE mergedInto=?").run(primary.id, duplicate.id);
+          this.db
+            .prepare("UPDATE chats SET repoProjectId=? WHERE repoProjectId=?")
+            .run(primary.id, duplicate.id);
+          this.db
+            .prepare("UPDATE chats SET projectId=? WHERE projectId=?")
+            .run(primary.id, duplicate.id);
+          this.db
+            .prepare("UPDATE plan_items SET projectId=? WHERE projectId=?")
+            .run(primary.id, duplicate.id);
+          this.db
+            .prepare("UPDATE workspaces SET projectId=? WHERE projectId=?")
+            .run(primary.id, duplicate.id);
+          this.db
+            .prepare("UPDATE projects SET mergedInto=? WHERE mergedInto=?")
+            .run(primary.id, duplicate.id);
           // Retain the old record/name for recovery without a duplicate sidebar row.
-          this.db.prepare("UPDATE projects SET mergedInto=? WHERE id=?").run(primary.id, duplicate.id);
+          this.db
+            .prepare("UPDATE projects SET mergedInto=? WHERE id=?")
+            .run(primary.id, duplicate.id);
         }
       }
     })();
   }
-  private projectFor(sourceId: string, workspace: string | null): string | null {
+  private projectFor(
+    sourceId: string,
+    workspace: string | null,
+  ): string | null {
     const reported = workspace ? canonicalPath(workspace) : null;
-    const location = reported ? repositoryLocation(reported, this.source(sourceId)) : null;
+    const location = reported
+      ? repositoryLocation(reported, this.source(sourceId))
+      : null;
     const root = location?.root;
     if (location?.identity) this.reconcileRepositories();
     const path = root ?? reported;
@@ -467,22 +722,39 @@ export class Store {
         (w) =>
           w.sourceId === sourceId &&
           path &&
-          (path === w.path || (!root &&
-            path.startsWith(w.path.endsWith("/") ? w.path : w.path + "/"))),
+          (path === w.path ||
+            (!root &&
+              path.startsWith(w.path.endsWith("/") ? w.path : w.path + "/"))),
       )
       .sort((a, b) => b.path.length - a.path.length);
     if (matches[0]) return matches[0].projectId;
     if (!path) return null;
     // An accessible Git root establishes identity across native providers;
     // other paths stay source-scoped and can be joined by explicit aliases.
-    const established = location?.identity ? this.repositoryProject(location.identity) : undefined;
-    const shared = !established && root ? this.workspaces().find(w => {
-      const source = this.source(w.sourceId);
-      return source.environment === "native" && (w.path === root || (location?.identity && repositoryLocation(w.path, source)?.identity === location.identity));
-    }) : undefined;
-    const id = established?.id ?? shared?.projectId ?? this.createProject(location?.name || basename(path) || path, "repo");
+    const established = location?.identity
+      ? this.repositoryProject(location.identity)
+      : undefined;
+    const shared =
+      !established && root
+        ? this.workspaces().find((w) => {
+            const source = this.source(w.sourceId);
+            return (
+              source.environment === "native" &&
+              (w.path === root ||
+                (location?.identity &&
+                  repositoryLocation(w.path, source)?.identity ===
+                    location.identity))
+            );
+          })
+        : undefined;
+    const id =
+      established?.id ??
+      shared?.projectId ??
+      this.createProject(location?.name || basename(path) || path, "repo");
     if (location?.identity && !established && !shared)
-      this.db.prepare("UPDATE projects SET repositoryPath=? WHERE id=?").run(location.identity, id);
+      this.db
+        .prepare("UPDATE projects SET repositoryPath=? WHERE id=?")
+        .run(location.identity, id);
     this.db
       .prepare("INSERT INTO workspaces VALUES (?,?,?,?)")
       .run(uuid(), sourceId, id, path);
@@ -516,7 +788,10 @@ export class Store {
       );
       if (!chat) {
         // Discover resumed and new chats only when a prompt is submitted.
-        if (!["UserPromptSubmit", "beforeSubmitPrompt"].includes(observation.kind)) return false;
+        if (
+          !["UserPromptSubmit", "beforeSubmitPrompt"].includes(observation.kind)
+        )
+          return false;
         const id = uuid();
         const repoProjectId = this.projectFor(sourceId, observation.workspace);
         this.db
@@ -530,26 +805,43 @@ export class Store {
             source.provider,
             sourceId,
             observation.externalId,
-            { claude: "Claude chat", cursor: "Cursor chat", codex: "Codex chat" }[source.provider],
+            {
+              claude: "Claude chat",
+              cursor: "Cursor chat",
+              codex: "Codex chat",
+            }[source.provider],
             now(),
             now(),
           );
         chat = this.chat(id);
       }
       if (!chat.repoProjectId && observation.workspace) {
-        this.db.prepare("UPDATE chats SET repoProjectId=? WHERE id=?")
+        this.db
+          .prepare("UPDATE chats SET repoProjectId=? WHERE id=?")
           .run(this.projectFor(sourceId, observation.workspace), chat.id);
       }
       this.observeSubagents(chat.id, observation, observedAt);
       this.observeBackground(chat.id, observation, observedAt);
       if (observation.links?.length) {
-        const save = this.db.prepare(`INSERT INTO chat_links VALUES (?,?,?,?,?,?)
+        const save = this.db
+          .prepare(`INSERT INTO chat_links VALUES (?,?,?,?,?,?)
           ON CONFLICT(chatId,url) DO UPDATE SET
             label=CASE WHEN excluded.label!='' AND (chat_links.label='' OR excluded.lastSeenAt>=chat_links.lastSeenAt) THEN excluded.label ELSE chat_links.label END,
             firstSeenAt=MIN(chat_links.firstSeenAt,excluded.firstSeenAt), lastSeenAt=MAX(chat_links.lastSeenAt,excluded.lastSeenAt)`);
-        for (const link of observation.links) save.run(uuid(), chat.id, link.url, link.label, observedAt, observedAt);
-        this.db.prepare(`DELETE FROM chat_links WHERE chatId=? AND id NOT IN
-          (SELECT id FROM chat_links WHERE chatId=? ORDER BY lastSeenAt DESC,rowid DESC LIMIT ?)`)
+        for (const link of observation.links)
+          save.run(
+            uuid(),
+            chat.id,
+            link.url,
+            link.label,
+            observedAt,
+            observedAt,
+          );
+        this.db
+          .prepare(
+            `DELETE FROM chat_links WHERE chatId=? AND id NOT IN
+          (SELECT id FROM chat_links WHERE chatId=? ORDER BY lastSeenAt DESC,rowid DESC LIMIT ?)`,
+          )
           .run(chat.id, chat.id, MAX_CHAT_LINKS);
       }
       this.db
@@ -567,9 +859,13 @@ export class Store {
         )
         .run(chat.id, chat.id);
       if (!chat.lastEventAt || observedAt >= chat.lastEventAt) {
+        if (!observation.subagent)
+          this.observeRound(chat.id, observation, observedAt);
         const providerTitle =
           observation.title &&
-          ["Claude chat", "Cursor chat", "Codex chat"].includes(chat.providerTitle)
+          ["Claude chat", "Cursor chat", "Codex chat"].includes(
+            chat.providerTitle,
+          )
             ? observation.title
             : chat.providerTitle;
         this.db
@@ -593,59 +889,165 @@ export class Store {
       return true;
     })();
   }
-  private observeSubagents(chatId: string, observation: Observation, observedAt: string): void {
+  private observeRound(
+    chatId: string,
+    observation: Observation,
+    observedAt: string,
+  ): void {
+    const previous = this.db
+      .prepare("SELECT * FROM chat_rounds WHERE chatId=?")
+      .get(chatId) as ChatRound | undefined;
+    if (previous && previous.observedAt > observedAt) return;
+    const update = observation.round;
+    const newPrompt = update?.prompt !== undefined;
+    const clear =
+      newPrompt ||
+      observation.state === "running" ||
+      observation.state === "idle" ||
+      observation.state === "error" ||
+      observation.lifecycle === "ended";
+    if (!update && !previous) return;
+    const prompt = update?.prompt ?? previous?.prompt ?? "";
+    const response = newPrompt
+      ? ""
+      : update?.response || previous?.response || "";
+    const request = update?.request ?? (clear ? "" : (previous?.request ?? ""));
+    const kind =
+      update?.requestKind ?? (clear ? null : (previous?.requestKind ?? null));
+    this.db
+      .prepare(
+        "INSERT INTO chat_rounds (chatId,prompt,response,request,requestKind,observedAt,truncated) VALUES (?,?,?,?,?,?,?) ON CONFLICT(chatId) DO UPDATE SET prompt=excluded.prompt,response=excluded.response,request=excluded.request,requestKind=excluded.requestKind,observedAt=excluded.observedAt,truncated=excluded.truncated",
+      )
+      .run(
+        chatId,
+        prompt,
+        response,
+        request,
+        kind,
+        observedAt,
+        Number(
+          update?.truncated || (!newPrompt && previous?.truncated) || false,
+        ),
+      );
+  }
+  private observeSubagents(
+    chatId: string,
+    observation: Observation,
+    observedAt: string,
+  ): void {
     const { subagent, backgroundSubagents } = observation;
-    if (!subagent && backgroundSubagents === undefined && observation.lifecycle !== "ended") return;
-    const baseline = (this.db.prepare("SELECT subagentBaselineAt FROM chats WHERE id=?").get(chatId) as ChatRow).subagentBaselineAt;
+    if (
+      !subagent &&
+      backgroundSubagents === undefined &&
+      observation.lifecycle !== "ended"
+    )
+      return;
+    const baseline = (
+      this.db
+        .prepare("SELECT subagentBaselineAt FROM chats WHERE id=?")
+        .get(chatId) as ChatRow
+    ).subagentBaselineAt;
     if (baseline && observedAt < baseline) return;
-    const upsert = (id: string, type: string, state: "running" | "finished") => {
-      this.db.prepare(`INSERT INTO subagents VALUES (?,?,?,?,?) ON CONFLICT(chatId,id) DO UPDATE SET
+    const upsert = (
+      id: string,
+      type: string,
+      state: "running" | "finished",
+    ) => {
+      this.db
+        .prepare(
+          `INSERT INTO subagents VALUES (?,?,?,?,?) ON CONFLICT(chatId,id) DO UPDATE SET
         type=CASE WHEN excluded.type='' THEN subagents.type ELSE excluded.type END,
-        state=excluded.state,lastEventAt=excluded.lastEventAt WHERE excluded.lastEventAt>=subagents.lastEventAt`)
+        state=excluded.state,lastEventAt=excluded.lastEventAt WHERE excluded.lastEventAt>=subagents.lastEventAt`,
+        )
         .run(chatId, id, type, state, observedAt);
     };
     if (backgroundSubagents !== undefined) {
       // Claude's task registry IDs are not necessarily lifecycle agent IDs.
       // Replace observations at this boundary; a later registry snapshot resolves
       // completions without guessing how the two ID namespaces relate.
-      this.db.prepare("UPDATE subagents SET state='finished',lastEventAt=? WHERE chatId=? AND lastEventAt<=?")
+      this.db
+        .prepare(
+          "UPDATE subagents SET state='finished',lastEventAt=? WHERE chatId=? AND lastEventAt<=?",
+        )
         .run(observedAt, chatId, observedAt);
-      for (const agent of backgroundSubagents) upsert(`background:${agent.id}`, agent.type, "running");
-      this.db.prepare("UPDATE chats SET subagentBaselineAt=? WHERE id=?").run(observedAt, chatId);
+      for (const agent of backgroundSubagents)
+        upsert(`background:${agent.id}`, agent.type, "running");
+      this.db
+        .prepare("UPDATE chats SET subagentBaselineAt=? WHERE id=?")
+        .run(observedAt, chatId);
     } else if (observation.lifecycle === "ended") {
-      this.db.prepare("UPDATE subagents SET state='unknown',lastEventAt=? WHERE chatId=? AND state!='finished' AND lastEventAt<=?")
+      this.db
+        .prepare(
+          "UPDATE subagents SET state='unknown',lastEventAt=? WHERE chatId=? AND state!='finished' AND lastEventAt<=?",
+        )
         .run(observedAt, chatId, observedAt);
-      this.db.prepare("UPDATE chats SET subagentBaselineAt=? WHERE id=?").run(observedAt, chatId);
+      this.db
+        .prepare("UPDATE chats SET subagentBaselineAt=? WHERE id=?")
+        .run(observedAt, chatId);
     } else if (subagent && (!baseline || observedAt >= baseline)) {
-      if (subagent.id) upsert(`agent:${subagent.id}`, subagent.type, subagent.running ? "running" : "finished");
+      if (subagent.id)
+        upsert(
+          `agent:${subagent.id}`,
+          subagent.type,
+          subagent.running ? "running" : "finished",
+        );
       if (!subagent.running) {
         // Cursor's documented stop payload may omit the instance ID. Likewise,
         // a Claude stop without a registry snapshot cannot identify registry IDs.
-        this.db.prepare(`UPDATE subagents SET state='unknown',lastEventAt=? WHERE chatId=? AND state!='finished'
-          AND lastEventAt<=? AND (? OR id LIKE 'background:%')`)
+        this.db
+          .prepare(
+            `UPDATE subagents SET state='unknown',lastEventAt=? WHERE chatId=? AND state!='finished'
+          AND lastEventAt<=? AND (? OR id LIKE 'background:%')`,
+          )
           .run(observedAt, chatId, observedAt, Number(!subagent.id));
-        if (!subagent.id) this.db.prepare("UPDATE chats SET subagentBaselineAt=? WHERE id=?").run(observedAt, chatId);
+        if (!subagent.id)
+          this.db
+            .prepare("UPDATE chats SET subagentBaselineAt=? WHERE id=?")
+            .run(observedAt, chatId);
       }
     }
-    this.db.prepare(`DELETE FROM subagents WHERE chatId=? AND state='finished' AND id NOT IN
-      (SELECT id FROM subagents WHERE chatId=? AND state='finished' ORDER BY lastEventAt DESC,rowid DESC LIMIT 1000)`)
+    this.db
+      .prepare(
+        `DELETE FROM subagents WHERE chatId=? AND state='finished' AND id NOT IN
+      (SELECT id FROM subagents WHERE chatId=? AND state='finished' ORDER BY lastEventAt DESC,rowid DESC LIMIT 1000)`,
+      )
       .run(chatId, chatId);
-    const count = this.db.prepare("SELECT COUNT(*) AS total FROM subagents WHERE chatId=? AND state!='finished'").get(chatId) as { total: number };
-    if (count.total > 1000) throw Object.assign(new Error("Subagent observation capacity reached; pending event retained"), { code: "ACD_SUBAGENT_CAPACITY" });
+    const count = this.db
+      .prepare(
+        "SELECT COUNT(*) AS total FROM subagents WHERE chatId=? AND state!='finished'",
+      )
+      .get(chatId) as { total: number };
+    if (count.total > 1000)
+      throw Object.assign(
+        new Error(
+          "Subagent observation capacity reached; pending event retained",
+        ),
+        { code: "ACD_SUBAGENT_CAPACITY" },
+      );
   }
-  private observeBackground(chatId: string, observation: Observation, observedAt: string): void {
+  private observeBackground(
+    chatId: string,
+    observation: Observation,
+    observedAt: string,
+  ): void {
     for (const kind of ["backgroundTasks", "scheduledChecks"] as const) {
       const items = observation[kind];
       if (items !== undefined) {
         // Empty snapshots are retained as boundaries against delayed events.
         // An absent field does not establish that existing work completed.
-        this.db.prepare(`INSERT INTO background_snapshots VALUES (?,?,?,?,?) ON CONFLICT(chatId,kind) DO UPDATE SET
+        this.db
+          .prepare(
+            `INSERT INTO background_snapshots VALUES (?,?,?,?,?) ON CONFLICT(chatId,kind) DO UPDATE SET
           state=excluded.state,lastEventAt=excluded.lastEventAt,items=excluded.items
-          WHERE excluded.lastEventAt>=background_snapshots.lastEventAt`)
+          WHERE excluded.lastEventAt>=background_snapshots.lastEventAt`,
+          )
           .run(chatId, kind, "observed", observedAt, JSON.stringify(items));
       } else if (observation.lifecycle === "ended") {
-        this.db.prepare(`INSERT INTO background_snapshots VALUES (?,?,?,?,?) ON CONFLICT(chatId,kind) DO UPDATE SET
-          state='unknown',lastEventAt=excluded.lastEventAt WHERE excluded.lastEventAt>=background_snapshots.lastEventAt`)
+        this.db
+          .prepare(
+            `INSERT INTO background_snapshots VALUES (?,?,?,?,?) ON CONFLICT(chatId,kind) DO UPDATE SET
+          state='unknown',lastEventAt=excluded.lastEventAt WHERE excluded.lastEventAt>=background_snapshots.lastEventAt`,
+          )
           .run(chatId, kind, "unknown", observedAt, "[]");
       }
     }
@@ -656,4 +1058,3 @@ export class Store {
       .run(message.slice(0, 500), Number(rejected), id);
   }
 }
-

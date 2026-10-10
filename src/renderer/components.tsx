@@ -1,16 +1,30 @@
 import React, { useEffect, useRef } from "react";
 import type { Chat } from "../shared/types";
 import { codexPrompt, promptTitle } from "../shared/presentation";
-import { effectiveState, statusLabel, hasBackgroundWork } from "../shared/status";
+import {
+  effectiveState,
+  statusLabel,
+  hasBackgroundWork,
+} from "../shared/status";
 
 export const providerLabel = (provider: string) =>
-  ({ manual: "Manual", claude: "Claude Code", cursor: "Cursor", codex: "Codex" })[provider] ??
-  provider;
+  ({
+    manual: "Manual",
+    claude: "Claude Code",
+    cursor: "Cursor",
+    codex: "Codex",
+  })[provider] ?? provider;
 export const automaticName = (chat: Chat) =>
-  (chat.provider === "codex" ? promptTitle(chat.providerTitle, true) : chat.providerTitle) || "Untitled chat";
+  (chat.provider === "codex"
+    ? promptTitle(chat.providerTitle, true)
+    : chat.providerTitle) || "Untitled chat";
 export const displayName = (chat: Chat) => chat.name || automaticName(chat);
 export const displayPreview = (chat: Chat) => {
-  if (chat.provider !== "codex" || !/^# Files mentioned by the user:/i.test(chat.preview.trim())) return chat.preview;
+  if (
+    chat.provider !== "codex" ||
+    !/^# Files mentioned by the user:/i.test(chat.preview.trim())
+  )
+    return chat.preview;
   const { content, attachment } = codexPrompt(chat.preview);
   return content || attachment;
 };
@@ -31,7 +45,11 @@ export function Status({ chat }: { chat: Chat }) {
   return (
     <span
       className={`status ${chat.lifecycle === "ended" ? "ended" : effectiveState(chat)}`}
-      title={hasBackgroundWork(chat) ? "Based on received hooks, not process liveness. In-flight work becomes uncertain after five minutes. Scheduled checks remain pending until a newer snapshot clears them; see details for observation age." : undefined}
+      title={
+        hasBackgroundWork(chat)
+          ? "Based on received hooks, not process liveness. In-flight work becomes uncertain after five minutes. Scheduled checks remain pending until a newer snapshot clears them; see details for observation age."
+          : undefined
+      }
     >
       {statusLabel(chat)}
     </span>
@@ -49,6 +67,11 @@ export function Modal({
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     ref.current?.showModal();
+    ref.current
+      ?.querySelector<HTMLElement>(
+        "[data-initial-focus], input:not([disabled]), textarea:not([disabled]), select:not([disabled])",
+      )
+      ?.focus();
   }, []);
   return (
     <dialog ref={ref} onCancel={close} aria-label={title}>

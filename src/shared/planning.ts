@@ -9,6 +9,15 @@ export interface PlanItem {
   chatIds: string[];
   createdAt: string;
   updatedAt: string;
+  tickets: PlanTicket[];
+  links: PlanLink[];
+  hiddenLinks: string[];
+  categoryOverrides: Record<string, string>;
+}
+export interface PlanLink {
+  url: string;
+  label: string;
+  category: string;
 }
 export interface PlanEntry {
   day: string;
@@ -16,6 +25,8 @@ export interface PlanEntry {
   category: PlanCategory;
   workedOn: boolean;
   position: number;
+  name: string;
+  note: string;
 }
 export interface PlanImport {
   id: string;
@@ -34,6 +45,9 @@ export interface PlanningSnapshot {
   entries: PlanEntry[];
   imports: PlanImport[];
   inbox: { path: string; files: PlanInboxFile[]; error: string | null };
+  wrapups: Record<string, string>;
+  drafts: Record<string, string>;
+  undoId: string | null;
 }
 export const categoryDescription: Record<PlanCategory, string> = {
   Coding: "Coding work with AI",
@@ -56,6 +70,15 @@ export function nextPlanDay(day: string, offset = 1): string {
   const date = new Date(day + "T12:00:00Z");
   date.setUTCDate(date.getUTCDate() + offset);
   return date.toISOString().slice(0, 10);
+}
+export function nextBusinessDay(day: string, offset = 1): string {
+  let result = day;
+  for (let count = 0; count < offset; ) {
+    result = nextPlanDay(result);
+    const weekday = new Date(result + "T12:00:00Z").getUTCDay();
+    if (weekday !== 0 && weekday !== 6) count++;
+  }
+  return result;
 }
 export interface PlanTicket {
   key: string;
@@ -117,6 +140,11 @@ function tickets(value: unknown, where: string): PlanTicket[] {
 // relationships, chat links, and progress always remain user decisions.
 export function parseDailyPlan(card: string): ParsedPlan {
   if (card.length > 100000) throw new Error("Card exceeds 100,000 characters");
+  card = card.replace(/^﻿/, "").trim();
+  if (/^```(?:yaml|yml)?\s*\n/i.test(card) && /\n```$/.test(card))
+    card = card.replace(/^```(?:yaml|yml)?\s*\n/i, "").replace(/\n```$/, "");
+  if (/^#\s+\d{4}-\d{2}-\d{2}/.test(card) || /^---\s*\n/.test(card))
+    return parseMarkdownCard(card);
   let document: unknown;
   try {
     // Aliases are refused so a small card cannot expand into a large one.
@@ -176,6 +204,62 @@ export function parseDailyPlan(card: string): ParsedPlan {
     });
   }
   if (!items.length) throw new Error("The card has no plan items");
+  return { day, items };
+}
+function parseMarkdownCard(card: string): ParsedPlan {
+  let day = "",
+    category: PlanCategory | undefined;
+  const items: ParsedPlanItem[] = [];
+  const seen = new Set<string>();
+  const lines = card.replace(/\r\n?/g, "\n").split("\n");
+  if (lines[0] === "---") {
+    const end = lines.indexOf("---", 1);
+    if (end < 0) throw new Error("Close the card's date frontmatter");
+    const front = parse(lines.slice(1, end).join("\n"), { maxAliasCount: 0 });
+    if (!isRecord(front) || Object.keys(front).some((key) => key !== "date"))
+      throw new Error("Frontmatter must contain only date");
+    day = String(front.date ?? "");
+    lines.splice(0, end + 1);
+  }
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    const date = /^#\s+(\d{4}-\d{2}-\d{2})\s*$/.exec(line);
+    if (date) {
+      if (day && day !== date[1]) throw new Error("Use one date per card");
+      day = date[1];
+      continue;
+    }
+    const section = /^##\s+(Coding|Agentic|Other)\s*$/i.exec(line);
+    if (section) {
+      category = planCategories.find(
+        (c) => c.toLowerCase() === section[1].toLowerCase(),
+      );
+      if (seen.has(category!)) throw new Error(`${category} appears twice`);
+      seen.add(category!);
+      continue;
+    }
+    const bullet = /^[-*]\s+(?:\[[ xX]\]\s+)?(.+)$/.exec(line);
+    if (bullet && category) {
+      const name = text(bullet[1], "Task name", 200);
+      items.push({ name, category, tickets: [], related: [], note: "" });
+      continue;
+    }
+    if (/^\s+\S/.test(line) && items.length) {
+      const item = items.at(-1)!;
+      item.note = text(
+        [item.note, line.trim()].filter(Boolean).join("\n"),
+        "Card annotation",
+        2000,
+      );
+      continue;
+    }
+    throw new Error(
+      "Use one date, Coding/Agentic/Other headings, and flat task bullets; indent annotations below a task",
+    );
+  }
+  if (!validPlanDay(day)) throw new Error("Add a valid date: YYYY-MM-DD");
+  if (!items.length || items.length > 200)
+    throw new Error("A daily card needs between 1 and 200 tasks");
   return { day, items };
 }
 // Seed notes for a newly created item; existing items keep their own notes.

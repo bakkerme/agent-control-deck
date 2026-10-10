@@ -99,7 +99,6 @@ other:
     "date: 2026-10-08\ncoding:\n  - name: A\n    ticket: THR-1\n",
     "date: 2026-10-08\ncoding:\n  - note: no name\n",
     "date: 2026-10-08\ncoding:\n  - &a [x]\n  - *a\n",
-    "# 2026-10-08\n## Other\n- Ask a colleague",
     "date: 2026-10-08\n",
   ])
     assert.throws(() => parseDailyPlan(bad), Error, bad);
@@ -328,10 +327,10 @@ test("v9 planning migration backs up once, retains existing chats, and isolates 
   f.store.command({ type: "createChat", name: "Keep chat", projectId: null });
   const before = f.store.chats();
   f.store.db.exec(
-    "DROP TABLE plan_chats; DROP TABLE plan_entries; DROP TABLE plan_imports; DROP TABLE plan_items; PRAGMA user_version=9;",
+    "DROP TABLE plan_wrapups; DROP TABLE plan_drafts; DROP TABLE plan_undo; DROP TABLE chat_rounds; DROP TABLE plan_chats; DROP TABLE plan_entries; DROP TABLE plan_imports; DROP TABLE plan_items; PRAGMA user_version=9;",
   );
   f.reopen();
-  assert.equal(f.store.db.pragma("user_version", { simple: true }), 10);
+  assert.equal(f.store.db.pragma("user_version", { simple: true }), 11);
   assert.deepEqual(f.store.chats(), before);
   const backups = readdirSync(f.dir).filter((n) => /\.bak-\d+$/.test(n));
   assert.equal(backups.length, 1);

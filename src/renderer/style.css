@@ -744,3 +744,108 @@ summary {
 .plan-chat-picker input { width: 16px; }
 .plan-chat-picker small { display: block; margin-top: 4px; }
 .planning-board dialog textarea { width: 100%; min-height: 210px; }
+
+/* Today is the primary workspace. List and task context scroll independently. */
+.today-page { flex: 1; min-height: 0; }
+.inactive-page { display: none; }
+.today-workspace { height: 100%; min-height: 0; display: flex; flex-direction: column; }
+.today-columns { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(300px, 39%) minmax(0, 1fr); }
+.today-workspace .daily-plan { padding: 22px 20px; border-right: 1px solid var(--border); background: var(--background); }
+.today-workspace .plan-details { min-width: 0; overflow: auto; padding: 22px; background: var(--panel); }
+.today-workspace .plan-date { margin-bottom: 12px; }
+.day-navigation { display: flex; gap: 5px; flex-wrap: wrap; align-items: center; }
+.day-navigation input { width: 148px; }
+.planning-views { display: flex; flex-wrap: wrap; gap: 5px; padding: 15px 0; border-bottom: 1px solid var(--border); }
+.planning-views button { font-size: 12px; }
+.selected { background: var(--selection); }
+.quiet { background: transparent; border-color: transparent; color: var(--muted); padding: 5px 0; }
+.quiet:hover { background: var(--selection); }
+.today-workspace .plan-row.plan-attention { border-left: 3px solid #b1444e; box-shadow: none; }
+.today-workspace .plan-row.selected { border-color: var(--border); }
+.today-workspace .plan-row.plan-attention.selected { border-left-color: #b1444e; }
+.plan-row.dragging { opacity: .45; }
+.plan-row.drop-before { border-top: 3px solid var(--accent); }
+.plan-category.drop-category { background: var(--selection); outline: 1px solid var(--accent); }
+.plan-add-row { margin: 18px 0 10px; }
+.plan-add-row .quiet { font-size: 13px; }
+.task-search input { width: 100%; }
+.task-name-heading { display: flex; align-items: center; gap: 8px; }
+.task-name-heading h2 { flex: 0 1 auto; }
+.task-name-heading .rename-task { opacity: 0; padding: 5px; border-color: transparent; background: var(--panel); }
+.task-name-heading:hover .rename-task, .task-name-heading:focus-within .rename-task { opacity: 1; }
+.task-name-heading form { width: 100%; }
+.task-name-heading form button { margin-right: 6px; }
+.task-day-category { max-width: 270px; color: var(--muted); font-weight: 400; }
+.task-composer label, .task-context-edit label { font-weight: 400; }
+.task-composer input, .task-composer select, .task-composer textarea { width: 100%; }
+.task-composer textarea { min-height: 115px; }
+.existing-task-choice { display: block; width: 100%; text-align: left; padding: 10px; margin: 5px 0; }
+.existing-task-choice strong, .existing-task-choice small { display: block; overflow-wrap: anywhere; }
+.existing-task-choice small { margin-top: 3px; }
+.context-plus { width: 32px; height: 32px; display: grid; place-items: center; padding: 0; }
+.task-context-row { position: relative; min-height: 29px; display: flex; align-items: start; gap: 8px; padding: 4px 0; min-width: 0; }
+.task-context-row a, .task-context-row .ticket-link { color: var(--accent); overflow-wrap: anywhere; }
+.task-context-row > :first-child { min-width: 0; flex: 1; }
+.task-context-row small { display: block; overflow-wrap: anywhere; margin-top: 3px; }
+.context-row-tools { position: absolute; right: 0; top: 2px; display: flex; align-items: center; gap: 4px; opacity: 0; pointer-events: none; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; padding: 0 3px; }
+.context-row-tools button { border: 0; padding: 4px; display: grid; place-items: center; }
+.task-context-row:hover .context-row-tools, .task-context-row:focus-within .context-row-tools { opacity: 1; pointer-events: auto; }
+.task-link-category { display: grid; grid-template-columns: minmax(55px,85px) minmax(0,1fr); gap: 10px; margin: 8px 0; align-items: start; }
+.task-link-label { text-align: left; overflow-wrap: anywhere; font-size: 12px; }
+.task-link-stack { min-width: 0; }
+.category-inline-edit { grid-column: 1 / -1; }
+.task-context-edit input, .task-context-edit select { width: 100%; }
+.task-linked-chat { border: 1px solid var(--border); border-radius: 5px; margin: 8px 0; }
+.task-linked-chat.needs-input { border-left: 3px solid #b1444e; }
+.task-linked-chat .task-context-row { padding: 0; }
+.task-chat-open { border: 0; background: transparent; text-align: left; width: 100%; padding: 11px; }
+.task-chat-open strong, .task-chat-open small { display: block; overflow-wrap: anywhere; }
+.task-chat-open .status { margin-top: 5px; }
+.latest-round { padding: 14px; border-top: 1px solid var(--border); overflow-wrap: anywhere; }
+.latest-round h3 { margin: 15px 0 5px; }
+.latest-round .markdown { font-size: 13px; }
+.latest-round .section-heading { flex-wrap: wrap; }
+.task-note-display { position: relative; padding: 7px 35px 7px 7px; min-height: 95px; overflow-wrap: anywhere; }
+.task-note-display:hover { background: var(--background); }
+.task-note-edit { position: absolute; top: 4px; right: 4px; padding: 4px; background: transparent; border-color: transparent; opacity: 0; }
+.task-note-display:hover .task-note-edit, .task-note-display:focus-within .task-note-edit { opacity: 1; }
+.task-day-chip { display: inline-flex; }
+.task-day-chip button { font-size: 12px; }
+.task-day-chip button:first-child { border-radius: 5px 0 0 5px; }
+.task-day-chip button:last-child { border-left: 0; border-radius: 0 5px 5px 0; display: grid; place-items: center; padding: 5px; }
+.card-transcription { width: 100%; min-height: 270px; }
+.card-entry { border-bottom: 1px solid var(--border); padding: 8px 0; overflow-wrap: anywhere; }
+.card-entry .markdown { font-size: 12px; color: var(--muted); }
+.card-front section h3 { color: var(--muted); }
+.card-back { margin-bottom: 18px; }
+.card-import-review .plan-import-row input, .card-import-review .plan-import-row select { width: 100%; }
+.plan-card-source { max-height: none; }
+.planning-footer { flex-shrink: 0; border-top: 1px solid var(--border); padding: 9px 20px; background: var(--panel); color: var(--muted); font-size: 12px; display: flex; justify-content: space-between; gap: 10px; align-items: center; }
+.repository-detail { min-width: 0; min-height: 0; overflow: auto; background: var(--panel); border-left: 1px solid var(--border); }
+.repository-detail .details { overflow: visible; border-left: 0; }
+.repository-linked-tasks { margin: 15px 20px; border-bottom: 1px solid var(--border); padding-bottom: 12px; }
+.repository-linked-tasks h3 { margin: 0 0 8px; }
+.repository-linked-tasks small { display: block; margin: 3px 0; }
+.back-to-today { margin: 12px 20px 0; }
+.repositories h2 { margin-bottom: 14px; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+@media (prefers-color-scheme: dark) {
+  :root { --background: #1c212b; --panel: #242b36; --rail: #202632; --text: #e6ebf3; --muted: #aab6c8; --border: #3c4656; --accent: #91bcf7; --accent-hover: #b1cff8; --selection: #2c3e57; }
+  .primary, .plan-primary { color: var(--panel); }
+  .plan-needs-input { color: #f19aa3; }
+}
+@media (pointer: coarse) {
+  .today-workspace button { min-height: 44px; }
+  .context-plus, .context-row-tools button { min-width: 44px; }
+  .context-row-tools { position: static; opacity: 1; pointer-events: auto; }
+  .task-name-heading .rename-task, .task-note-edit { opacity: 1; }
+  .today-workspace input, .today-workspace textarea, .today-workspace select { font-size: 16px; }
+}
+@media (max-width: 720px) {
+  .today-columns { grid-template-columns: 1fr; overflow: auto; }
+  .today-workspace .daily-plan, .today-workspace .plan-details { overflow: visible; }
+  .today-workspace .daily-plan { border-right: 0; border-bottom: 1px solid var(--border); }
+}
+.today-workspace .plan-detail-section { padding-top: 15px; margin-top: 17px; }
+.card-back .task-note-display { display: block; width: 100%; text-align: left; border: 0; background: transparent; }
+.import-ticket { display: block; margin: 5px 0; }
