@@ -6,7 +6,7 @@ import { notesField } from "./ui-helpers";
 
 test("Operations notes, inline tickets, browser destinations and Jira settings survive restart", async ({ launchRenderer }) => {
   const dir = mkdtempSync(join(tmpdir(), "acd-operations-"));
-  const launch = () => launchRenderer({ dataDirectory: dir });
+  const launch = () => launchRenderer({ dataDirectory: dir, commandReplyDelayMs: 200 });
   let app = await launch();
   try {
     let page = await app.firstWindow();
@@ -61,13 +61,21 @@ test("Operations notes, inline tickets, browser destinations and Jira settings s
     await page.getByRole("navigation", { name: "Quick status filters" }).getByRole("button", { name: /^All / }).click();
     await expect(page.getByRole("button", { name: "Select chat Operations notes" })).toBeVisible();
     await page.screenshot({ path: "test-results/operations-minimum.png" });
+    // Enter from Settings so the new workspace view marks the completed switch,
+    // even when the changed notification arrives before the command reply.
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await expect(page.getByLabel("Jira base URL")).toHaveValue("https://company.example/jira");
     await page.getByRole("button", { name: "Try demo", exact: true }).click();
+    await expect(page.getByRole("button", { name: "New chat", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Leave demo", exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     await expect(page.getByLabel("Jira base URL")).toHaveValue("");
     await page.getByLabel("Jira base URL").fill("https://demo.example");
     await page.getByRole("button", { name: "Save settings" }).click();
     await expect(page.getByRole("status")).toHaveText("Saved");
     await page.getByRole("button", { name: "Leave demo", exact: true }).click();
+    await expect(page.getByRole("button", { name: "New chat", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Try demo", exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     await expect(page.getByLabel("Jira base URL")).toHaveValue("https://company.example/jira");
     await page.getByLabel("Jira base URL").fill("javascript:alert(1)");

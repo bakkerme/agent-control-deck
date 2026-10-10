@@ -2,7 +2,12 @@ import { test as base, expect, type Browser, type BrowserContext, type Page } fr
 import { fork } from "node:child_process";
 import { resolve } from "node:path";
 
-type LaunchOptions = { dataDirectory: string; demo?: boolean };
+type LaunchOptions = {
+  dataDirectory: string;
+  demo?: boolean;
+  // Exercise notifications arriving before a slower command reply, as on CI.
+  commandReplyDelayMs?: number;
+};
 interface RendererApp {
   firstWindow(): Promise<Page>;
   resize(width: number, height: number): Promise<void>;
@@ -71,7 +76,13 @@ async function launch(browser: Browser, options: LaunchOptions): Promise<Rendere
     await ready;
     clearTimeout(startupTimeout);
     context = await browser.newContext({ viewport: { width: 1320, height: 850 } });
-    await context.exposeBinding("deckTestInvoke", (_source, method: string, input?: unknown) => invoke(method, input));
+    await context.exposeBinding("deckTestInvoke", async (_source, method: string, input?: unknown) => {
+      const value = await invoke(method, input);
+      if (method === "command" && options.commandReplyDelayMs) {
+        await new Promise(resolve => setTimeout(resolve, options.commandReplyDelayMs));
+      }
+      return value;
+    });
     await context.addInitScript(() => {
       const invoke = (window as unknown as { deckTestInvoke(method: string, input?: unknown): Promise<any> }).deckTestInvoke;
       window.deck = {
