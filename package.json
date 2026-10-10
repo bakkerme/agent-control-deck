@@ -13,11 +13,13 @@
     "build": "npm run typecheck && electron-vite build",
     "postinstall": "install-electron --no && electron-builder install-app-deps",
     "test": "node scripts/test.cjs",
-    "test:ui": "npm run build && playwright test",
+    "test:ui": "npm run build && node scripts/build-renderer-tests.cjs && playwright test",
     "check": "npm run typecheck && npm test && npm run test:ui",
     "package": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder",
-    "test:packaged": "node scripts/test-packaged.cjs"
+    "test:packaged": "node scripts/test-packaged.cjs",
+    "test:electron": "npm run build && playwright test --config playwright.electron.config.ts",
+    "check:all": "npm run check && npm run test:electron"
   },
   "dependencies": {
     "better-sqlite3": "13.0.3",

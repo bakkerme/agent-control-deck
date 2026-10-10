@@ -1,24 +1,13 @@
-import { test, expect, _electron as electron } from "@playwright/test";
+import { test, expect } from "./renderer-fixture";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 
-test("archived conversations stay restorable while new chats in the same project remain active", async () => {
+test("archived conversations stay restorable while new chats in the same project remain active", async ({
+  launchRenderer,
+}) => {
   const dir = mkdtempSync(join(tmpdir(), "acd-archive-"));
-  const env = Object.fromEntries(
-    Object.entries(process.env).filter(
-      ([key, value]) => key !== "ELECTRON_RUN_AS_NODE" && value !== undefined,
-    ),
-  ) as Record<string, string>;
-  const launch = () =>
-    electron.launch({
-      executablePath: process.env.ACD_PACKAGED_EXECUTABLE,
-      args: [
-        ...(process.env.ACD_PACKAGED_EXECUTABLE ? [] : [resolve(".")]),
-        `--data-dir=${dir}`,
-      ],
-      env: { ...env, ACD_HTTP_PORT: "0" },
-    });
+  const launch = () => launchRenderer({ dataDirectory: dir });
   let app = await launch();
   try {
     let page = await app.firstWindow();

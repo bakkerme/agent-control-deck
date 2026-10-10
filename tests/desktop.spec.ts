@@ -1,21 +1,13 @@
-import { test, expect, _electron as electron } from "@playwright/test";
+import { test, expect } from "./renderer-fixture";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { notesField, organizationField } from "./ui-helpers";
-test("Today is primary; repository chats retain manual records, live events, archives and demo isolation", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "acd-desktop-")),
-    env = { ...process.env };
-  delete env.ELECTRON_RUN_AS_NODE;
-  const launch = () =>
-    electron.launch({
-      executablePath: process.env.ACD_PACKAGED_EXECUTABLE,
-      args: [
-        ...(process.env.ACD_PACKAGED_EXECUTABLE ? [] : [resolve(".")]),
-        `--data-dir=${dir}`,
-      ],
-      env: { ...env, ACD_HTTP_PORT: "0" },
-    });
+test("Today is primary; repository chats retain manual records, live events, archives and demo isolation", async ({
+  launchRenderer,
+}) => {
+  const dir = mkdtempSync(join(tmpdir(), "acd-desktop-"));
+  const launch = () => launchRenderer({ dataDirectory: dir });
   let app = await launch();
   try {
     let page = await app.firstWindow();

@@ -72,16 +72,25 @@ The app backs up an existing database before schema migrations. For a manual bac
 ## Checks and packaging
 
 ```bash
+npx playwright install chromium --only-shell  # once per machine, for headless UI tests
 npm run typecheck
-npm test                 # storage, provider, and HTTP receiver/forwarding tests under Electron's Node runtime
-npm run test:ui          # builds and drives the Electron UI, including restart persistence
-npm run check            # all desktop checks
+npm test                 # storage, provider, and HTTP tests; Electron's Node runtime only, no windows
+npm run test:ui          # builds and tests the renderer in headless Chromium, including database restarts
+npm run check            # routine desktop checks; no visible windows
+npm run test:electron    # opt-in Electron startup, IPC isolation, native lamps and window controls
+npm run check:all        # routine checks plus the windowed Electron suite
 npm run package          # unpacked app in release/
-npm run test:packaged    # drive the built application bundle
+npm run test:packaged    # run the small Electron suite against the built application bundle
 npm run dist             # platform ZIP in release/
 ```
 
+Routine UI tests use the real SQLite store, HTTP hooks, durable inboxes and workspace commands behind a test-only adapter for `window.deck`; they do not validate Electron preload isolation or OS window behavior. Clipboard writes are validated and external-browser requests are captured in the test adapter. The explicit Electron suite checks startup, preload/IPC isolation, restart persistence, native input lamps and window controls. Routine CI runs the headless suite on macOS and Windows; the packaging workflow runs the small packaged Electron suite.
+
 Build on the target OS. CI is configured for macOS and Windows; real workplace provider/WSL validation still needs to be done there. Distribution builds are unsigned. Managed computers may require IT approval to run the app or allow user-defined hooks.
+
+CI runs **Desktop checks** (`npm run check`) on pull request updates and pushes to `main`. Feature-branch pushes do not also start a duplicate run, and newer updates cancel superseded runs for the same PR or branch.
+
+**Packaged app checks** runs on macOS and Windows when dependency manifests, packaging/build configuration, the packaged-test runner or its Electron tests change, and on `v*` release tags. Before a release, use Actions > Packaged app checks > Run workflow to validate the current build; enable `upload_packaged_builds` there when downloads are needed. Downloads are retained for three days. **Bridge reference checks** runs only for changes under `bridge/` or `schema/`, changes to `Makefile` or its workflow, or a manual run. Keep the path-filtered packaging and bridge workflows optional in branch protection; the always-running desktop checks can remain required.
 
 The packaging tool's `@electron/get` dependency is overridden to v5 to avoid its older vulnerable HTTP cache dependency; Node 24 supports that downloader. The lockfile pins the tested dependency graph.
 

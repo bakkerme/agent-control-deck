@@ -1,22 +1,14 @@
-import { test, expect, _electron as electron } from "@playwright/test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { test, expect } from "./renderer-fixture";
+import { mkdtempSync, rmSync, writeFileSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { localPlanDay } from "../src/shared/planning";
-test("task links use generic rules, safe opening, reversible removal and persistent inline drafts", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "acd-links-ui-")),
-    env = { ...process.env };
-  delete env.ELECTRON_RUN_AS_NODE;
-  const launch = () =>
-    electron.launch({
-      executablePath: process.env.ACD_PACKAGED_EXECUTABLE,
-      args: [
-        ...(process.env.ACD_PACKAGED_EXECUTABLE ? [] : [resolve(".")]),
-        `--data-dir=${dir}`,
-      ],
-      env: { ...env, ACD_HTTP_PORT: "0" },
-    });
+test("task links use generic rules, safe opening, reversible removal and persistent inline drafts", async ({
+  launchRenderer,
+}) => {
+  const dir = mkdtempSync(join(tmpdir(), "acd-links-ui-"));
+  const launch = () => launchRenderer({ dataDirectory: dir });
   let app = await launch();
   try {
     let page = await app.firstWindow();
@@ -29,6 +21,8 @@ test("task links use generic rules, safe opening, reversible removal and persist
         }),
       ),
       source = initial.sources[0];
+    let sequence = 0;
+    const fileTime = new Date();
     for (const [hook, extra] of [
       ["UserPromptSubmit", { prompt: "Write rollout plan" }],
       [
@@ -37,12 +31,17 @@ test("task links use generic rules, safe opening, reversible removal and persist
           last_assistant_message: `${"x".repeat(600)} [Rollout](https://team.example/wiki/rollout) https://team.example/browse/PAY-142 [<img src=x>](https://example.org/context)`,
         },
       ],
-    ] as const)
+    ] as const) {
+      const path = join(
+        initial.setups[source.id].inbox,
+        `${1000 - ++sequence}.json`,
+      );
       writeFileSync(
-        join(initial.setups[source.id].inbox, `${randomUUID()}.json`),
+        path,
         JSON.stringify({
           version: 1,
           eventId: randomUUID(),
+          observedAt: new Date(Date.now() + sequence).toISOString(),
           payload: {
             hook_event_name: hook,
             session_id: "plan",
@@ -51,6 +50,17 @@ test("task links use generic rules, safe opening, reversible removal and persist
           },
         }),
       );
+      utimesSync(path, fileTime, fileTime);
+      // Stop intentionally ignores unknown sessions; wait for prompt discovery.
+      if (hook === "UserPromptSubmit")
+        await expect
+          .poll(async () =>
+            (await page.evaluate(() => window.deck.load())).chats.some(
+              (c) => c.externalId === "plan",
+            ),
+          )
+          .toBe(true);
+    }
     await expect
       .poll(
         async () =>
@@ -104,15 +114,9 @@ test("task links use generic rules, safe opening, reversible removal and persist
     await expect(
       tracked().getByRole("button", { name: "Tickets", exact: true }),
     ).toBeVisible();
-    await app.evaluate(({ shell }) => {
-      (globalThis as any).openedLinks = [];
-      shell.openExternal = async (url: string) => {
-        (globalThis as any).openedLinks.push(url);
-      };
-    });
     await tracked().getByRole("link", { name: "Rollout", exact: true }).click();
     await expect
-      .poll(() => app.evaluate(() => (globalThis as any).openedLinks))
+      .poll(() => app.openedUrls())
       .toEqual(["https://team.example/wiki/rollout"]);
     await expect(
       page.evaluate(
@@ -219,12 +223,6 @@ test("task links use generic rules, safe opening, reversible removal and persist
     await tickets
       .getByRole("button", { name: "Save ticket", exact: true })
       .click();
-    await app.evaluate(({ shell }) => {
-      (globalThis as any).openedTickets = [];
-      shell.openExternal = async (url: string) => {
-        (globalThis as any).openedTickets.push(url);
-      };
-    });
     const ticket = page
       .getByRole("region", { name: "Linked tickets" })
       .getByRole("link", {
@@ -233,7 +231,7 @@ test("task links use generic rules, safe opening, reversible removal and persist
       });
     await ticket.click();
     await expect
-      .poll(() => app.evaluate(() => (globalThis as any).openedTickets))
+      .poll(() => app.openedUrls())
       .toEqual(["https://tickets.example/DECK-99"]);
     await ticket.hover();
     await page

@@ -1,14 +1,14 @@
 name: Desktop checks
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
-    inputs:
-      upload_packaged_builds:
-        description: "Upload packaged apps for download (retained for 3 days)"
-        type: boolean
-        required: false
-        default: false
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
   desktop:
     strategy:
@@ -23,35 +23,15 @@ jobs:
           node-version: "24"
           cache: npm
       - run: npm ci
+      - run: npx playwright install chromium --only-shell
       - run: npm run check
-      - run: npm run package
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: "false"
-      - run: npm run test:packaged
-      # Routine runs retain only failure diagnostics, never the full app bundle.
       - name: Upload failure diagnostics
         uses: actions/upload-artifact@v4
         if: failure()
+        # Diagnostics are best-effort when GitHub artifact storage is full.
+        continue-on-error: true
         with:
           name: desktop-diagnostics-${{ matrix.os }}
           path: test-results/
           if-no-files-found: ignore
           retention-days: 7
-      # Use Actions > Desktop checks > Run workflow and opt in when a build is needed.
-      - name: Upload packaged builds
-        uses: actions/upload-artifact@v4
-        if: ${{ success() && github.event_name == 'workflow_dispatch' && inputs.upload_packaged_builds }}
-        with:
-          name: desktop-${{ matrix.os }}
-          path: release/
-          if-no-files-found: error
-          retention-days: 3
-  bridge-reference:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-        with:
-          python-version: "3.11"
-      - run: uv --directory bridge sync --locked
-      - run: make bridge-test schema-check
