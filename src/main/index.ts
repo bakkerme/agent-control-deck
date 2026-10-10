@@ -12,15 +12,8 @@ import { pathToFileURL } from "node:url";
 import { mkdirSync } from "node:fs";
 import { z } from "zod";
 import { resolveTicketUrl } from "../shared/tickets";
-import type { Snapshot } from "../shared/types";
-import { commandSchema, idSchema, ticketUrl } from "../shared/validation";
-import { Store } from "./store";
-import { Inbox } from "./inbox";
-import { PlanningStore } from "./planning-store";
-import { readPlanInbox } from "./plan-inbox";
-import { sourceSetup, writeHookSetup, type HookConnection } from "./setup";
-import { HookReceiver } from "./http";
-import { advanceDemo, seedDemo } from "./demo";
+import { idSchema, ticketUrl } from "../shared/validation";
+import { WorkspaceRuntime } from "./workspace-runtime";
 import { InputIndicator } from "./attention";
 import { dockIconWithLamp, inputLamp } from "./attention-image";
 
@@ -31,30 +24,24 @@ if (argument) {
   mkdirSync(path, { recursive: true });
   app.setPath("userData", path);
 }
-let demo = process.argv.includes("--demo");
-let store: Store;
-let inbox: Inbox;
 let window: BrowserWindow | null = null;
-let timer: NodeJS.Timeout | undefined;
-let ingestionError: string | null = null;
-let planInboxSignature = "";
-let connection: HookConnection;
-let receiver: HookReceiver | undefined;
 let inputIndicator: InputIndicator | undefined;
-const base = app.getPath("userData");
-const dataRoot = () => (demo ? join(base, "demo") : join(base, "workspace"));
+const workspace = new WorkspaceRuntime(
+  app.getPath("userData"),
+  () => {
+    updateInputIndicator();
+    window?.webContents.send("deck:changed");
+  },
+  process.argv.includes("--demo"),
+);
 function updateInputIndicator(force = false): void {
   try {
-    inputIndicator?.update(store.chats(), force);
+    inputIndicator?.update(workspace.store.chats(), force);
   } catch (error) {
     // OS decoration failures must not interrupt ingestion or user edits.
     console.warn("Could not update the input indicator", error);
   }
 }
-const changed = () => {
-  updateInputIndicator();
-  window?.webContents.send("deck:changed");
-};
 function initializeInputIndicator(): void {
   if (process.platform === "win32") {
     const lamp = inputLamp();
@@ -68,58 +55,6 @@ function initializeInputIndicator(): void {
     const lit = dockIconWithLamp(original);
     inputIndicator = new InputIndicator(count => app.dock?.setIcon(count ? lit : original));
   }
-}
-function openStore(): void {
-  store = new Store(join(dataRoot(), "workspace.sqlite"));
-  if (demo) seedDemo(store);
-  for (const source of store.sources()) {
-    try {
-      writeHookSetup(dataRoot(), source, connection);
-    } catch {
-      store.sourceError(
-        source.id,
-        "Could not create HTTP hook configuration. Check directory permissions.",
-      );
-    }
-  }
-  inbox = new Inbox(store, dataRoot(), changed);
-}
-function pollInbox(): void {
-  const before = ingestionError;
-  try {
-    inbox.poll();
-    ingestionError = null;
-  } catch {
-    ingestionError = "Event ingestion is paused by a storage error. Check disk space and permissions; queued events will be retried.";
-  }
-  if (before !== ingestionError) changed();
-  const plans = new PlanningStore(store);
-  const signature = JSON.stringify(readPlanInbox(dataRoot(), plans));
-  if (signature !== planInboxSignature) { planInboxSignature = signature; changed(); }
-}
-function snapshot(): Snapshot {
-  const sources = store.sources();
-  const plans = new PlanningStore(store);
-  return {
-    planning: {
-      items: plans.items(),
-      entries: plans.entries(),
-      imports: plans.imports(),
-      inbox: readPlanInbox(dataRoot(), plans),
-    },
-    settings: store.settings(),
-    links: store.links(),
-    projects: store.projects(),
-    chats: store.chats(),
-    sources,
-    workspaces: store.workspaces(),
-    demo,
-    dataDirectory: dataRoot(),
-    ingestionError,
-    setups: Object.fromEntries(
-      sources.map((s) => [s.id, sourceSetup(dataRoot(), s, process.platform, connection)]),
-    ),
-  };
 }
 const renderer = join(__dirname, "../renderer/index.html");
 const devUrl = process.env.ELECTRON_RENDERER_URL;
@@ -160,60 +95,19 @@ function handle(
   });
 }
 function registerIpc(): void {
-  handle("deck:load", () => snapshot());
-  handle("deck:activity", (input) => store.activity(idSchema.parse(input)));
+  handle("deck:load", () => workspace.snapshot());
+  handle("deck:activity", (input) => workspace.store.activity(idSchema.parse(input)));
   handle("deck:copy", (input) =>
     clipboard.writeText(z.string().max(100000).parse(input)),
   );
   handle("deck:open-ticket", async (input) => {
-    const url = resolveTicketUrl(store.chat(idSchema.parse(input)), store.settings());
+    const url = resolveTicketUrl(workspace.store.chat(idSchema.parse(input)), workspace.store.settings());
     if (url) await shell.openExternal(url);
   });
   handle("deck:open-link", async (input) => {
-    await shell.openExternal(ticketUrl.parse(store.link(idSchema.parse(input)).url));
+    await shell.openExternal(ticketUrl.parse(workspace.store.link(idSchema.parse(input)).url));
   });
-  handle("deck:command", (input) => {
-    const command = commandSchema.parse(input);
-    if (command.type === "setDemo") {
-      if (command.enabled !== demo) {
-        const previous = demo;
-        store.close();
-        demo = command.enabled;
-        try {
-          openStore();
-        } catch (error) {
-          demo = previous;
-          openStore();
-          throw error;
-        }
-      }
-    } else if (command.type === "advanceDemo") {
-      if (!demo)
-        throw new Error("Sample transitions are available only in demo mode");
-      advanceDemo(store);
-    } else if (command.type === "testSource") {
-      inbox.test(command.id);
-    } else {
-      const previous = new Set(store.sources().map((s) => s.id));
-      store.command(command);
-      if (command.type === "createSource") {
-        for (const source of store
-          .sources()
-          .filter((s) => !previous.has(s.id))) {
-          try {
-            writeHookSetup(dataRoot(), source, connection);
-          } catch {
-            store.sourceError(
-              source.id,
-              "HTTP hook setup failed. Restart the app after checking directory permissions.",
-            );
-          }
-        }
-      }
-    }
-    changed();
-    return snapshot();
-  });
+  handle("deck:command", (input) => workspace.command(input));
 }
 function createWindow(): void {
   window = new BrowserWindow({
@@ -278,9 +172,7 @@ else {
   void app
     .whenReady()
     .then(async () => {
-      receiver = new HookReceiver(() => ({ store, inbox, root: dataRoot(), demo }));
-      connection = await receiver.listen();
-      openStore();
+      await workspace.start();
       try {
         initializeInputIndicator();
       } catch (error) {
@@ -288,8 +180,6 @@ else {
       }
       registerIpc();
       createWindow();
-      timer = setInterval(pollInbox, 1000);
-      pollInbox();
       app.on("activate", () => {
         if (!window) createWindow();
       });
@@ -300,9 +190,6 @@ else {
     });
   app.on("window-all-closed", () => app.quit());
   app.on("will-quit", () => {
-    if (timer) clearInterval(timer);
-    receiver?.server.close();
-    receiver?.server.closeAllConnections();
-    store?.close();
+    workspace.close();
   });
 }

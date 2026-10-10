@@ -72,14 +72,19 @@ The app backs up an existing database before schema migrations. For a manual bac
 ## Checks and packaging
 
 ```bash
+npx playwright install chromium --only-shell  # once per machine, for headless UI tests
 npm run typecheck
-npm test                 # storage, provider, and HTTP receiver/forwarding tests under Electron's Node runtime
-npm run test:ui          # builds and drives the Electron UI, including restart persistence
-npm run check            # all desktop checks
+npm test                 # storage, provider, and HTTP tests; Electron's Node runtime only, no windows
+npm run test:ui          # builds and tests the renderer in headless Chromium, including database restarts
+npm run check            # routine desktop checks; no visible windows
+npm run test:electron    # opt-in Electron startup, IPC isolation, native lamps and window controls
+npm run check:all        # routine checks plus the windowed Electron suite
 npm run package          # unpacked app in release/
-npm run test:packaged    # drive the built application bundle
+npm run test:packaged    # run the small Electron suite against the built application bundle
 npm run dist             # platform ZIP in release/
 ```
+
+Routine UI tests use the real SQLite store, HTTP hooks, durable inboxes and workspace commands behind a test-only adapter for `window.deck`; they do not validate Electron preload isolation or OS window behavior. Clipboard writes are validated and external-browser requests are captured in the test adapter. The explicit Electron suite checks startup, preload/IPC isolation, restart persistence, native input lamps and window controls. CI runs the headless suite and the small packaged Electron suite on macOS and Windows.
 
 Build on the target OS. CI is configured for macOS and Windows; real workplace provider/WSL validation still needs to be done there. Distribution builds are unsigned. Managed computers may require IT approval to run the app or allow user-defined hooks.
 

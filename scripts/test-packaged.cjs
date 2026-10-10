@@ -24,7 +24,7 @@ if (!existsSync(binary)) {
 }
 const result = spawnSync(
   process.execPath,
-  [require.resolve("@playwright/test/cli"), "test"],
+  [require.resolve("@playwright/test/cli"), "test", "--config", "playwright.electron.config.ts"],
   {
     stdio: "inherit",
     env: { ...process.env, ACD_PACKAGED_EXECUTABLE: resolve(binary) },
