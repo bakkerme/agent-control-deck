@@ -105,7 +105,7 @@ test("task links use generic rules, safe opening, reversible removal and persist
     await page
       .getByRole("button", { name: "Save settings", exact: true })
       .click();
-    await expect(page.getByRole("status")).toHaveText("Saved");
+    await expect(page.locator(".settings-save").getByRole("status")).toHaveText("Saved");
     await page.getByLabel("Rule 1 category").fill("Docs");
     await page.getByRole("button", { name: "Today", exact: true }).click();
     await expect(
@@ -174,12 +174,13 @@ test("task links use generic rules, safe opening, reversible removal and persist
     await tracked()
       .getByRole("link", { name: "Manual reference", exact: true })
       .hover();
-    await tracked()
-      .getByRole("button", {
-        name: "Remove link Manual reference",
-        exact: true,
-      })
-      .click();
+    const removeManualLink = tracked().getByRole("button", {
+      name: "Remove link Manual reference",
+      exact: true,
+    });
+    // Focus keeps the removal controls available while clicking after restart.
+    await removeManualLink.focus();
+    await removeManualLink.click();
     await tracked().getByText("Removed links", { exact: true }).click();
     await tracked()
       .getByRole("button", { name: "Restore", exact: true })
@@ -261,7 +262,7 @@ test("task links use generic rules, safe opening, reversible removal and persist
     await page.getByLabel("Rule 3 domain").fill("https://bad.example");
     await page.getByLabel("Rule 3 category").fill("Bad");
     await page.getByRole("button", { name: "Today", exact: true }).click();
-    await expect(page.getByRole("alert")).toBeVisible();
+    await expect(page.getByRole("alert").filter({ hasText: "Rule 3:" })).toBeVisible();
     await page
       .getByRole("button", { name: "Remove rule 3", exact: true })
       .click();

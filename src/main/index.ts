@@ -6,6 +6,7 @@ import {
   ipcMain,
   nativeImage,
   shell,
+  safeStorage,
 } from "electron";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -16,6 +17,20 @@ import { idSchema, ticketUrl } from "../shared/validation";
 import { WorkspaceRuntime } from "./workspace-runtime";
 import { InputIndicator } from "./attention";
 import { dockIconWithLamp, inputLamp } from "./attention-image";
+
+const encryption = {
+  available: () => safeStorage.isEncryptionAvailable() &&
+    (process.platform !== "linux" || !["basic_text", "unknown"].includes(safeStorage.getSelectedStorageBackend())),
+  encrypt: async (key: string) => {
+    if (!(await safeStorage.isAsyncEncryptionAvailable())) throw new Error("Encryption unavailable");
+    return safeStorage.encryptStringAsync(key);
+  },
+  decrypt: async (encrypted: Buffer) => {
+    if (!(await safeStorage.isAsyncEncryptionAvailable())) throw new Error("Encryption unavailable");
+    const decrypted = await safeStorage.decryptStringAsync(encrypted);
+    return decrypted.shouldReEncrypt ? (await safeStorage.decryptStringAsync(encrypted)).result : decrypted.result;
+  },
+};
 
 app.setName("Agent Control Deck");
 const argument = process.argv.find((a) => a.startsWith("--data-dir="));
@@ -33,6 +48,7 @@ const workspace = new WorkspaceRuntime(
     window?.webContents.send("deck:changed");
   },
   process.argv.includes("--demo"),
+  encryption,
 );
 function updateInputIndicator(force = false): void {
   try {
@@ -103,6 +119,9 @@ function handle(
   });
 }
 function registerIpc(): void {
+  handle("deck:save-matching", input => workspace.saveMatching(input));
+  handle("deck:remove-matching-key", input => workspace.removeMatchingKey(input));
+  handle("deck:test-matching-connection", input => workspace.testMatchingConnection(input));
   handle("deck:load", () => workspace.snapshot());
   handle("deck:activity", (input) =>
     workspace.store.activity(idSchema.parse(input)),

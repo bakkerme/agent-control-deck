@@ -347,10 +347,10 @@ test("v10 migration preserves legacy records, backs up once and recovers only ex
     },
   });
   f.store.db.exec(
-    "DROP TABLE plan_wrapups; DROP TABLE plan_drafts; DROP TABLE plan_undo; DROP TABLE chat_rounds; ALTER TABLE plan_items DROP COLUMN tickets; ALTER TABLE plan_items DROP COLUMN links; ALTER TABLE plan_items DROP COLUMN hiddenLinks; ALTER TABLE plan_items DROP COLUMN categoryOverrides; ALTER TABLE plan_entries DROP COLUMN name; ALTER TABLE plan_entries DROP COLUMN note; PRAGMA user_version=10;",
+    "DROP TABLE ai_link_dismissals; DROP TABLE ai_match_attempts; DROP TABLE plan_wrapups; DROP TABLE plan_drafts; DROP TABLE plan_undo; DROP TABLE chat_rounds; ALTER TABLE plan_chats DROP COLUMN origin; ALTER TABLE plan_items DROP COLUMN tickets; ALTER TABLE plan_items DROP COLUMN links; ALTER TABLE plan_items DROP COLUMN hiddenLinks; ALTER TABLE plan_items DROP COLUMN categoryOverrides; ALTER TABLE plan_entries DROP COLUMN name; ALTER TABLE plan_entries DROP COLUMN note; PRAGMA user_version=10;",
   );
   f.reopen();
-  assert.equal(f.store.db.pragma("user_version", { simple: true }), 11);
+  assert.equal(f.store.db.pragma("user_version", { simple: true }), 12);
   assert.equal(f.plans.items()[0].notes, "Original user notes");
   assert.equal(f.plans.items()[0].tickets[0].key, "DECK-42");
   assert.equal(f.plans.entries()[0].name, "Deck");

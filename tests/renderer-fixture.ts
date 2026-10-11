@@ -154,6 +154,9 @@ async function launch(
         }
       ).deckTestInvoke;
       window.deck = {
+        saveMatching: (input) => invoke("saveMatching", input),
+        removeMatchingKey: () => invoke("removeMatchingKey"),
+        testMatchingConnection: () => invoke("testMatchingConnection"),
         load: () => invoke("load"),
         command: (input) => invoke("command", input),
         activity: (id) => invoke("activity", id),

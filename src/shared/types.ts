@@ -4,6 +4,7 @@ import type {
   PlanItem,
   PlanTicket,
 } from "./planning";
+import type { MatchingStatus, SaveMatchingInput } from "./matching-settings";
 export const states = [
   "running",
   "idle",
@@ -125,6 +126,7 @@ export interface ChatLink {
   lastSeenAt: string;
 }
 export interface Snapshot {
+  matching: MatchingStatus;
   planning: PlanningSnapshot;
   settings: Settings;
   links: ChatLink[];
@@ -239,6 +241,9 @@ export type Command =
   | { type: "setDemo"; enabled: boolean }
   | { type: "advanceDemo" };
 export interface DeckApi {
+  saveMatching(input: SaveMatchingInput): Promise<void>;
+  removeMatchingKey(): Promise<void>;
+  testMatchingConnection(): Promise<void>;
   load(): Promise<Snapshot>;
   command(command: Command): Promise<Snapshot>;
   activity(chatId: string): Promise<Activity[]>;
