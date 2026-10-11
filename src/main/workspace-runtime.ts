@@ -12,6 +12,8 @@ import { advanceDemo, seedDemo } from "./demo";
 import { ChatMatcher } from "./chat-matcher";
 import { SecretStore, type SecretEncryption } from "./secret-store";
 import { saveMatchingSchema } from "../shared/matching-settings";
+import { InteractionQueue } from "./interactions";
+import { promptTitle } from "../shared/presentation";
 
 const unavailableEncryption: SecretEncryption = {
   available: () => false,
@@ -26,6 +28,7 @@ export class WorkspaceRuntime {
   private inbox!: Inbox;
   private connection!: HookConnection;
   private readonly receiver: HookReceiver;
+  readonly interactions: InteractionQueue;
   private timer?: NodeJS.Timeout;
   private ingestionError: string | null = null;
   private matcher!: ChatMatcher;
@@ -36,11 +39,13 @@ export class WorkspaceRuntime {
     private demo = false,
     private readonly encryption: SecretEncryption = unavailableEncryption,
   ) {
+    this.interactions = new InteractionQueue(changed);
     this.receiver = new HookReceiver(() => ({
       store: this.store,
       inbox: this.inbox,
       root: this.root(),
       demo: this.demo,
+      interactions: this.interactions,
     }));
   }
 
@@ -64,6 +69,7 @@ export class WorkspaceRuntime {
   }
 
   close(): void {
+    this.interactions.clear();
     this.matcher?.dispose();
     if (this.timer) clearInterval(this.timer);
     this.receiver.server.close();
@@ -108,6 +114,11 @@ export class WorkspaceRuntime {
     const plans = new PlanningStore(this.store);
     return {
       matching: this.matcher.status(),
+      requests: this.interactions.snapshot().map(request => {
+        const chat = this.store.chats().find(c => c.sourceId === request.sourceId && c.externalId === request.sessionId);
+        return { ...request, chatName: chat ? chat.name || promptTitle(chat.providerTitle,chat.provider === "codex") : "",
+          projectName: this.store.projects().find(p => p.id === chat?.projectId)?.name ?? "" };
+      }),
       planning: {
         items: plans.items(),
         entries: plans.entries(),
@@ -193,6 +204,7 @@ export class WorkspaceRuntime {
     const command = commandSchema.parse(input);
     if (command.type === "setDemo") {
       if (command.enabled !== this.demo) {
+        this.interactions.clear();
         const previous = this.demo;
         this.matcher.dispose();
         this.store.close();
@@ -214,6 +226,10 @@ export class WorkspaceRuntime {
     } else {
       const previous = new Set(this.store.sources().map((s) => s.id));
       this.store.command(command);
+      if (command.type === "setSourceResponses") {
+        if (!command.enabled) this.interactions.cancelSource(command.id);
+        writeHookSetup(this.root(),this.store.source(command.id),this.connection);
+      }
       if (command.type === "createSource") {
         for (const source of this.store
           .sources()
@@ -230,6 +246,10 @@ export class WorkspaceRuntime {
       }
     }
     this.changed();
+    return this.snapshot();
+  }
+  async respond(input: unknown): Promise<Snapshot> {
+    await this.interactions.answer(input);
     return this.snapshot();
   }
 }

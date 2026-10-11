@@ -158,6 +158,7 @@ async function launch(
         removeMatchingKey: () => invoke("removeMatchingKey"),
         testMatchingConnection: () => invoke("testMatchingConnection"),
         load: () => invoke("load"),
+        respond: input => invoke("respond", input),
         command: (input) => invoke("command", input),
         activity: (id) => invoke("activity", id),
         copy: (text) => invoke("copy", text),

@@ -11,6 +11,7 @@ const api: DeckApi = {
   testMatchingConnection: () => invoke("deck:test-matching-connection"),
   load: () => invoke("deck:load"),
   command: (command) => invoke("deck:command", command),
+  respond: response => invoke("deck:respond", response),
   activity: (id) => invoke("deck:activity", id),
   copy: (text) => invoke("deck:copy", text),
   openTicket: (id) => invoke("deck:open-ticket", id),

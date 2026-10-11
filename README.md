@@ -1,6 +1,6 @@
 # Agent Control Deck
 
-A local desktop app for monitoring Codex, Claude Code, and Cursor conversations across projects. Name chats, add notes, attach Jira references, and see their last reported activity. The app observes agents; it does not approve requests, inject prompts, or control sessions.
+A local desktop app for monitoring Codex, Claude Code, and Cursor conversations across projects. Name chats, add notes, attach Jira references, and see their last reported activity. Opt in per source to answer Claude Code questions and Claude Code/Codex permission requests. The app does not submit follow-up prompts, launch chats, or control processes.
 
 ## Run the desktop app
 
@@ -34,6 +34,7 @@ The development demo command opens sample projects and chats in a separate SQLit
 - Separate Codex, Claude Code, and Cursor hook adapters; ended sessions remain available.
 - Recent activity (100 entries per chat), Markdown previews (500 characters), and last-observed timestamps. A completed turn means idle, not completed work. Preview links and images are displayed without navigation or remote loading.
 - Source setup, diagnostic events, pause/resume, and workspace aliases to group Windows/WSL paths into one project.
+- Optional live responses: permissions open in Spotlight with **Allow once**, **Deny**, and **Keep waiting**; Claude questions appear in the right dock across Today, Workspace, Sources, and Settings. Successful responses dismiss immediately with brief feedback. Failed delivery keeps the request and draft for retry.
 
 The blue Operations workspace keeps projects on the left, compact chat records in the center, and the selected chat’s notes, ticket, and activity in the right sidebar. Chat name, project assignment, project renaming, and Archive/Restore are visible near the top of chat details. Every project name is editable, including repository labels carried over from older versions. New chats default to their repository project; accessible local Git worktrees share the parent repository's project. Moving a chat with the Project selector replaces its membership, including choosing No project. Names, assignments, and archives survive provider updates and restarts.
 
@@ -47,13 +48,15 @@ Open **Settings → Sources → Add source**. Choose the provider and native or 
 
 Native Claude Code uses HTTP hooks directly. WSL sources configured by the Windows deck use command hooks that invoke Windows `curl.exe`, keeping HTTP on the Windows side. Cursor and Codex also use command hooks that POST stdin with curl. No PowerShell or Bash collector scripts, separate Node installation, or Python are required.
 
+To answer in the deck, select a Claude Code or Codex source and enable **Answer questions and permissions in the deck** (Codex: **Answer permissions in the deck**). Merge the regenerated hook fragment and review/trust the new Codex hooks. Existing sources remain observation-only until you opt in. Requests wait up to five minutes and then return to the agent's own interface; disabling responses also returns pending requests. **Keep waiting** dismisses Spotlight while the alert stays available. Codex questions remain in Codex, and Claude network sandbox permissions may still require its native interface. See [live responses](docs/desktop-integrations.md#live-permissions-and-questions) for coverage and delivery limits.
+
 Subagent start/stop hooks keep background work visible after the main turn finishes: **Main turn finished · 2 subagents working**. These chats remain in Running until the observed workers finish; missing identities or observations older than five minutes show an uncertain status. Merge the latest configuration from Sources for existing installations, and review/trust new Codex hooks. See [subagent observations](docs/desktop-integrations.md#main-turns-and-subagent-observations) for provider differences and event coverage.
 
 Claude's existing Stop/SubagentStop hooks also expose background monitors and scheduled checks. The deck shows **Monitoring · waiting for next check** between turns, with a separate Monitoring filter/count and observation details. No hook configuration changes are needed when these events already forward their complete payloads. Detection requires a Claude version that reports these fields; Codex/Cursor monitoring is not inferred. See [background monitoring](docs/desktop-integrations.md#background-monitoring-and-scheduled-checks) for freshness and snapshot limits.
 
 For Claude Code in WSL, run the **Windows app**, create a WSL source per distro, and configure Claude inside that distro. The receiver defaults to `http://127.0.0.1:43821`. WSL hooks launch `"/mnt/c/Windows/System32/curl.exe"` through Windows executable interoperability and POST to Windows localhost, without requiring Windows directories on the Linux PATH. This route needs no WSL host-IP, mirrored-networking configuration, or inbound firewall exception. Windows interoperability must be enabled. Adjust the executable path in your hook commands if the Windows drive or WSL mount root differs. See [WSL setup and diagnostics](docs/desktop-integrations.md#wsl-networking).
 
-Keep the deck running while using your agents. New and existing/resumed chats appear on their next submitted prompt; merely opening or closing an unused chat does not add it. Historical conversations are not scanned. Events sent while the deck is closed are not captured. Accepted requests are queued on disk before ingestion; pause/resume and storage retries retain that queue.
+Keep the deck running while using your agents. New and existing/resumed chats appear on their next submitted prompt; merely opening or closing an unused chat does not add it. Historical conversations are not scanned. Events sent while the deck is closed are not captured. Accepted observation events are queued on disk before ingestion; pause/resume and storage retries retain that queue. Live permission and question requests remain bound to their current hook connection and are never replayed after restart.
 
 Command hooks finish quietly and successfully when the deck is unavailable, without interrupting the agent. The Sources diagnostic command still reports delivery failures so you can test the connection. Native Claude HTTP hooks allow execution to continue on connection failure, but Claude may display a hook error notice.
 

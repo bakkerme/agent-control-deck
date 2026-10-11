@@ -305,6 +305,7 @@ export const commandSchema = z.discriminatedUnion("type", [
   z
     .object({ type: z.literal("updateSource"), id, enabled: z.boolean() })
     .strict(),
+  z.object({ type: z.literal("setSourceResponses"), id, enabled: z.boolean() }).strict(),
   z
     .object({
       type: z.literal("addWorkspace"),

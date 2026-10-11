@@ -5,6 +5,7 @@ import type {
   PlanTicket,
 } from "./planning";
 import type { MatchingStatus, SaveMatchingInput } from "./matching-settings";
+import type { AgentRequest, AgentResponse } from "./interactions";
 export const states = [
   "running",
   "idle",
@@ -38,6 +39,7 @@ export interface Source {
   error: string | null;
   accepted: number;
   rejected: number;
+  responsesEnabled?: boolean;
 }
 export interface Chat {
   id: string;
@@ -126,6 +128,7 @@ export interface ChatLink {
   lastSeenAt: string;
 }
 export interface Snapshot {
+  requests: AgentRequest[];
   matching: MatchingStatus;
   planning: PlanningSnapshot;
   settings: Settings;
@@ -235,6 +238,7 @@ export type Command =
       environment: Environment;
     }
   | { type: "updateSource"; id: string; enabled: boolean }
+  | { type: "setSourceResponses"; id: string; enabled: boolean }
   | { type: "addWorkspace"; sourceId: string; projectId: string; path: string }
   | { type: "removeWorkspace"; id: string }
   | { type: "testSource"; id: string }
@@ -246,6 +250,7 @@ export interface DeckApi {
   testMatchingConnection(): Promise<void>;
   load(): Promise<Snapshot>;
   command(command: Command): Promise<Snapshot>;
+  respond(response: AgentResponse): Promise<Snapshot>;
   activity(chatId: string): Promise<Activity[]>;
   copy(text: string): Promise<void>;
   openTicket(chatId: string): Promise<void>;

@@ -175,6 +175,19 @@ test("native input lamps clear on archive, provider resume and demo changes", as
     await page.evaluate(() => window.deck.command({ type: "setDemo", enabled: false }));
     if (process.platform === "darwin" || process.platform === "win32")
       await expect.poll(async () => (await icons()).length).toBe(8);
+    // A live request lights the native indicator before any observed chat exists.
+    const responseSetup = await page.evaluate(id => window.deck.command({ type: "setSourceResponses", id, enabled: true }), source.id);
+    const hook = JSON.parse(responseSetup.setups[source.id].config).hooks.PermissionRequest[0].hooks[0];
+    const decision = fetch(hook.url, { method: "POST", headers: { ...hook.headers, "Content-Type": "application/json" },
+      body: JSON.stringify({ hook_event_name: "PermissionRequest", session_id: "not-discovered", tool_name: "Bash", tool_input: { command: "git status" } }) }).then(r => r.json());
+    const permission = page.getByRole("dialog", { name: "Permission request" });
+    await expect(permission).toBeVisible();
+    await expect(permission.getByRole("button", { name: "Keep waiting" })).toBeFocused();
+    if (process.platform === "darwin" || process.platform === "win32") await expect.poll(async () => (await icons()).length).toBe(9);
+    await permission.getByRole("button", { name: "Allow once" }).click();
+    expect((await decision).hookSpecificOutput.decision.behavior).toBe("allow");
+    await expect(permission).toHaveCount(0);
+    if (process.platform === "darwin" || process.platform === "win32") await expect.poll(async () => (await icons()).length).toBe(10);
   } finally {
     await app.close();
     rmSync(dir, { recursive: true, force: true });

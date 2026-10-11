@@ -5,8 +5,9 @@ import type { Store } from "./store";
 import type { Inbox } from "./inbox";
 import { normalize } from "./providers";
 import { DEFAULT_HTTP_PORT, hookEvents, neutralHookResponse, sourceToken, type HookConnection } from "./setup";
+import type { InteractionQueue } from "./interactions";
 
-interface Context { store: Store; inbox: Inbox; root: string; demo: boolean }
+interface Context { store: Store; inbox: Inbox; root: string; demo: boolean; interactions?: InteractionQueue }
 export function receiverOptions(env: NodeJS.ProcessEnv = process.env) {
   const host = env.ACD_HTTP_HOST ?? "127.0.0.1";
   const port = Number(env.ACD_HTTP_PORT ?? DEFAULT_HTTP_PORT);
@@ -39,6 +40,7 @@ export class HookReceiver {
     return { url: `http://${host.includes(":") ? `[${host}]` : host}:${address.port}` };
   }
   async close(): Promise<void> {
+    this.context().interactions?.clear();
     await new Promise<void>((resolve, reject) => {
       this.server.close((error) => error ? reject(error) : resolve());
       this.server.closeAllConnections();
@@ -69,18 +71,20 @@ export class HookReceiver {
       req.once("end", () => { cleanup(); res.end(body); });
       req.resume();
     };
-    // No browser clients, redirects, CORS, or command/control routes.
+    // Hook clients only. Decisions arrive separately through trusted Electron IPC.
     if (req.method !== "POST") return reply(405);
     if (req.headers.origin || req.headers["sec-fetch-site"]) return reply(403);
     if (this.active >= 8) return reply(503);
-    const match = /^\/hooks\/([a-zA-Z0-9-]{1,200})\/([a-zA-Z]+)$/.exec(req.url ?? "");
+    const match = /^\/(hooks|requests)\/([a-zA-Z0-9-]{1,200})\/([a-zA-Z]+)$/.exec(req.url ?? "");
     if (!match) return reply(404);
-    const [, sourceId, event] = match;
+    const [, route, sourceId, event] = match;
+    const interaction = route === "requests";
     const ctx = this.context();
     if (ctx.demo) return reply(503);
     let source;
     try { source = ctx.store.source(sourceId); } catch { return reply(404); }
-    if (!hookEvents(source.provider).includes(event)) return reply(404);
+    if (interaction ? !ctx.interactions || !source.responsesEnabled || !["claude","codex"].includes(source.provider) ||
+      !(event === "PermissionRequest" || (source.provider === "claude" && event === "PreToolUse")) : !hookEvents(source.provider).includes(event)) return reply(404);
     try {
       const expected = Buffer.from(`Bearer ${sourceToken(ctx.root, sourceId)}`);
       const supplied = Buffer.from(req.headers.authorization ?? "");
@@ -113,12 +117,32 @@ export class HookReceiver {
         const parsed: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
         if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return reply(400);
         payload = parsed as Record<string, unknown>;
+        if (interaction) {
+          if (payload.hook_event_name !== event) return reply(400);
+          // The upload deadline ends here. This synchronous hook waits for an
+          // explicit user response; the queue supplies a bounded fallback deadline.
+          req.setTimeout(0);
+          try {
+            const id = ctx.interactions!.add(current.store.source(sourceId), payload, output => new Promise<void>((resolve, reject) => {
+              if (res.destroyed) { reject(new Error("The hook disconnected. Continue in the agent’s own interface.")); return; }
+              const finish = () => { res.off("close", closed); resolve(); };
+              const closed = () => { res.off("finish", finish); reject(new Error("The hook disconnected before the response was sent.")); };
+              res.once("finish", finish); res.once("close", closed);
+              reply(200,output);
+            }), () => reply(200));
+            res.once("close", () => { if (!res.writableFinished) ctx.interactions!.detach(id); });
+          } catch { reply(200); } // Unsupported/full requests yield to the provider.
+          return;
+        }
         if (payload.hook_event_name !== event || !normalize(source, payload)) return reply(400);
         const eventId = req.headers["x-deck-event-id"] ?? randomUUID();
         if (typeof eventId !== "string" || !/^[a-zA-Z0-9-]{1,200}$/.test(eventId)) return reply(400);
         envelope = { version: 1, eventId, observedAt: new Date().toISOString(), payload };
         if (Buffer.byteLength(JSON.stringify(envelope)) > 262144) return reply(413);
       } catch { return reply(400); }
+      // A terminal hook invalidates live decisions even if observation storage
+      // is unavailable. Cancellation must not depend on inbox persistence.
+      if (event === "SessionEnd" || event === "Interrupt") ctx.interactions?.cancelSession(sourceId,payload.session_id);
       try {
         // Acknowledge only after the atomic queue write. Database failure leaves
         // the file available for retry; pause retains it as well.
@@ -132,4 +156,3 @@ export class HookReceiver {
     });
   }
 }
-

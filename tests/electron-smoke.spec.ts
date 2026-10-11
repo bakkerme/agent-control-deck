@@ -39,6 +39,7 @@ test("Electron startup, preload isolation, trusted IPC and restart persistence",
         window.deck.command({ type: "createProject", name: "" }),
       ),
     ).rejects.toThrow();
+    await expect(page.evaluate(() => window.deck.respond({ id: "invalid", kind: "permission", decision: "allow" }))).rejects.toThrow();
     await page.getByRole("button", { name: "New chat", exact: true }).click();
     await page
       .getByRole("dialog")
@@ -72,6 +73,13 @@ test("Electron startup, preload isolation, trusted IPC and restart persistence",
         }
       }),
     ).toEqual({ ok: false, error: "Untrusted application frame" });
+    expect(await app.evaluate(async ({ BrowserWindow }) => {
+      const window = new BrowserWindow({ show: false, webPreferences: { nodeIntegration: true, contextIsolation: false, sandbox: false } });
+      try {
+        await window.loadURL("about:blank");
+        return await window.webContents.executeJavaScript('require("electron").ipcRenderer.invoke("deck:respond", { id: "invalid", kind: "permission", decision: "allow" })');
+      } finally { window.destroy(); }
+    })).toEqual({ ok: false, error: "Untrusted application frame" });
     await app.close();
     app = await launch();
     page = await app.firstWindow();
