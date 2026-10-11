@@ -16,7 +16,7 @@ const stop = () => {
 process.on("disconnect", stop);
 process.on(
   "message",
-  (message: { id: number; method: string; input?: unknown }) => {
+  async (message: { id: number; method: string; input?: unknown }) => {
     const { id, method, input } = message;
     if (method === "close") {
       stop();
@@ -25,6 +25,15 @@ process.on(
     try {
       let value: unknown;
       switch (method) {
+        case "saveMatching":
+          value = await runtime.saveMatching(input);
+          break;
+        case "removeMatchingKey":
+          value = await runtime.removeMatchingKey(input);
+          break;
+        case "testMatchingConnection":
+          value = await runtime.testMatchingConnection(input);
+          break;
         case "load":
           value = runtime.snapshot();
           break;

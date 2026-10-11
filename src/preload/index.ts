@@ -6,6 +6,9 @@ async function invoke<T>(channel: string, input?: unknown): Promise<T> {
   return reply.value as T;
 }
 const api: DeckApi = {
+  saveMatching: input => invoke("deck:save-matching", input),
+  removeMatchingKey: () => invoke("deck:remove-matching-key"),
+  testMatchingConnection: () => invoke("deck:test-matching-connection"),
   load: () => invoke("deck:load"),
   command: (command) => invoke("deck:command", command),
   activity: (id) => invoke("deck:activity", id),

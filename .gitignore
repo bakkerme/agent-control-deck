@@ -3,6 +3,8 @@
 .env.*
 !.env.example
 *.pem
+openrouter-key.enc*
+bedrock-key.enc*
 
 # Python
 .venv/
