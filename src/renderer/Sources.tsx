@@ -35,7 +35,7 @@ export default function Sources({
     }
   };
   return (
-    <main className="sources-page">
+    <section className="sources-page" aria-label="Live sources">
       <div className="section-heading">
         <div>
           <h2>Live sources</h2>
@@ -49,7 +49,7 @@ export default function Sources({
       </div>
       {snapshot.demo && (
         <p className="notice">
-          Demo sources are samples. Switch to your workspace before configuring
+          Demo sources are samples. Restart without --demo before configuring
           real hooks.
         </p>
       )}
@@ -315,6 +315,6 @@ export default function Sources({
           </form>
         </Modal>
       )}
-    </main>
+    </section>
   );
 }
