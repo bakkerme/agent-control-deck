@@ -76,7 +76,8 @@ test("native input lamps clear on archive, provider resume and demo changes", as
       await expect.poll(async () => (await icons()).length).toBe(1);
     await page.getByLabel("Search chats").fill("nonmatching filter");
     // Filtering the waiting chat out or viewing another page must not clear the lamp.
-    await page.getByRole("button", { name: "Sources", exact: true }).click();
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByRole("navigation", { name: "Settings", exact: true }).getByRole("button", { name: "Sources", exact: true }).click();
     if (process.platform === "darwin" || process.platform === "win32")
       expect((await icons()).length).toBe(1);
     await page
@@ -168,10 +169,10 @@ test("native input lamps clear on archive, provider resume and demo changes", as
       .toBe("running");
     if (process.platform === "darwin" || process.platform === "win32")
       await expect.poll(async () => (await icons()).length).toBe(6);
-    await page.getByRole("button", { name: "Try demo", exact: true }).click();
+    await page.evaluate(() => window.deck.command({ type: "setDemo", enabled: true }));
     if (process.platform === "darwin" || process.platform === "win32")
       await expect.poll(async () => (await icons()).length).toBe(7);
-    await page.getByRole("button", { name: "Leave demo", exact: true }).click();
+    await page.evaluate(() => window.deck.command({ type: "setDemo", enabled: false }));
     if (process.platform === "darwin" || process.platform === "win32")
       await expect.poll(async () => (await icons()).length).toBe(8);
   } finally {

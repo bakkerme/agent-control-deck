@@ -124,4 +124,4 @@ See [Electron's secure storage documentation](https://www.electronjs.org/docs/la
 
 All planning data stays in the local database. Existing databases are backed up before migration. Existing custom project records and user-owned chat fields are retained, while Today no longer assigns projects and Repositories groups chats by detected repository.
 
-Run `npm run build` followed by `npm run demo` to use separate sample storage. Use **Leave demo** to return to your own workspace. There is no planning inbox; paste or upload a transcription directly. Provider event inboxes continue to operate independently.
+Run `npm run build` followed by `npm run demo` to use separate sample storage. Restart normally to return to your own workspace. There is no planning inbox; paste or upload a transcription directly. Provider event inboxes continue to operate independently.
