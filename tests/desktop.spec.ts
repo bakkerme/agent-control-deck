@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { notesField, organizationField } from "./ui-helpers";
-test("Today is primary; repository chats retain manual records, live events, archives and demo isolation", async ({
+test("Today is primary; repository chats retain manual records, live events, archives and source settings", async ({
   launchRenderer,
 }) => {
   const dir = mkdtempSync(join(tmpdir(), "acd-desktop-"));
@@ -13,6 +13,8 @@ test("Today is primary; repository chats retain manual records, live events, arc
     let page = await app.firstWindow();
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(e.message));
+    await expect(page.getByRole("navigation", { name: "Main", exact: true }).getByRole("button")).toHaveText(["Today", "Repositories", "Settings"]);
+    await expect(page.getByRole("button", { name: /^(Try demo|Leave demo|Next sample event)$/ })).toHaveCount(0);
     await expect(
       page.getByRole("heading", { name: "Your daily workspace" }),
     ).toBeVisible();
@@ -76,12 +78,22 @@ test("Today is primary; repository chats retain manual records, live events, arc
     await page
       .getByRole("button", { name: "Restore chat", exact: true })
       .click();
-    await page.getByRole("button", { name: "Sources", exact: true }).click();
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByRole("navigation", { name: "Settings", exact: true }).getByRole("button", { name: "Sources", exact: true }).click();
     await page.getByRole("button", { name: "Add source", exact: true }).click();
     await page.getByLabel("Source name").fill("Local Claude");
     await page
       .getByRole("button", { name: "Create source", exact: true })
       .click();
+    await expect(page.getByLabel("Hook configuration")).not.toHaveValue("");
+    await page.getByRole("button", { name: "Pause ingestion", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Send diagnostic event", exact: true })).toBeDisabled();
+    await page.getByRole("button", { name: "Resume ingestion", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Send diagnostic event", exact: true })).toBeEnabled();
+    await app.resize(980, 650);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth === innerWidth)).toBe(true);
+    await page.screenshot({ path: "test-results/settings-sources-minimum.png" });
+    await app.resize(1320, 850);
     const snapshot = await page.evaluate(() => window.deck.load()),
       source = snapshot.sources[0],
       config = JSON.parse(snapshot.setups[source.id].config);
@@ -126,19 +138,6 @@ test("Today is primary; repository chats retain manual records, live events, arc
     await expect(page.locator(".rendered-notes")).toContainText(
       "My live notes stay mine",
     );
-    await page.getByRole("button", { name: "Try demo", exact: true }).click();
-    await expect(
-      page.getByRole("button", {
-        name: "Select task Customer portal",
-        exact: true,
-      }),
-    ).toBeVisible();
-    await page.getByRole("button", { name: "Leave demo", exact: true }).click();
-    expect(
-      (await page.evaluate(() => window.deck.load())).chats.some(
-        (c) => c.name === "Named live chat",
-      ),
-    ).toBe(true);
     await app.close();
     app = await launch();
     page = await app.firstWindow();

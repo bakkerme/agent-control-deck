@@ -432,10 +432,7 @@ dialog form > button {
   width: 100%;
 }
 .sources-page {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  padding: 24px;
+  padding: 0;
 }
 .source-layout {
   display: grid;
@@ -628,6 +625,7 @@ summary {
 .source-details .form-row { grid-template-columns: 1fr 1fr; }
 .source-details code { display: block; margin-top: 12px; }
 .settings-page { flex: 1; min-height: 0; overflow: auto; padding: 28px; }
+.settings-nav { display: flex; gap: 8px; margin: 20px 0 24px; }
 .settings-page form, .ticket-example { max-width: 600px; }
 .page-heading h2 { font-size: 22px; margin-top: 5px; }
 .settings-save { display: flex; gap: 12px; align-items: center; font-size: 12px; color: var(--muted); }

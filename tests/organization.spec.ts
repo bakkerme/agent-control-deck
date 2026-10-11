@@ -50,7 +50,8 @@ test("visible naming and organization controls persist across archive and resume
 
     await page.getByLabel("Search chats").fill("nonmatching filter");
     // Filtering out a chat does not change its persisted state.
-    await page.getByRole("button", { name: "Sources", exact: true }).click();
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByRole("navigation", { name: "Settings", exact: true }).getByRole("button", { name: "Sources", exact: true }).click();
 
     await page
       .getByRole("button", { name: "Repositories", exact: true })
@@ -128,24 +129,6 @@ test("visible naming and organization controls persist across archive and resume
       )
       .toBe("running");
 
-    await page.getByRole("button", { name: "Try demo", exact: true }).click();
-    await expect(
-      page.getByRole("region", { name: "Daily tasks", exact: true }),
-    ).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Leave demo", exact: true }),
-    ).toBeVisible();
-    // Switching from Settings makes the return to Today mark completion, even
-    // when the workspace-changed notification precedes the command reply.
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
-    await expect(page.getByLabel("Jira base URL")).toHaveValue("");
-    await page.getByRole("button", { name: "Leave demo", exact: true }).click();
-    await expect(
-      page.getByRole("region", { name: "Daily tasks", exact: true }),
-    ).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Try demo", exact: true }),
-    ).toBeVisible();
     await page
       .getByRole("button", { name: "Repositories", exact: true })
       .click();

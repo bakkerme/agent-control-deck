@@ -1,13 +1,15 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
-import type { Command, Settings as WorkspaceSettings, LinkRule } from "../shared/types";
+import type { Command, Settings as WorkspaceSettings, LinkRule, Snapshot } from "../shared/types";
 import { jiraBaseUrl, linkRulesSchema } from "../shared/validation";
 import type { EditorHandle } from "./ChatEditor";
 import { message } from "./components";
 import { z } from "zod";
 import MatchingSettings from "./MatchingSettings";
-import type { MatchingStatus } from "../shared/matching-settings";
+import Sources from "./Sources";
 
-export default forwardRef<EditorHandle, { settings: WorkspaceSettings; matching: MatchingStatus; mutate: (command: Command) => Promise<void> }>(function Settings({ settings, matching, mutate }, ref) {
+export default forwardRef<EditorHandle, { snapshot: Snapshot; mutate: (command: Command) => Promise<void>; report: (error: string) => void }>(function Settings({ snapshot, mutate, report }, ref) {
+  const { settings, matching } = snapshot;
+  const [section, setSection] = useState<"general" | "sources">("general");
   const matchingEditor = useRef<EditorHandle>(null);
   const [value, setValue] = useState(settings);
   const [status, setStatus] = useState("Saved");
@@ -37,7 +39,8 @@ export default forwardRef<EditorHandle, { settings: WorkspaceSettings; matching:
       if (!(await operation)) return false;
     }
   }, [mutate]);
-  useImperativeHandle(ref, () => ({ flush: async () => (await flush()) && (await matchingEditor.current?.flush() ?? true) }), [flush]);
+  const flushAll = useCallback(async () => (await flush()) && (await matchingEditor.current?.flush() ?? true), [flush]);
+  useImperativeHandle(ref, () => ({ flush: flushAll }), [flushAll]);
   useEffect(() => {
     const guard = (event: BeforeUnloadEvent) => { if (flight.current || JSON.stringify(draft.current) !== JSON.stringify(saved.current)) { event.preventDefault(); event.returnValue = ""; void flush(); } };
     window.addEventListener("beforeunload", guard);
@@ -45,8 +48,16 @@ export default forwardRef<EditorHandle, { settings: WorkspaceSettings; matching:
   }, [flush]);
   const edit = (next: WorkspaceSettings) => { draft.current = next; setValue(next); setStatus("Unsaved changes"); setError(""); };
   const editRule = (index: number, patch: Partial<LinkRule>) => edit({ ...draft.current, linkRules: draft.current.linkRules.map((rule, i) => i === index ? { ...rule, ...patch } : rule) });
+  const selectSection = async (next: "general" | "sources") => {
+    try { if (await flushAll()) setSection(next); }
+    catch (e) { report(message(e)); }
+  };
   return <main className="settings-page">
-    <div className="page-heading"><span className="eyebrow">Workspace</span><h2>Settings</h2><p className="muted">Links and ticket shortcuts</p></div>
+    <div className="page-heading"><span className="eyebrow">Workspace</span><h2>Settings</h2></div>
+    <nav className="settings-nav" aria-label="Settings">
+      {([["general", "General"], ["sources", "Sources"]] as const).map(([value, label]) => <button key={value} aria-current={section === value ? "page" : undefined} className={section === value ? "selected" : ""} onClick={() => void selectSection(value)}>{label}</button>)}
+    </nav>
+    {section === "sources" ? <Sources snapshot={snapshot} mutate={mutate} report={report} /> : <>
     <MatchingSettings ref={matchingEditor} matching={matching} />
     <form onSubmit={e => { e.preventDefault(); void flush(); }}>
       <section className="link-rule-settings" aria-label="Link categories">
@@ -67,5 +78,6 @@ export default forwardRef<EditorHandle, { settings: WorkspaceSettings; matching:
       {error && <p className="error" role="alert">{error}</p>}
     </form>
     <div className="ticket-example"><h3>Ticket number example</h3><p><strong>DECK-42</strong> opens:</p><code>{saved.current.jiraBaseUrl ? `${saved.current.jiraBaseUrl}/browse/DECK-42` : "Set a Jira base URL to open ticket numbers."}</code><p className="muted">Pasted full ticket URLs keep their own address.</p></div>
+    </>}
   </main>;
 });
