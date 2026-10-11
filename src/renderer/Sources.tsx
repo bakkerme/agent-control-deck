@@ -115,6 +115,11 @@ export default function Sources({
               </p>
             )}
             <h3>1. Configure the hooks</h3>
+            {source.provider !== "cursor" && !snapshot.demo && <label className="response-source-toggle">
+              <input type="checkbox" checked={!!source.responsesEnabled} onChange={event => { setCopied(false); void mutate({ type: "setSourceResponses", id: source.id, enabled: event.target.checked }).catch(e => report(message(e))); }} />
+              Answer {source.provider === "claude" ? "questions and permissions" : "permissions"} in the deck
+            </label>}
+            {source.responsesEnabled && <p className="notice">Merge the updated hooks below to connect the response controls. {source.provider === "codex" && "Codex questions stay in Codex."} Disabling this option immediately returns waiting requests to the provider.</p>}
             <p>{setup.instructions}</p>
             <p>
               Merge into <code>{setup.configFile}</code>. Preserve other
