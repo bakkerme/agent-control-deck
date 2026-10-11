@@ -4,8 +4,11 @@ import { jiraBaseUrl, linkRulesSchema } from "../shared/validation";
 import type { EditorHandle } from "./ChatEditor";
 import { message } from "./components";
 import { z } from "zod";
+import MatchingSettings from "./MatchingSettings";
+import type { MatchingStatus } from "../shared/matching-settings";
 
-export default forwardRef<EditorHandle, { settings: WorkspaceSettings; mutate: (command: Command) => Promise<void> }>(function Settings({ settings, mutate }, ref) {
+export default forwardRef<EditorHandle, { settings: WorkspaceSettings; matching: MatchingStatus; mutate: (command: Command) => Promise<void> }>(function Settings({ settings, matching, mutate }, ref) {
+  const matchingEditor = useRef<EditorHandle>(null);
   const [value, setValue] = useState(settings);
   const [status, setStatus] = useState("Saved");
   const [error, setError] = useState("");
@@ -34,7 +37,7 @@ export default forwardRef<EditorHandle, { settings: WorkspaceSettings; mutate: (
       if (!(await operation)) return false;
     }
   }, [mutate]);
-  useImperativeHandle(ref, () => ({ flush }), [flush]);
+  useImperativeHandle(ref, () => ({ flush: async () => (await flush()) && (await matchingEditor.current?.flush() ?? true) }), [flush]);
   useEffect(() => {
     const guard = (event: BeforeUnloadEvent) => { if (flight.current || JSON.stringify(draft.current) !== JSON.stringify(saved.current)) { event.preventDefault(); event.returnValue = ""; void flush(); } };
     window.addEventListener("beforeunload", guard);
@@ -44,6 +47,7 @@ export default forwardRef<EditorHandle, { settings: WorkspaceSettings; mutate: (
   const editRule = (index: number, patch: Partial<LinkRule>) => edit({ ...draft.current, linkRules: draft.current.linkRules.map((rule, i) => i === index ? { ...rule, ...patch } : rule) });
   return <main className="settings-page">
     <div className="page-heading"><span className="eyebrow">Workspace</span><h2>Settings</h2><p className="muted">Links and ticket shortcuts</p></div>
+    <MatchingSettings ref={matchingEditor} matching={matching} />
     <form onSubmit={e => { e.preventDefault(); void flush(); }}>
       <section className="link-rule-settings" aria-label="Link categories">
         <div className="link-rules-heading"><h3>Link categories</h3><button type="button" disabled={value.linkRules.length >= 50} onClick={() => edit({ ...draft.current, linkRules: [...draft.current.linkRules, { domain: "", pathPrefix: "", category: "" }] })}>Add category rule</button></div>

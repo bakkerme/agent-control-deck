@@ -13,6 +13,8 @@
     "build": "npm run typecheck && electron-vite build",
     "postinstall": "install-electron --no && electron-builder install-app-deps",
     "test": "node scripts/test.cjs",
+    "test:matching": "node --test scripts/chat-task-eval/matching.test.mjs",
+    "eval:matching": "node --env-file-if-exists=.env.local scripts/chat-task-eval/run.mjs",
     "test:ui": "npm run build && node scripts/build-renderer-tests.cjs && playwright test",
     "check": "npm run typecheck && npm test && npm run test:ui",
     "package": "npm run build && electron-builder --dir",

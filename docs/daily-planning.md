@@ -4,7 +4,7 @@ Today is the landing screen. Each dated card has Coding, Agentic, and Other sect
 
 ## Morning and evening
 
-Review Slack, reminders, and both sides of yesterday's physical card. Plan a fresh card, photograph it, and use Claude or your preferred transcription tool to produce YAML or Markdown. Paste that text into **Import card**, or upload a `.md`, `.markdown`, `.yaml`, or `.yml` file. The deck does not process photos or call an AI matching service.
+Review Slack, reminders, and both sides of yesterday's physical card. Plan a fresh card, photograph it, and use Claude or your preferred transcription tool to produce YAML or Markdown. Paste that text into **Import card**, or upload a `.md`, `.markdown`, `.yaml`, or `.yml` file. The deck does not process photos. Optional AI chat matching is configured separately in Settings.
 
 The import review shows a previous saved card's plan and wrap-up beside the proposed new entries. Edit the titles and explicitly choose **New task** or an existing task for each entry. Continuing preserves its notes, tickets, links, and chats; earlier dated titles remain unchanged. Two entries on one card cannot continue the same task. Matching names never automatically connect tasks. **Back to Today** pauses the review, and **Resume card review** restores it after restart. Identical source text is imported only once; edited text requires review again.
 
@@ -57,6 +57,68 @@ Markdown uses a date heading, category headings, and task bullets. Indented line
 ```
 
 A date in YAML frontmatter is also accepted. Original transcriptions remain available on the daily card. A new task's shared notes start with its annotation; continuing adds the new daily annotation without replacing shared notes or existing ticket details.
+
+## Optional automatic chat links
+
+In **Settings → AI chat matching**, choose **OpenRouter** or **Amazon Bedrock (direct)**,
+enter that service's API key and **Save AI settings**.
+**Test connection** sends a synthetic example. Then select **Enable automatic chat
+links** and save again. Matching is off by default; saving a key alone does not
+send your chats. Luna is pinned to OpenRouter's Bedrock endpoint by default, with
+no fallback. Model and routing can be changed under the advanced controls.
+
+For direct Bedrock, use a **Bedrock API key / bearer token**, not an AWS access key
+ID. The default is Bedrock Runtime in `ap-southeast-2` (Sydney), using the global
+inference profile `global.openai.gpt-6-luna`. Change the AWS region and model/profile
+under **Model and routing** if your account requires another region or profile.
+For Luna, Runtime requires a system inference profile rather than the base model ID;
+the global profile can process requests outside Australia. The US profile
+`us.openai.gpt-6-luna` is available only from its supported North American source
+regions, not Sydney. The key's IAM identity needs permission to invoke
+the selected profile and the account's default project. **Test connection** checks
+your actual key, access, endpoint and JSON output contract with a synthetic example.
+If it fails, the test displays a bounded provider explanation and AWS request ID
+when available, with credentials redacted. Automatic matching suppresses provider
+error messages because they can echo real chat content.
+Requests go directly to AWS and never fall back to OpenRouter. AWS profile/SSO
+authentication and automatic bearer-token refresh are not implemented; replace an
+expired token in Settings. See [AWS's Luna model card](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-6-luna.html)
+and [Bedrock API key usage](https://docs.aws.amazon.com/bedrock/latest/userguide/api-keys-use.html).
+
+Each service retains its own model settings and encrypted key. Changing the service turns
+the matching checkbox off; save the selection, test it and explicitly re-enable.
+
+When enabled, the app considers unarchived provider chats observed today that have
+an observed prompt or response, against today's plan items. It sends bounded chat
+titles, repository names, latest exchange text and task titles, notes, daily
+annotations and ticket keys. It does not scrape transcripts, include filesystem
+paths, control agents, or infer task completion. At most 50 tasks are considered;
+larger cards pause matching rather than silently omit candidates.
+
+Clear matches add an ordinary linked-chat row with a small sparkle. Uncertain
+matches remain unassigned. Existing links never move automatically. × removes the
+link and durably dismisses that chat/task pair; manually linking it again clears
+the dismissal. Undo restores the link and its provenance. Background matching
+preserves the last user Undo instead of replacing it.
+
+Requests run one at a time, at most once every 12 seconds. An unchanged assessment
+is cached across restart, including an abstention. New conversation evidence or
+changed task context can trigger another assessment. Responses are discarded if
+their context changed while waiting. Errors pause matching; save AI settings or
+successfully test the connection to retry. Matching failures never stop hook
+ingestion. Automatic matching is paused in demo, and demo settings and credentials
+remain separate.
+
+The key is write-only from Settings and encrypted by Electron's asynchronous
+`safeStorage` API. macOS uses Keychain; Windows uses DPAPI. Windows protects against
+other OS users, but other software running as your account may still decrypt data.
+No plaintext fallback is permitted; Linux's `basic_text` backend is refused.
+Ciphertext lives in `openrouter-key.enc` and `bedrock-key.enc` beside the workspace database with owner-only
+permissions where supported. The plaintext key is never stored in SQLite,
+snapshots, drafts or reports. **Remove saved key** turns matching off and deletes
+that service's ciphertext. The other service's credential is retained. A copied credential file may not unlock on a different machine or
+OS account. Unsigned macOS builds may prompt for Keychain access after updates.
+See [Electron's secure storage documentation](https://www.electronjs.org/docs/latest/api/safe-storage).
 
 ## Storage and demo
 

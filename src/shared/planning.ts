@@ -7,6 +7,7 @@ export interface PlanItem {
   notes: string;
   projectId: string | null;
   chatIds: string[];
+  automaticChatIds?: string[];
   createdAt: string;
   updatedAt: string;
   tickets: PlanTicket[];

@@ -2,7 +2,7 @@ import { defineConfig } from "@playwright/test";
 export default defineConfig({
   testDir: "./tests",
   testMatch: "**/*.spec.ts",
-  testIgnore: ["**/titlebar.spec.ts", "**/native-lamps.spec.ts", "**/electron-smoke.spec.ts"],
+  testIgnore: ["**/titlebar.spec.ts", "**/native-lamps.spec.ts", "**/electron-smoke.spec.ts", "**/chat-matching.spec.ts"],
   timeout: 60000,
   workers: 1,
   reporter: "list",

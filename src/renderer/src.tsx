@@ -265,6 +265,7 @@ function App() {
           ref={settingsEditor}
           settings={snapshot.settings}
           mutate={mutate}
+          matching={snapshot.matching}
         />
       ) : page === "repos" ? (
         <main className="board repository-board">

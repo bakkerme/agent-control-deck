@@ -9,6 +9,15 @@ import { PlanningStore } from "./planning-store";
 import { sourceSetup, writeHookSetup, type HookConnection } from "./setup";
 import { HookReceiver } from "./http";
 import { advanceDemo, seedDemo } from "./demo";
+import { ChatMatcher } from "./chat-matcher";
+import { SecretStore, type SecretEncryption } from "./secret-store";
+import { saveMatchingSchema } from "../shared/matching-settings";
+
+const unavailableEncryption: SecretEncryption = {
+  available: () => false,
+  encrypt: () => { throw new Error("Encryption unavailable"); },
+  decrypt: () => { throw new Error("Encryption unavailable"); },
+};
 
 // Shared by the desktop shell and window-free renderer integration tests.
 // Electron alone owns IPC trust, clipboard, external links and OS decoration.
@@ -19,11 +28,13 @@ export class WorkspaceRuntime {
   private readonly receiver: HookReceiver;
   private timer?: NodeJS.Timeout;
   private ingestionError: string | null = null;
+  private matcher!: ChatMatcher;
 
   constructor(
     private readonly base: string,
     private readonly changed: () => void,
     private demo = false,
+    private readonly encryption: SecretEncryption = unavailableEncryption,
   ) {
     this.receiver = new HookReceiver(() => ({
       store: this.store,
@@ -41,7 +52,10 @@ export class WorkspaceRuntime {
     try {
       this.connection = await this.receiver.listen();
       this.openStore();
-      this.timer = setInterval(() => this.pollInbox(), 1000);
+      this.timer = setInterval(() => {
+        this.pollInbox();
+        void this.matcher.tick().catch(() => { /* Matching must never stop ingestion. */ });
+      }, 1000);
       this.pollInbox();
     } catch (error) {
       this.close();
@@ -50,6 +64,7 @@ export class WorkspaceRuntime {
   }
 
   close(): void {
+    this.matcher?.dispose();
     if (this.timer) clearInterval(this.timer);
     this.receiver.server.close();
     this.receiver.server.closeAllConnections();
@@ -70,6 +85,10 @@ export class WorkspaceRuntime {
       }
     }
     this.inbox = new Inbox(this.store, this.root(), this.changed);
+    this.matcher = new ChatMatcher(this.store, {
+      openrouter: new SecretStore(join(this.root(), "openrouter-key.enc"), this.encryption),
+      bedrock: new SecretStore(join(this.root(), "bedrock-key.enc"), this.encryption),
+    }, this.changed, this.demo);
   }
 
   private pollInbox(): void {
@@ -88,6 +107,7 @@ export class WorkspaceRuntime {
     const sources = this.store.sources();
     const plans = new PlanningStore(this.store);
     return {
+      matching: this.matcher.status(),
       planning: {
         items: plans.items(),
         entries: plans.entries(),
@@ -113,6 +133,23 @@ export class WorkspaceRuntime {
         ]),
       ),
     };
+  }
+
+  async saveMatching(input: unknown): Promise<void> {
+    const { config, apiKey } = saveMatchingSchema.parse(input);
+    await this.matcher.save(config, apiKey);
+    this.changed();
+  }
+
+  async removeMatchingKey(input: unknown): Promise<void> {
+    z.undefined().parse(input);
+    await this.matcher.removeKey();
+    this.changed();
+  }
+
+  async testMatchingConnection(input: unknown): Promise<void> {
+    z.undefined().parse(input);
+    await this.matcher.testConnection();
   }
 
   planLinkUrl(input: unknown): string {
@@ -157,6 +194,7 @@ export class WorkspaceRuntime {
     if (command.type === "setDemo") {
       if (command.enabled !== this.demo) {
         const previous = this.demo;
+        this.matcher.dispose();
         this.store.close();
         this.demo = command.enabled;
         try {

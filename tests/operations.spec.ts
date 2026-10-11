@@ -23,7 +23,7 @@ test("Operations notes, inline tickets, browser destinations and Jira settings s
       .getByLabel("Jira base URL")
       .fill("https://company.example/jira/");
     await page.getByRole("button", { name: "Save settings" }).click();
-    await expect(page.getByRole("status")).toHaveText("Saved");
+    await expect(page.locator(".settings-save").getByRole("status")).toHaveText("Saved");
     await page
       .getByRole("button", { name: "Repositories", exact: true })
       .click();
@@ -142,7 +142,7 @@ test("Operations notes, inline tickets, browser destinations and Jira settings s
     await expect(page.getByLabel("Jira base URL")).toHaveValue("");
     await page.getByLabel("Jira base URL").fill("https://demo.example");
     await page.getByRole("button", { name: "Save settings" }).click();
-    await expect(page.getByRole("status")).toHaveText("Saved");
+    await expect(page.locator(".settings-save").getByRole("status")).toHaveText("Saved");
     await page.getByRole("button", { name: "Leave demo", exact: true }).click();
     await expect(
       page.getByRole("region", { name: "Daily tasks", exact: true }),
@@ -158,13 +158,13 @@ test("Operations notes, inline tickets, browser destinations and Jira settings s
     await page
       .getByRole("button", { name: "Repositories", exact: true })
       .click();
-    await expect(page.getByRole("alert")).toBeVisible();
+    await expect(page.getByRole("alert").filter({ hasText: "Use a complete http:// or https:// URL" })).toBeVisible();
     await expect(page.getByLabel("Jira base URL")).toHaveValue(
       "javascript:alert(1)",
     );
     await page.getByLabel("Jira base URL").fill("https://company.example/jira");
     await page.getByRole("button", { name: "Save settings" }).click();
-    await expect(page.getByRole("status")).toHaveText("Saved");
+    await expect(page.locator(".settings-save").getByRole("status")).toHaveText("Saved");
     await app.close();
     app = await launch();
     page = await app.firstWindow();

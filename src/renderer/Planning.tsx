@@ -1392,7 +1392,9 @@ const Planning = forwardRef<
                     aria-expanded={expanded === c.id}
                     onClick={() => setExpanded(expanded === c.id ? null : c.id)}
                   >
-                    <strong>{displayName(c)}</strong>
+                    <span className="task-chat-title"><strong>{displayName(c)}</strong>
+                      {current.automaticChatIds?.includes(c.id) && <span className="task-ai-badge" role="img" aria-label="Linked automatically by AI" title="Linked automatically by AI"><Icon name="sparkles" /></span>}
+                    </span>
                     <small>
                       {snapshot.projects.find((p) => p.id === c.repoProjectId)
                         ?.name || "No repository"}{" "}
