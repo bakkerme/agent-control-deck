@@ -20,7 +20,7 @@ npm start
 npm run demo
 ```
 
-Use **Try demo** in the app to explore sample projects, a standalone chat, and lifecycle changes. Demo mode has a separate SQLite database; leaving it returns to your real workspace.
+The development demo command opens sample projects and chats in a separate SQLite database. Restart normally to return to your real workspace.
 
 ## What works
 
@@ -43,7 +43,7 @@ An orange lamp appears on the Windows taskbar icon or macOS Dock icon while any 
 
 ## Connect live sources
 
-Open **Sources → Add source**. Choose the provider and native or WSL environment. The app generates an authenticated HTTP hook configuration under its local data directory. Merge it into the provider's user settings, preserving unrelated settings/hooks and replacing the deck's old entries. Provider configuration is never edited automatically.
+Open **Settings → Sources → Add source**. Choose the provider and native or WSL environment. The app generates an authenticated HTTP hook configuration under its local data directory. Merge it into the provider's user settings, preserving unrelated settings/hooks and replacing the deck's old entries. Provider configuration is never edited automatically.
 
 Native Claude Code uses HTTP hooks directly. WSL sources configured by the Windows deck use command hooks that invoke Windows `curl.exe`, keeping HTTP on the Windows side. Cursor and Codex also use command hooks that POST stdin with curl. No PowerShell or Bash collector scripts, separate Node installation, or Python are required.
 
@@ -57,7 +57,7 @@ Keep the deck running while using your agents. New and existing/resumed chats ap
 
 Command hooks finish quietly and successfully when the deck is unavailable, without interrupting the agent. The Sources diagnostic command still reports delivery failures so you can test the connection. Native Claude HTTP hooks allow execution to continue on connection failure, but Claude may display a hook error notice.
 
-**Send diagnostic event** checks local inbox ingestion only. The Sources page also provides an HTTP test command to run in the provider environment. Submit a real prompt in an existing chat to verify the complete hook installation.
+**Send diagnostic event** checks local inbox ingestion only. The **Settings → Sources** section also provides an HTTP test command to run in the provider environment. Submit a real prompt in an existing chat to verify the complete hook installation.
 
 ## Daily planning
 

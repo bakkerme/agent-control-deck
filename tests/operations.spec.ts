@@ -125,36 +125,19 @@ test("Operations notes, inline tickets, browser destinations and Jira settings s
       page.getByRole("button", { name: "Select chat Operations notes" }),
     ).toBeVisible();
     await page.screenshot({ path: "test-results/operations-minimum.png" });
-    // Enter from Settings so the new workspace view marks the completed switch,
-    // even when the changed notification arrives before the command reply.
     await page.getByRole("button", { name: "Settings", exact: true }).click();
-    await expect(page.getByLabel("Jira base URL")).toHaveValue(
-      "https://company.example/jira",
-    );
-    await page.getByRole("button", { name: "Try demo", exact: true }).click();
-    await expect(
-      page.getByRole("region", { name: "Daily tasks", exact: true }),
-    ).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Leave demo", exact: true }),
-    ).toBeVisible();
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
-    await expect(page.getByLabel("Jira base URL")).toHaveValue("");
-    await page.getByLabel("Jira base URL").fill("https://demo.example");
-    await page.getByRole("button", { name: "Save settings" }).click();
-    await expect(page.locator(".settings-save").getByRole("status")).toHaveText("Saved");
-    await page.getByRole("button", { name: "Leave demo", exact: true }).click();
-    await expect(
-      page.getByRole("region", { name: "Daily tasks", exact: true }),
-    ).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Try demo", exact: true }),
-    ).toBeVisible();
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
-    await expect(page.getByLabel("Jira base URL")).toHaveValue(
-      "https://company.example/jira",
-    );
+    await expect(page.getByLabel("Jira base URL")).toHaveValue("https://company.example/jira");
+    // Switching settings sections saves an unfinished draft before hiding it.
+    await page.getByLabel("Jira base URL").fill("https://company.example/new-jira");
+    await page.getByRole("navigation", { name: "Settings", exact: true }).getByRole("button", { name: "Sources", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Live sources", exact: true })).toBeVisible();
+    expect((await page.evaluate(() => window.deck.load())).settings.jiraBaseUrl).toBe("https://company.example/new-jira");
+    await page.getByRole("button", { name: "General", exact: true }).click();
+    await expect(page.getByLabel("Jira base URL")).toHaveValue("https://company.example/new-jira");
     await page.getByLabel("Jira base URL").fill("javascript:alert(1)");
+    await page.getByRole("navigation", { name: "Settings", exact: true }).getByRole("button", { name: "Sources", exact: true }).click();
+    await expect(page.getByRole("alert").filter({ hasText: "Use a complete http:// or https:// URL" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Live sources", exact: true })).toHaveCount(0);
     await page
       .getByRole("button", { name: "Repositories", exact: true })
       .click();

@@ -22,7 +22,7 @@ test("title bar navigation stays clear of native controls at minimum size and fu
   try {
     const page = await app.firstWindow();
     await expect(
-      page.getByRole("button", { name: "Leave demo", exact: true }),
+      page.getByRole("button", { name: "Today", exact: true }),
     ).toBeVisible();
     if (process.platform !== "darwin") {
       expect(
@@ -92,7 +92,8 @@ test("title bar navigation stays clear of native controls at minimum size and fu
         });
     };
     await assertSafeHeader();
-    await page.getByRole("button", { name: "Sources", exact: true }).click();
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByRole("navigation", { name: "Settings", exact: true }).getByRole("button", { name: "Sources", exact: true }).click();
     await expect(
       page.getByRole("button", { name: "Add source", exact: true }),
     ).toBeVisible();

@@ -10,7 +10,6 @@ import {
 } from "../shared/status";
 import ChatEditor, { type EditorHandle } from "./ChatEditor";
 import Planning, { type PlanningHandle } from "./Planning";
-import Sources from "./Sources";
 import Settings from "./Settings";
 import {
   providerLabel,
@@ -27,7 +26,7 @@ const api = window.deck;
 function App() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null),
     [error, setError] = useState("");
-  const [page, setPage] = useState<"today" | "repos" | "sources" | "settings">(
+  const [page, setPage] = useState<"today" | "repos" | "settings">(
       "today",
     ),
     [repo, setRepo] = useState("all"),
@@ -190,7 +189,6 @@ function App() {
             [
               ["today", "Today"],
               ["repos", "Repositories"],
-              ["sources", "Sources"],
               ["settings", "Settings"],
             ] as const
           ).map(([value, label]) => (
@@ -207,31 +205,6 @@ function App() {
               {label}
             </button>
           ))}
-          {snapshot.demo && (
-            <button
-              onClick={() =>
-                void mutate({ type: "advanceDemo" }).catch((e) =>
-                  setError(message(e)),
-                )
-              }
-            >
-              Next sample event
-            </button>
-          )}
-          <button
-            onClick={() =>
-              void navigate(async () => {
-                await mutate({ type: "setDemo", enabled: !snapshot.demo });
-                setSelected("");
-                setRepo("all");
-                setPage("today");
-                setSearch("");
-                setArchived(false);
-              })
-            }
-          >
-            {snapshot.demo ? "Leave demo" : "Try demo"}
-          </button>
         </nav>
       </TitleBar>
       {snapshot.ingestionError && (
@@ -257,15 +230,13 @@ function App() {
           configureJira={() => void navigate(() => setPage("settings"))}
         />
       </div>
-      {page === "sources" ? (
-        <Sources snapshot={snapshot} mutate={mutate} report={setError} />
-      ) : page === "settings" ? (
+      {page === "settings" ? (
         <Settings
           key={String(snapshot.demo)}
           ref={settingsEditor}
-          settings={snapshot.settings}
+          snapshot={snapshot}
           mutate={mutate}
-          matching={snapshot.matching}
+          report={setError}
         />
       ) : page === "repos" ? (
         <main className="board repository-board">

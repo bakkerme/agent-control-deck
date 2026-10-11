@@ -12,7 +12,8 @@ test("Codex source setup, HTTP events, filtering and automatic chat fields", asy
   const app = await launchRenderer({ dataDirectory: dir });
   try {
     const page = await app.firstWindow();
-    await page.getByRole("button", { name: "Sources", exact: true }).click();
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByRole("navigation", { name: "Settings", exact: true }).getByRole("button", { name: "Sources", exact: true }).click();
     await page.getByRole("button", { name: "Add source", exact: true }).click();
     await page.getByLabel("Source name").fill("Local Codex");
     await page
