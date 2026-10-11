@@ -5,6 +5,7 @@ import {
   dialog,
   ipcMain,
   nativeImage,
+  Notification,
   shell,
   safeStorage,
 } from "electron";
@@ -41,18 +42,40 @@ if (argument) {
 }
 let window: BrowserWindow | null = null;
 let inputIndicator: InputIndicator | undefined;
+let notifiedRequests = new Set<string>();
 const workspace = new WorkspaceRuntime(
   app.getPath("userData"),
   () => {
     updateInputIndicator();
     window?.webContents.send("deck:changed");
+    try { notifyRequests(); } catch (error) { console.warn("Could not display the request notification",error); }
   },
   process.argv.includes("--demo"),
   encryption,
 );
+function notifyRequests(): void {
+  const requests = workspace.interactions.snapshot();
+  for (const request of requests) {
+    if (notifiedRequests.has(request.id)) continue;
+    if (window && !window.isFocused() && Notification.isSupported()) {
+      const notification = new Notification({ title: `${request.provider === "codex" ? "Codex" : "Claude Code"} needs ${request.kind === "permission" ? "permission" : "your answer"}`,
+        body: `${request.sourceName} · ${request.description || request.toolName}`.slice(0,200), silent: true });
+      notification.on("click", () => { if (window?.isMinimized()) window.restore(); window?.show(); window?.focus(); });
+      notification.show();
+    }
+  }
+  notifiedRequests = new Set(requests.map(r => r.id));
+}
 function updateInputIndicator(force = false): void {
   try {
-    inputIndicator?.update(workspace.store.chats(), force);
+    const chats = workspace.store.chats();
+    // Include unanswered requests even before the first observed user prompt.
+    for (const request of workspace.interactions.snapshot()) {
+      const chat = chats.find(c => c.sourceId === request.sourceId && c.externalId === request.sessionId);
+      if (chat) { chat.state = "waiting"; chat.archived = false; chat.lifecycle = "open"; }
+      else chats.push({ id: request.id, archived: false, lifecycle: "open", state: "waiting" } as typeof chats[number]);
+    }
+    inputIndicator?.update(chats, force);
   } catch (error) {
     // OS decoration failures must not interrupt ingestion or user edits.
     console.warn("Could not update the input indicator", error);
@@ -149,6 +172,7 @@ function registerIpc(): void {
     if (url) await shell.openExternal(url);
   });
   handle("deck:command", (input) => workspace.command(input));
+  handle("deck:respond", (input) => workspace.respond(input));
 }
 function createWindow(): void {
   window = new BrowserWindow({

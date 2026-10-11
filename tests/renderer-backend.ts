@@ -40,6 +40,9 @@ process.on(
         case "command":
           value = runtime.command(input);
           break;
+        case "respond":
+          value = await runtime.respond(input);
+          break;
         case "activity":
           value = runtime.store.activity(idSchema.parse(input));
           break;

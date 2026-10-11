@@ -412,11 +412,13 @@ export class Store {
     return result;
   }
   sources(): Source[] {
+    const row = this.db.prepare("SELECT value FROM settings WHERE key='responseSources'").get() as { value: string } | undefined;
+    const responses = new Set<string>(row ? JSON.parse(row.value) : []);
     return (
       this.db
         .prepare("SELECT * FROM sources ORDER BY name,id")
         .all() as Source[]
-    ).map((s) => ({ ...s, enabled: !!s.enabled }));
+    ).map((s) => ({ ...s, enabled: !!s.enabled, responsesEnabled: responses.has(s.id) }));
   }
   workspaces(): Workspace[] {
     return this.db
@@ -565,6 +567,12 @@ export class Store {
           .prepare("UPDATE sources SET enabled=? WHERE id=?")
           .run(Number(c.enabled), c.id);
         break;
+      case "setSourceResponses": {
+        if (this.source(c.id).provider === "cursor") throw new Error("Responses are available for Claude Code and Codex sources");
+        const sources = this.sources().filter(s => s.id === c.id ? c.enabled : s.responsesEnabled).map(s => s.id);
+        this.db.prepare("INSERT INTO settings (key,value) VALUES ('responseSources',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(JSON.stringify(sources));
+        break;
+      }
       case "addWorkspace": {
         const source = this.source(c.sourceId);
         this.requireProject(c.projectId);

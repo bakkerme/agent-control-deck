@@ -22,6 +22,7 @@ import {
 } from "./components";
 import TitleBar from "./TitleBar";
 import Icon from "./Icon";
+import AgentActions from "./AgentActions";
 import "./style.css";
 const api = window.deck;
 function App() {
@@ -182,7 +183,7 @@ function App() {
         subtitle={
           snapshot.demo
             ? "Demo workspace · separate sample data"
-            : "Local workspace · read-only agent monitoring"
+            : snapshot.sources.some(s => s.responsesEnabled) ? "Local workspace · agent responses enabled" : "Local workspace · read-only agent monitoring"
         }
       >
         <nav aria-label="Main">
@@ -245,6 +246,7 @@ function App() {
           <button onClick={() => setError("")}>Dismiss</button>
         </div>
       )}
+      <AgentActions key={String(snapshot.demo)} snapshot={snapshot} update={setSnapshot}>
       <div
         className={page === "today" ? "today-page" : "today-page inactive-page"}
       >
@@ -575,6 +577,7 @@ function App() {
           </div>
         </main>
       ) : null}
+      </AgentActions>
       {modal && (
         <Modal
           title={modal === "rename" ? "Rename repository" : "New chat"}

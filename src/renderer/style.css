@@ -97,6 +97,51 @@ small {
   display: flex;
   flex-direction: column;
 }
+.action-workspace { position:relative; display:flex; flex:1; min-height:0; min-width:0; }
+.action-content { display:flex; flex-direction:column; flex:1; min-height:0; min-width:0; }
+.action-content > main { flex:1; min-height:0; }
+.agent-alert { display:flex; align-items:center; flex-shrink:0; gap:16px; padding:10px 18px; border-bottom:1px solid var(--border); border-left:3px solid #b1444e; background:var(--panel); }
+.agent-alert > div { flex:1; min-width:0; }
+.agent-alert small { display:block; }
+.agent-alert [role=status] { color:var(--accent); }
+.agent-alert.resolved { border-left-color:var(--border); }
+/* Use the existing context edge so questions do not force four narrow columns.
+   Keep the underlying detail component mounted to preserve unfinished edits. */
+.with-questions .details, .with-questions .plan-details, .with-questions .repository-detail { visibility:hidden; }
+.with-questions .today-columns { grid-template-columns:minmax(300px,1fr) 380px; }
+.with-questions .planning-footer { padding-right:400px; }
+.with-questions .action-content:has(> .sources-page), .with-questions .action-content:has(> .settings-page) { margin-right:380px; }
+.question-dock { position:absolute; right:0; top:0; bottom:0; width:380px; padding:16px; overflow-y:auto; border-left:1px solid var(--border); background:var(--panel); }
+.question-dock nav { display:flex; flex-direction:column; gap:5px; margin:12px 0; }
+.request-identity { margin-bottom:18px; overflow-wrap:anywhere; }
+.request-identity small { display:block; margin-top:4px; }
+.question-request { border-left:3px solid #b1444e; padding-left:12px; margin-top:14px; }
+.question-request fieldset { padding:0; border:0; margin:0 0 16px; min-width:0; }
+.question-request legend { font-size:17px; font-weight:600; margin-bottom:14px; overflow-wrap:anywhere; }
+.question-choices { display:flex; flex-direction:column; gap:8px; }
+.question-choices button { display:flex; justify-content:space-between; align-items:center; gap:12px; text-align:left; padding:12px; overflow-wrap:anywhere; }
+.question-choices small { display:block; margin-top:4px; }
+.question-choices span { min-width:0; overflow-wrap:anywhere; }
+.question-option { flex-direction:row; align-items:flex-start; padding:10px; margin:0; border:1px solid var(--border); border-radius:5px; font-weight:400; }
+.question-option input { margin-top:4px; }
+.question-hint { display:block; margin-top:12px; }
+.permission-spotlight { width:min(680px,calc(100vw - 40px)); max-height:calc(100vh - 100px); overflow:auto; border-left:3px solid #b1444e; }
+.permission-spotlight .request-heading { display:flex; align-items:flex-start; gap:12px; justify-content:space-between; }
+.permission-spotlight .request-heading button { flex-shrink:0; }
+.permission-spotlight .request-heading .request-identity { min-width:0; }
+.permission-spotlight h2 { margin:8px 0 12px; }
+.request-input { max-height:240px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; padding:12px; background:var(--rail); border:1px solid var(--border); border-radius:5px; font-size:13px; }
+.request-path { color:var(--muted); overflow-wrap:anywhere; }
+.permission-buttons { display:flex; gap:10px; margin:18px 0; }
+.request-error { color:#b1444e; margin-top:12px; }
+.request-error button { margin-left:8px; }
+.response-source-toggle { flex-direction:row; align-items:center; }
+@media (max-width:1100px) {
+  .question-dock { width:340px; }
+  .with-questions .today-columns { grid-template-columns:minmax(300px,1fr) 340px; }
+  .with-questions .planning-footer { padding-right:360px; }
+  .with-questions .action-content:has(> .sources-page), .with-questions .action-content:has(> .settings-page) { margin-right:340px; }
+}
 .titlebar {
   height: 64px;
   flex-shrink: 0;
