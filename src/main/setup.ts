@@ -64,12 +64,25 @@ export function sourceSetup(
       ? `${request(event)} >NUL 2>&1 & ${response ? `echo ${response}` : "exit /b 0"}`
       : `${request(event)} >/dev/null 2>&1; ${response ? `printf '%s\\n' '${response}'` : "true"}`;
   };
-  const hooks = Object.fromEntries(hookEvents(source.provider).map((event) => {
+  const hooks: Record<string, unknown> = Object.fromEntries(hookEvents(source.provider).map((event) => {
     const hook = directHTTP
       ? { type: "http", url: `${endpoint}/${event}`, headers, timeout: 3 }
       : { ...(source.provider !== "cursor" ? { type: "command" } : {}), command: command(event), timeout: 3 };
     return [event, source.provider === "cursor" ? [hook] : [{ hooks: [hook] }]];
   }));
+  if (source.responsesEnabled && source.provider !== "cursor") {
+    const responseHook = (event: string) => {
+      const url = `${origin}/requests/${source.id}/${event}`;
+      // Return the decision unchanged on stdout. Transport failure returns no
+      // decision, preserving the provider's own permission/question flow.
+      const forward = `${curl} --silent --fail --noproxy "*" --connect-timeout 1 --max-time 305 -H "Content-Type: application/json" -H "Authorization: Bearer ${token}" --data-binary "@-" "${url}"`;
+      return directHTTP ? { type: "http", url, headers, timeout: 310 } : {
+        type: "command", command: platform === "win32" && !windowsWSL ? `${forward} 2>NUL & exit /b 0` : `${forward} 2>/dev/null; true`, timeout: 310,
+      };
+    };
+    hooks.PermissionRequest = [{ hooks: [responseHook("PermissionRequest")] }];
+    if (source.provider === "claude") hooks.PreToolUse = [{ matcher: "^AskUserQuestion$", hooks: [responseHook("PreToolUse")] }];
+  }
   return {
     inbox: join(root, "inbox", source.id), endpoint,
     testCommand: request(source.provider === "cursor" ? "beforeSubmitPrompt" : "UserPromptSubmit"),
@@ -85,6 +98,7 @@ export function sourceSetup(
         : "Command hooks forward events with curl; no collector script, Node, or Python is needed. ") +
       (source.environment === "wsl"
         ? "Configure hooks inside your WSL distro, with a separate source per distro. Use the Windows deck to generate the real WSL configuration. With the receiver on Windows loopback, no WSL host-IP, mirrored-networking setup, or inbound firewall exception is needed for this route. " : "") +
+      (source.responsesEnabled ? "Responses are enabled: merge the PermissionRequest entry" + (source.provider === "claude" ? " and AskUserQuestion PreToolUse entry" : "") + ". Requests wait up to five minutes for you, then return to the provider's own flow. " : "") +
       "Keep the deck running. A chat appears on its next submitted prompt, including an existing resumed chat. Subagent start/stop hooks keep worker observations separate from the main turn; merge these entries for existing sources too. Command hooks finish quietly and successfully if the deck is unavailable; the diagnostic command still reports delivery failures. Events emitted while the deck is closed are not captured. Replace the deck's old hook entries and preserve unrelated hooks.",
   };
 }
