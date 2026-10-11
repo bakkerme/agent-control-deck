@@ -16,6 +16,7 @@ const tables = [
   "plan_chats",
   "plan_imports",
   "plan_wrapups",
+  "ai_link_dismissals",
 ] as const;
 const commands = new Set([
   "createPlanItem",
@@ -47,7 +48,7 @@ export class PlanningStore {
     })[];
     const links = this.store.db
       .prepare("SELECT * FROM plan_chats ORDER BY chatId")
-      .all() as { itemId: string; chatId: string }[];
+      .all() as { itemId: string; chatId: string; origin: "manual" | "ai" }[];
     return rows.map((i) => ({
       ...i,
       tickets: JSON.parse(i.tickets),
@@ -55,6 +56,7 @@ export class PlanningStore {
       hiddenLinks: JSON.parse(i.hiddenLinks),
       categoryOverrides: JSON.parse(i.categoryOverrides),
       chatIds: links.filter((l) => l.itemId === i.id).map((l) => l.chatId),
+      automaticChatIds: links.filter(l => l.itemId === i.id && l.origin === "ai").map(l => l.chatId),
     }));
   }
   entries(): PlanEntry[] {
@@ -145,6 +147,29 @@ export class PlanningStore {
       ),
     );
   }
+  linkAutomatically(itemId: string, chatId: string): boolean {
+    return this.store.db.transaction(() => {
+      const db = this.store.db;
+      this.requireItem(itemId);
+      const chat = this.store.chat(chatId);
+      if (chat.archived || db.prepare("SELECT 1 FROM plan_chats WHERE chatId=?").get(chatId) ||
+          db.prepare("SELECT 1 FROM ai_link_dismissals WHERE itemId=? AND chatId=?").get(itemId, chatId) ||
+          (db.prepare("SELECT COUNT(*) AS count FROM plan_chats WHERE itemId=?").get(itemId) as { count: number }).count >= 200) return false;
+      const before = this.state();
+      db.prepare("INSERT INTO plan_chats (itemId,chatId,origin) VALUES (?,?,'ai')").run(itemId, chatId);
+      // Preserve the last user Undo: unrelated background links survive that Undo.
+      const undo = db.prepare("SELECT * FROM plan_undo").get() as { id: string; beforeState: string; afterDigest: string } | undefined;
+      if (undo?.afterDigest === planDigest(before)) {
+        const previous = JSON.parse(undo.beforeState) as Record<string, Record<string, unknown>[]>;
+        if (previous.plan_items.some(item => item.id === itemId) &&
+            !previous.plan_chats.some(link => link.chatId === chatId) &&
+            !(previous.ai_link_dismissals ?? []).some(link => link.chatId === chatId && link.itemId === itemId))
+          previous.plan_chats.push({ itemId, chatId, origin: "ai" });
+        db.prepare("UPDATE plan_undo SET beforeState=?,afterDigest=? WHERE id=?").run(JSON.stringify(previous), planDigest(this.state()), undo.id);
+      }
+      return true;
+    })();
+  }
   command(c: Command): boolean {
     const db = this.store.db;
     if (c.type === "savePlanDraft") {
@@ -174,6 +199,7 @@ export class PlanningStore {
           Record<string, unknown>[]
         >;
         for (const table of [
+          "ai_link_dismissals",
           "plan_chats",
           "plan_entries",
           "plan_items",
@@ -182,7 +208,7 @@ export class PlanningStore {
         ])
           db.prepare(`DELETE FROM ${table}`).run();
         for (const table of tables)
-          for (const row of previous[table]) {
+          for (const row of previous[table] ?? []) {
             const columns = Object.keys(row);
             db.prepare(
               `INSERT INTO ${table} (${columns.join(",")}) VALUES (${columns.map(() => "?").join(",")})`,
@@ -346,13 +372,19 @@ export class PlanningStore {
               `${prefix}:${c.id}`,
             );
           break;
-        case "setPlanChats":
+        case "setPlanChats": {
           this.requireItem(c.id);
           for (const id of c.chatIds) this.store.chat(id);
+          const previous = db.prepare("SELECT chatId,origin FROM plan_chats WHERE itemId=?").all(c.id) as { chatId: string; origin: string }[];
+          for (const link of previous.filter(link => !c.chatIds.includes(link.chatId)))
+            db.prepare("INSERT OR IGNORE INTO ai_link_dismissals (itemId,chatId) VALUES (?,?)").run(c.id, link.chatId);
           db.prepare("DELETE FROM plan_chats WHERE itemId=?").run(c.id);
-          for (const id of new Set(c.chatIds))
-            db.prepare("INSERT INTO plan_chats VALUES (?,?)").run(c.id, id);
+          for (const id of new Set(c.chatIds)) {
+            db.prepare("INSERT INTO plan_chats (itemId,chatId,origin) VALUES (?,?,?)").run(c.id, id, previous.find(link => link.chatId === id)?.origin ?? "manual");
+            db.prepare("DELETE FROM ai_link_dismissals WHERE itemId=? AND chatId=?").run(c.id, id);
+          }
           break;
+        }
         case "importDailyPlan": {
           const parsed = parseDailyPlan(c.card),
             digest = planDigest(c.card);

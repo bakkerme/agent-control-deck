@@ -801,6 +801,15 @@ summary {
 .task-chat-open { border: 0; background: transparent; text-align: left; width: 100%; padding: 11px; }
 .task-chat-open strong, .task-chat-open small { display: block; overflow-wrap: anywhere; }
 .task-chat-open .status { margin-top: 5px; }
+.task-chat-title { display: flex; align-items: flex-start; gap: 6px; }
+.task-chat-title strong { min-width: 0; }
+.task-ai-badge { display: inline-flex; flex-shrink: 0; color: var(--accent); margin-top: 2px; }
+.matching-settings { border-bottom: 1px solid var(--border); padding-bottom: 20px; margin-bottom: 20px; }
+.matching-toggle { display: flex; align-items: center; gap: 8px; }
+.matching-toggle input { width: auto; }
+.matching-advanced { margin: 12px 0; }
+.matching-advanced summary { cursor: pointer; }
+.matching-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
 .latest-round { padding: 14px; border-top: 1px solid var(--border); overflow-wrap: anywhere; }
 .latest-round h3 { margin: 15px 0 5px; }
 .latest-round .markdown { font-size: 13px; }

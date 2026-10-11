@@ -67,9 +67,18 @@ Command hooks finish quietly and successfully when the deck is unavailable, with
 
 SQLite databases live under Electron’s OS application-data directory, with separate `workspace/` and `demo/` subdirectories. Jira settings are saved separately in each database. The exact active path appears in the app footer. Hook files stay local. There is no cloud sync, telemetry, or Jira API access.
 
+Optional **Settings → AI chat matching** uses OpenRouter or direct Amazon Bedrock to link today's chats to
+tasks. Saving a key does not enable matching; the checkbox controls sending bounded
+chat/task context to the selected model. Keys use OS-backed encryption and never
+appear in snapshots or the database. See [automatic chat links](docs/daily-planning.md#optional-automatic-chat-links).
+
 The app backs up an existing database before schema migrations. For a manual backup, quit the app and copy the displayed data directory. Keep backups private: they contain your notes and previews.
 
 ## Checks and packaging
+
+For the standalone, synthetic chat-to-task AI experiment, run `npm run test:matching`
+and `npm run eval:matching`. See [matching evaluation](docs/chat-task-matching-eval.md)
+for adding an OpenRouter key and explicitly enabling live requests.
 
 ```bash
 npx playwright install chromium --only-shell  # once per machine, for headless UI tests

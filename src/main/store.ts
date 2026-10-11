@@ -57,11 +57,11 @@ export class Store {
       const version = this.db.pragma("user_version", {
         simple: true,
       }) as number;
-      if (version > 11)
+      if (version > 12)
         throw new Error(
           "This database was created by a newer version of Agent Control Deck",
         );
-      if (version < 11 && existed) {
+      if (version < 12 && existed) {
         this.db.pragma("wal_checkpoint(TRUNCATE)");
         copyFileSync(filename, `${filename}.bak-${Date.now()}`);
       }
@@ -294,8 +294,18 @@ export class Store {
           }
         })();
       }
+      if (version < 12) {
+        this.db.transaction(() => {
+          this.db.exec(`
+            ALTER TABLE plan_chats ADD COLUMN origin TEXT NOT NULL DEFAULT 'manual' CHECK(origin IN ('manual','ai'));
+            CREATE TABLE ai_link_dismissals (itemId TEXT NOT NULL REFERENCES plan_items(id) ON DELETE CASCADE, chatId TEXT NOT NULL REFERENCES chats(id) ON DELETE CASCADE, PRIMARY KEY(itemId,chatId));
+            CREATE TABLE ai_match_attempts (chatId TEXT PRIMARY KEY REFERENCES chats(id) ON DELETE CASCADE, fingerprint TEXT NOT NULL, checkedAt TEXT NOT NULL);
+            PRAGMA user_version = 12;
+          `);
+        })();
+      }
       this.reconcileRepositories(() => {
-        if (version >= 11 && existed) {
+        if (version >= 12 && existed) {
           this.db.pragma("wal_checkpoint(TRUNCATE)");
           copyFileSync(filename, `${filename}.bak-${Date.now()}`);
         }
