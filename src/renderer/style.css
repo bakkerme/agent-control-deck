@@ -819,6 +819,8 @@ summary {
 .new-chats-more { margin-top: 4px; }
 .new-chat-context > small { display: block; }
 .new-chat-context-label { color: var(--accent); }
+.new-chat-context .details { padding: 12px 0 0; border: 0; overflow: visible; }
+.new-chat-context .plan-detail-section { margin-bottom: 17px; }
 .new-chat-context .latest-round { border-top: 0; padding: 0; }
 .new-chat-form { padding: 14px; background: var(--background); border: 1px solid var(--border); border-radius: 5px; }
 .new-chat-form input, .new-chat-form select { width: 100%; }

@@ -1,9 +1,10 @@
-import { useState } from "react";
-import type { Chat, Command, Snapshot } from "../shared/types";
+import { useEffect, useState, type Ref } from "react";
+import type { Activity, Chat, Command, Snapshot } from "../shared/types";
 import { planCategories, type PlanCategory } from "../shared/planning";
 import { newChatActivity } from "../shared/new-chats";
-import { age, displayName, providerLabel, Status } from "./components";
+import { age, displayName, message, providerLabel, Status } from "./components";
 import { LatestRound } from "./TaskContext";
+import ChatEditor, { type EditorHandle } from "./ChatEditor";
 
 export function NewChatList({ chats, snapshot, selected, select }: {
   chats: Chat[];
@@ -48,7 +49,7 @@ export function NewChatList({ chats, snapshot, selected, select }: {
   );
 }
 
-export function NewChatContext({ chat, snapshot, day, busy, save, selectTask, create, openChat }: {
+export function NewChatContext({ chat, snapshot, day, busy, save, selectTask, create, openChat, editorRef, mutate, report, configureJira, active }: {
   chat: Chat;
   snapshot: Snapshot;
   day: string;
@@ -57,29 +58,49 @@ export function NewChatContext({ chat, snapshot, day, busy, save, selectTask, cr
   selectTask: (id: string) => void;
   create: (name: string, category: PlanCategory, chatId: string) => void;
   openChat: (id: string) => void;
+  editorRef: Ref<EditorHandle>;
+  mutate: (command: Command) => Promise<void>;
+  report: (error: string) => void;
+  configureJira: () => void;
+  active: boolean;
 }) {
   const [form, setForm] = useState<"link" | "create" | null>(null);
   const [target, setTarget] = useState("");
   const [name, setName] = useState(displayName(chat).slice(0, 200));
   const [category, setCategory] = useState<PlanCategory>("Coding");
+  const [activities, setActivities] = useState<Activity[]>([]);
+  useEffect(() => {
+    if (!active) return;
+    let current = true;
+    void window.deck.activity(chat.id).then((value) => {
+      if (current) setActivities(value);
+    }).catch((error) => {
+      if (current) report(message(error));
+    });
+    return () => { current = false; };
+  }, [active, chat.id, chat.lastEventAt, report]);
   const linked = snapshot.planning.items.filter((item) => item.chatIds.includes(chat.id));
   const task = snapshot.planning.items.find((item) => item.id === target);
+  // Navigation flushes the editor before hiding Today. Remount it on return so
+  // edits made in Repositories are reflected without discarding pending drafts.
+  if (!active) return null;
   return (
     <div className="new-chat-context">
       <small className="new-chat-context-label">New · {newChatActivity(chat) === "New" ? "created" : "updated"} today</small>
-      <h2>{displayName(chat)}</h2>
-      <small>{snapshot.projects.find((p) => p.id === (chat.repoProjectId || chat.projectId))?.name || "No repository"}
-        {" · "}{providerLabel(chat.provider)} · {chat.lastEventAt ? `Last event ${age(chat.lastEventAt)}` : `Created ${age(chat.createdAt)}`}</small>
-      <div className="plan-actions"><Status chat={chat} /></div>
+      <ChatEditor ref={editorRef} repositoryOnly chat={chat} projects={snapshot.projects}
+        settings={snapshot.settings} links={snapshot.links.filter((link) => link.chatId === chat.id)}
+        activities={activities} mutate={mutate} report={report} configureJira={configureJira}
+        renameProject={() => {}} createProject={() => {}}
+        archive={() => void save({ type: "updateChat", id: chat.id, patch: { archived: true } }, "Chat archived; available in Repositories → Archived chats")}
+        historyPreview={<LatestRound chat={chat} fullHistory={() => openChat(chat.id)} />}>
       <section className="plan-detail-section">
-        <h3>{linked.length ? "Linked tasks" : "Not linked to a card"}</h3>
+        <h3>{linked.length ? "Linked tasks" : "Task links (optional)"}</h3>
         {linked.length ? linked.map((item) => <button key={item.id} onClick={() => selectTask(item.id)}>{item.name}</button>) : <>
-          <small>Choose where this chat belongs.</small>
+          <small>This chat can stay here without a task.</small>
           <div className="plan-actions">
             <button className="primary" disabled={busy || !snapshot.planning.items.length} onClick={() => setForm("link")}>Link to existing task</button>
             <button disabled={busy} onClick={() => setForm("create")}>Create task from chat</button>
           </div>
-          {!snapshot.planning.items.length && <small>Create a task to start your card.</small>}
           {form === "link" && <form className="new-chat-form" aria-label="Link new chat" onSubmit={(event) => {
             event.preventDefault();
             if (!task) return;
@@ -112,7 +133,7 @@ export function NewChatContext({ chat, snapshot, day, busy, save, selectTask, cr
           </form>}
         </>}
       </section>
-      <section className="plan-detail-section"><LatestRound chat={chat} fullHistory={() => openChat(chat.id)} /></section>
+      </ChatEditor>
     </div>
   );
 }
