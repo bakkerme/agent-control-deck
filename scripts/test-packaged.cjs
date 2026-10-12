@@ -1,4 +1,4 @@
-const { join, resolve } = require("node:path");
+const { join, resolve, dirname } = require("node:path");
 const { existsSync } = require("node:fs");
 const { spawnSync } = require("node:child_process");
 const binary =
@@ -21,6 +21,13 @@ const binary =
 if (!existsSync(binary)) {
   console.error("Build the app first with npm run package");
   process.exit(1);
+}
+const resources = process.platform === "darwin" ? join(dirname(binary), "../Resources") : join(dirname(binary), "resources");
+for (const file of ["setup.cjs", "desktop_worker.py", "local_worker.py", "bundle_download.py"]) {
+  if (!existsSync(join(resources,"local-matching",file))) {
+    console.error(`Missing packaged local matching resource: ${file}`);
+    process.exit(1);
+  }
 }
 const result = spawnSync(
   process.execPath,

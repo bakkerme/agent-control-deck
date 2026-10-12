@@ -6,14 +6,17 @@
   "author": "Agent Control Deck contributors",
   "main": "out/main/index.js",
   "scripts": {
-    "dev": "electron-vite dev",
+    "dev": "node scripts/build-local-matching.mjs && electron-vite dev",
     "start": "electron-vite preview",
     "demo": "electron-vite preview -- --demo",
     "typecheck": "tsc --noEmit",
-    "build": "npm run typecheck && electron-vite build",
+    "build": "npm run typecheck && node scripts/build-local-matching.mjs && electron-vite build",
     "postinstall": "install-electron --no && electron-builder install-app-deps",
     "test": "node scripts/test.cjs",
     "test:matching": "node --test scripts/chat-task-eval/matching.test.mjs",
+    "test:matching:local": "node --test scripts/chat-task-eval/local.test.mjs scripts/chat-task-eval/benchmark.test.mjs scripts/chat-task-eval/jev.test.mjs scripts/chat-task-eval/evaluation.test.mjs",
+    "bundle:matching:local": "node scripts/chat-task-eval/build-local-bundle.mjs",
+    "eval:matching:local": "node scripts/chat-task-eval/run-local.mjs",
     "eval:matching": "node --env-file-if-exists=.env.local scripts/chat-task-eval/run.mjs",
     "test:ui": "npm run build && node scripts/build-renderer-tests.cjs && playwright test",
     "check": "npm run typecheck && npm test && npm run test:ui",
@@ -55,6 +58,7 @@
       "out/**/*",
       "package.json"
     ],
+    "extraResources": [{ "from": "out/local-matching", "to": "local-matching" }],
     "asarUnpack": [
       "**/*.node"
     ],

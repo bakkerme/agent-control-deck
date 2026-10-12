@@ -25,6 +25,10 @@ process.on(
     try {
       let value: unknown;
       switch (method) {
+        case "installLocalMatching": value = await runtime.installLocalMatching(input); break;
+        case "matchingAnalytics": value = runtime.matchingAnalytics(input); break;
+        case "exportMatchingAnalytics": value = runtime.exportMatchingAnalytics(input); break;
+        case "clearMatchingAnalytics": value = runtime.clearMatchingAnalytics(input); break;
         case "saveMatching":
           value = await runtime.saveMatching(input);
           break;

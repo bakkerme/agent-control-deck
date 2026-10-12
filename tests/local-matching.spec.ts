@@ -1,0 +1,40 @@
+import {test,expect} from "./renderer-fixture";
+import {mkdtempSync,readFileSync} from "node:fs";
+import {tmpdir} from "node:os";
+import {join} from "node:path";
+import {removeFixture} from "./fixture-cleanup";
+test("local settings need no secure storage, persist across restart and export content-free summaries",async({launchRenderer})=>{
+  const dir=mkdtempSync(join(tmpdir(),"acd-local-ui-"));let app=await launchRenderer({dataDirectory:dir});
+  try {
+    let page=await app.firstWindow();const errors:string[]=[];page.on("pageerror",e=>errors.push(e.message));
+    await page.getByRole("button",{name:"Settings",exact:true}).click();
+    let settings=page.getByRole("region",{name:"AI chat matching",exact:true});
+    await settings.getByLabel("AI service",{exact:true}).selectOption("local");
+    await expect(settings.getByLabel("OpenRouter API key",{exact:true})).toHaveCount(0);
+    await expect(settings.getByRole("button",{name:"Download local model",exact:true})).toBeEnabled();
+    await expect(settings.getByLabel("Enable automatic chat links")).toBeDisabled();
+    await settings.getByLabel("Local model").selectOption("vela");
+    await settings.getByLabel("CPU threads").selectOption("2");
+    await settings.getByRole("button",{name:"Save AI settings",exact:true}).click();
+    await expect.poll(async()=> (await page.evaluate(()=>window.deck.load())).matching.config.localModel).toBe("vela");
+    await expect(settings.getByText("Model not installed",{exact:true})).toBeVisible();
+    await expect(settings.getByText("No matching measurements yet.")).toBeVisible();
+    const downloadEvent=page.waitForEvent("download");
+    await settings.getByRole("button",{name:"Export summary JSON",exact:true}).click();
+    const download=await downloadEvent,path=join(dir,"summary.json");await download.saveAs(path);
+    const exported=JSON.parse(readFileSync(path,"utf8"));expect(exported.schema_version).toBe("local_matching_summary.v1");expect(exported.quality.precision).toBeNull();expect(exported.recent).toBeUndefined();
+    await settings.getByLabel("Time window").selectOption("30");
+    await settings.getByRole("button",{name:"Clear analytics",exact:true}).click();
+    await expect(settings.getByText("Analytics cleared; links and dismissals are preserved")).toBeVisible();
+    await settings.scrollIntoViewIfNeeded();
+    await page.screenshot({path:"test-results/local-matching-settings.png",fullPage:true});
+    await settings.getByRole("heading",{name:"AI chat matching",exact:true}).scrollIntoViewIfNeeded();
+    await page.screenshot({path:"test-results/local-matching-settings-top.png"});
+    expect(errors).toEqual([]);
+    await app.close();app=await launchRenderer({dataDirectory:dir});page=await app.firstWindow();
+    await page.getByRole("button",{name:"Settings",exact:true}).click();settings=page.getByRole("region",{name:"AI chat matching",exact:true});
+    await expect(settings.getByLabel("AI service",{exact:true})).toHaveValue("local");
+    await expect(settings.getByLabel("Local model")).toHaveValue("vela");await expect(settings.getByLabel("CPU threads")).toHaveValue("2");
+    await expect(settings.getByLabel("Enable automatic chat links")).not.toBeChecked();
+  }finally{await app.close();removeFixture(dir);}
+});

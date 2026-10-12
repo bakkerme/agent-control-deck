@@ -6,6 +6,8 @@ import { join } from "node:path";
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { Store } from "../src/main/store";
 import { PlanningStore } from "../src/main/planning-store";
+import type { LocalClient } from "../src/main/local-matcher";
+import { MatchingAnalytics } from "../src/main/matching-analytics";
 import { ChatMatcher } from "../src/main/chat-matcher";
 import { SecretStore, type SecretEncryption } from "../src/main/secret-store";
 import { DEFAULT_MODEL, DEFAULT_PROVIDER, parseOutput, type MatchPayload, type requestMatch } from "../src/shared/chat-matching";
@@ -41,13 +43,30 @@ function reply(payload: MatchPayload, target: string | null): Reply {
   };
 }
 const config = matchingConfigSchema.parse({ enabled: true, model: DEFAULT_MODEL, provider: DEFAULT_PROVIDER });
-function fixture(t: { after: (fn: () => void) => void }) {
+const localConfig = matchingConfigSchema.parse({ ...config, backend: "local" });
+function localFixtureClient() {
+  let calls = 0, stops = 0;
+  const client: LocalClient = {
+    status: () => ({state:"installed",progress:"",error:null,startupMs:null}),
+    install: async ()=>{}, stop: ()=>{stops++;},
+    request: async payload => {
+      calls++;
+      const target=payload.tasks.find(t=>t.title==="Payments")!.id;
+      const output=reply(payload,target).output;
+      output.task_likelihoods=output.task_likelihoods.map(t=>({...t,likelihood:t.task_id===target?.7:0}));
+      output.no_match_likelihood=.3;
+      return {output,contextScore:.5,inferenceMs:100,cpuMs:250,peakRssBytes:123456,cold:calls===1};
+    },
+  };
+  return {client,get calls(){return calls;},get stops(){return stops;}};
+}
+function fixture(t: { after: (fn: () => void) => void }, local?: LocalClient) {
   const dir = mkdtempSync(join(tmpdir(), "acd-matching-")), file = join(dir, "workspace.sqlite"), cipherFile = join(dir, "openrouter-key.enc");
   let store = new Store(file), time = Date.now(), sequence = 0;
   const secrets = new SecretStore(cipherFile, encryption()), bedrockSecrets = new SecretStore(join(dir, "bedrock-key.enc"), encryption()), calls: MatchPayload[] = [];
   const keyStores = { openrouter: secrets, bedrock: bedrockSecrets };
   let client: typeof requestMatch = async payload => { calls.push(payload); return reply(payload, payload.tasks.find(task => task.title === "Payments")?.id ?? null); };
-  let matcher = new ChatMatcher(store, keyStores, () => {}, false, (payload, options) => client(payload, options), () => time);
+  let matcher = new ChatMatcher(store, keyStores, () => {}, false, (payload, options) => client(payload, options), () => time, local);
   store.command({ type: "createSource", name: "Claude", provider: "claude", environment: "native" });
   const sourceId = store.sources()[0].id;
   store.command({ type: "importDailyPlan", card: `date: ${localPlanDay()}\ncoding:\n  - name: Portal\n    tickets: [PORT-87]\n  - name: Payments\n    tickets: [PAY-142]\n`, sourceName: "fixture", itemIds: [null, null] });
@@ -69,7 +88,7 @@ function fixture(t: { after: (fn: () => void) => void }) {
     async enable() { await matcher.save(config, "synthetic-api-key"); },
     reopen(demo = false) {
       matcher.dispose(); store.close(); store = new Store(file);
-      matcher = new ChatMatcher(store, keyStores, () => {}, demo, (payload, options) => client(payload, options), () => time);
+      matcher = new ChatMatcher(store, keyStores, () => {}, demo, (payload, options) => client(payload, options), () => time, local);
     },
   };
 }
@@ -104,6 +123,55 @@ test("matching is off by default and keys are absent from SQLite and status", as
   assert.equal(readFileSync(f.cipherFile).includes(Buffer.from("synthetic-api-key")), false);
   await f.matcher.removeKey();
   assert.equal(f.matcher.status().config.enabled, false); assert.equal(f.matcher.status().keyStored, false);
+});
+
+test("local links need no key, use calibrated Kai policy, coalesce evidence and cache across restart", async t=>{
+  const local=localFixtureClient(),f=fixture(t,local.client);
+  await f.matcher.save(localConfig);
+  assert.equal(f.secrets.hasKey(),false);
+  await f.matcher.tick(); assert.equal(local.calls,0);
+  f.emit("Updated PAY-142 request"); f.advance(500);await f.matcher.tick();assert.equal(local.calls,0);
+  f.advance(1000);await f.matcher.tick(); assert.equal(local.calls,1);
+  assert.deepEqual(f.plans.items().find(i=>i.id===f.itemId)!.automaticChatIds,[f.chatId]);
+  const analytics=new MatchingAnalytics(f.store).summary();
+  assert.equal(analytics.outcomes.linked,1);assert.equal(analytics.configurations[0].policy.likelihood,.5);
+  assert.equal(analytics.configurations[0].warmSamples,0);
+  const stops=local.stops;await f.matcher.save(localConfig);assert.equal(local.stops,stops);
+  f.reopen();await f.matcher.tick();assert.equal(local.calls,1);
+});
+
+test("local freshness rejection records a stale result without linking and leaves ingestion usable", async t=>{
+  const local=localFixtureClient(),f=fixture(t,local.client),original=local.client.request;
+  local.client.request=async(...args)=>{const result=await original(...args);f.emit("A different PAY-142 request");return result;};
+  await f.matcher.save(localConfig);await f.matcher.tick();f.advance(1000);await f.matcher.tick();
+  assert.equal(f.plans.items().some(i=>i.chatIds.includes(f.chatId)),false);
+  assert.equal(new MatchingAnalytics(f.store).summary().outcomes.stale,1);
+  assert.equal(f.matcher.status().error,null);
+});
+
+test("analytics distinguish remove and Undo; clearing preserves links and the matcher cache", async t=>{
+  const local=localFixtureClient(),f=fixture(t,local.client);
+  await f.matcher.save(localConfig);await f.matcher.tick();f.advance(1000);await f.matcher.tick();
+  f.store.command({type:"setPlanChats",id:f.itemId,chatIds:[]});
+  f.store.command({type:"undoPlanning",undoId:f.plans.undoId()!});
+  const analytics=new MatchingAnalytics(f.store),summary=analytics.summary();
+  assert.equal(summary.feedback.removed,1);assert.equal(summary.feedback.undoRestored,1);
+  assert.equal(summary.quality.precision,null);
+  const exported=analytics.export();
+  assert.ok(!exported.includes(f.chatId));assert.ok(!exported.includes(f.itemId));assert.ok(!exported.includes("PAY-142"));assert.ok(!exported.includes("Payments"));
+  analytics.clear();assert.equal(analytics.summary().assessments,0);
+  assert.deepEqual(f.plans.items().find(i=>i.id===f.itemId)!.automaticChatIds,[f.chatId]);
+  assert.ok(f.store.db.prepare("SELECT * FROM ai_match_attempts WHERE chatId=?").get(f.chatId));
+});
+
+test("v12 analytics migration preserves links, dismissals and cache and makes a backup",async t=>{
+  const f=fixture(t);await f.enable();await f.matcher.tick();
+  f.store.db.exec("DROP TABLE matching_measurements; DROP TABLE matching_feedback; PRAGMA user_version=12;");
+  f.reopen();
+  assert.equal(f.store.db.pragma("user_version",{simple:true}),13);
+  assert.deepEqual(f.plans.items().find(i=>i.id===f.itemId)!.automaticChatIds,[f.chatId]);
+  assert.ok(f.store.db.prepare("SELECT * FROM ai_match_attempts WHERE chatId=?").get(f.chatId));
+  assert.ok(readdirSync(f.dir).some(name=>name.startsWith("workspace.sqlite.bak-")));
 });
 test("key and routing inputs validate at the boundary", async t => {
   const f = fixture(t);
@@ -265,7 +333,7 @@ test("only today's observed chats and tasks are eligible", async t => {
 test("v11 migration keeps manual associations and makes one recoverable backup", t => {
   const f = fixture(t);
   f.store.command({ type: "setPlanChats", id: f.itemId, chatIds: [f.chatId] });
-  f.store.db.exec("DROP TABLE ai_link_dismissals; DROP TABLE ai_match_attempts; ALTER TABLE plan_chats DROP COLUMN origin; PRAGMA user_version=11;");
+  f.store.db.exec("DROP TABLE matching_measurements; DROP TABLE matching_feedback; DROP TABLE ai_link_dismissals; DROP TABLE ai_match_attempts; ALTER TABLE plan_chats DROP COLUMN origin; PRAGMA user_version=11;");
   f.reopen();
   const item = f.plans.items().find(item => item.id === f.itemId)!;
   assert.deepEqual(item.chatIds, [f.chatId]); assert.deepEqual(item.automaticChatIds, []);

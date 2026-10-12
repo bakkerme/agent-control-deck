@@ -145,6 +145,10 @@ function registerIpc(): void {
   handle("deck:save-matching", input => workspace.saveMatching(input));
   handle("deck:remove-matching-key", input => workspace.removeMatchingKey(input));
   handle("deck:test-matching-connection", input => workspace.testMatchingConnection(input));
+  handle("deck:install-local-matching", input => workspace.installLocalMatching(input));
+  handle("deck:matching-analytics", input => workspace.matchingAnalytics(input));
+  handle("deck:export-matching-analytics", input => workspace.exportMatchingAnalytics(input));
+  handle("deck:clear-matching-analytics", input => workspace.clearMatchingAnalytics(input));
   handle("deck:load", () => workspace.snapshot());
   handle("deck:activity", (input) =>
     workspace.store.activity(idSchema.parse(input)),

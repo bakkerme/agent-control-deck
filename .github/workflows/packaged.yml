@@ -16,6 +16,15 @@ on:
       - tests/titlebar.spec.ts
       - tests/ui-helpers.ts
       - scripts/test-packaged.cjs
+      - scripts/build-local-matching.mjs
+      - scripts/chat-task-eval/desktop_setup.mjs
+      - scripts/chat-task-eval/desktop_worker.py
+      - scripts/chat-task-eval/local_worker.py
+      - scripts/chat-task-eval/bundle_download.py
+      - scripts/chat-task-eval/runtime-tools.mjs
+      - scripts/chat-task-eval/benchmark-core.mjs
+      - src/main/local-matcher.ts
+      - src/shared/local-models.json
       - .github/workflows/packaged.yml
   pull_request:
     paths:
@@ -31,6 +40,15 @@ on:
       - tests/titlebar.spec.ts
       - tests/ui-helpers.ts
       - scripts/test-packaged.cjs
+      - scripts/build-local-matching.mjs
+      - scripts/chat-task-eval/desktop_setup.mjs
+      - scripts/chat-task-eval/desktop_worker.py
+      - scripts/chat-task-eval/local_worker.py
+      - scripts/chat-task-eval/bundle_download.py
+      - scripts/chat-task-eval/runtime-tools.mjs
+      - scripts/chat-task-eval/benchmark-core.mjs
+      - src/main/local-matcher.ts
+      - src/shared/local-models.json
       - .github/workflows/packaged.yml
   workflow_dispatch:
     inputs:

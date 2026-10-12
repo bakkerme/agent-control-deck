@@ -8,6 +8,10 @@ bedrock-key.enc*
 
 # Python
 .venv/
+.venv-local-matching*/
+local-models/
+local-decision-test-data/
+matching-eval-data/
 venv/
 __pycache__/
 *.pyc
