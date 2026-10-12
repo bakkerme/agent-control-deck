@@ -800,6 +800,28 @@ summary {
 .day-navigation input { width: 148px; }
 .planning-views { display: flex; flex-wrap: wrap; gap: 5px; padding: 15px 0; border-bottom: 1px solid var(--border); }
 .planning-views button { font-size: 12px; }
+.planning-filter-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 15px 0; border-bottom: 1px solid var(--border); }
+.planning-filter-bar .planning-views { padding: 0; border: 0; }
+.planning-import { margin-left: auto; padding: 7px 9px; font-size: 12px; }
+.new-chats { padding: 10px 0 13px; margin-bottom: 14px; border-bottom: 1px solid var(--border); }
+.new-chats-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; padding: 4px 0 8px; border: 0; background: transparent; text-align: left; }
+.new-chats-heading > span { display: flex; align-items: center; gap: 7px; }
+.new-chats-count, .new-chat-activity { background: var(--selection); color: var(--accent); border-radius: 3px; padding: 1px 5px; font-size: 12px; }
+.new-chats-caption { display: block; margin-bottom: 9px; }
+.new-chat-row { display: block; width: 100%; text-align: left; padding: 10px; margin: 6px 0; }
+.new-chat-row.selected { border-color: var(--accent); }
+.new-chat-title { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.new-chat-title strong { font-size: 13px; overflow-wrap: anywhere; min-width: 0; }
+.new-chat-activity { flex-shrink: 0; font-size: 11px; }
+.new-chat-row > small { display: block; margin-top: 4px; font-size: 11px; overflow-wrap: anywhere; }
+.new-chat-observation { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 5px 10px; margin-top: 5px; }
+.new-chat-observation .status, .new-chat-observation small { font-size: 11px; }
+.new-chats-more { margin-top: 4px; }
+.new-chat-context > small { display: block; }
+.new-chat-context-label { color: var(--accent); }
+.new-chat-context .latest-round { border-top: 0; padding: 0; }
+.new-chat-form { padding: 14px; background: var(--background); border: 1px solid var(--border); border-radius: 5px; }
+.new-chat-form input, .new-chat-form select { width: 100%; }
 .selected { background: var(--selection); }
 .quiet { background: transparent; border-color: transparent; color: var(--muted); padding: 5px 0; }
 .quiet:hover { background: var(--selection); }

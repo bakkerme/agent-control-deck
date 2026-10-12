@@ -70,7 +70,8 @@ test("live permissions use Spotlight, questions use the dock, and successful res
     await expect(dock.getByRole("alert")).toContainText("Temporary delivery failure");
     await expect(dock.getByLabel("Your own answer")).toHaveValue("Keep my draft through retries");
     await dock.getByLabel("Your own answer").fill("Use my revised answer");
-    await page.getByRole("button",{ name:"Sources",exact:true }).click();
+    await page.getByRole("button",{ name:"Settings",exact:true }).click();
+    await page.getByRole("navigation",{ name:"Settings",exact:true }).getByRole("button",{ name:"Sources",exact:true }).click();
     await expect(page.getByRole("checkbox",{ name:"Answer questions and permissions in the deck" })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await page.getByRole("button",{ name:"Today",exact:true }).click();
@@ -150,7 +151,8 @@ test("disable and demo switching return pending requests neutrally and persist t
     const restored = await page.evaluate(() => window.deck.load());
     expect(restored.sources[0].responsesEnabled).toBe(true);
     expect(restored.requests).toEqual([]);
-    await page.getByRole("button",{ name:"Sources",exact:true }).click();
+    await page.getByRole("button",{ name:"Settings",exact:true }).click();
+    await page.getByRole("navigation",{ name:"Settings",exact:true }).getByRole("button",{ name:"Sources",exact:true }).click();
     await expect(page.getByRole("checkbox",{ name:"Answer questions and permissions in the deck" })).toBeChecked();
   } finally { await app.close(); rmSync(dir,{ recursive:true,force:true }); }
 });
