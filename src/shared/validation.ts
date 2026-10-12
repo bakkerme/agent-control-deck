@@ -136,6 +136,7 @@ export const commandSchema = z.discriminatedUnion("type", [
       name,
       notes: z.string().max(100000).optional(),
       tickets: planTickets.optional(),
+      chatIds: z.array(id).max(200).optional(),
     })
     .strict(),
   z

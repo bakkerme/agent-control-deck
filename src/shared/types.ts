@@ -150,6 +150,7 @@ export type Command =
       name: string;
       notes?: string;
       tickets?: PlanTicket[];
+      chatIds?: string[];
     }
   | {
       type: "updatePlanItem";
