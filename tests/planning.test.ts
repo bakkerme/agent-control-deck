@@ -16,6 +16,7 @@ import { Store } from "../src/main/store";
 import { PlanningStore } from "../src/main/planning-store";
 import { readPlanInbox } from "../src/main/plan-inbox";
 import { parseDailyPlan, planItemNotes } from "../src/shared/planning";
+import { recentUnlinkedChats, newChatActivity } from "../src/shared/new-chats";
 const card =
   "date: 2026-10-08\ncoding:\n  - Deck\nagentic:\n  - Save research\nother:\n  - Review a document\n  - Ask about deployment\n";
 function fixture(t: { after: (fn: () => void) => void }) {
@@ -42,6 +43,48 @@ function fixture(t: { after: (fn: () => void) => void }) {
     },
   };
 }
+test("New chats use local creation/event dates, ignore user edits, and exclude links on any card", (t) => {
+  const f = fixture(t);
+  const stamp = (day: number, hour: number) => new Date(2026, 9, day, hour).toISOString();
+  for (const name of ["Created", "Updated", "Edited", "Archived", "Linked", "Before midnight"])
+    f.store.command({ type: "createChat", name, projectId: null });
+  const chats = f.store.chats();
+  const chat = (name: string) => chats.find((c) => c.name === name)!;
+  for (const c of chats)
+    f.store.db.prepare("UPDATE chats SET createdAt=?,lastEventAt=?,updatedAt=? WHERE id=?")
+      .run(stamp(11, 12), stamp(11, 23), stamp(12, 15), c.id);
+  f.store.db.prepare("UPDATE chats SET createdAt=? WHERE id=?").run(stamp(12, 9), chat("Created").id);
+  for (const name of ["Updated", "Archived", "Linked"])
+    f.store.db.prepare("UPDATE chats SET lastEventAt=? WHERE id=?").run(stamp(12, 10), chat(name).id);
+  f.store.command({ type: "updateChat", id: chat("Archived").id, patch: { archived: true } });
+  f.store.command({ type: "createPlanItem", day: "2026-10-01", category: "Coding", name: "Earlier card", chatIds: [chat("Linked").id] });
+  const recent = recentUnlinkedChats(f.store.chats(), f.plans.items(), "2026-10-12");
+  assert.deepEqual(recent.map((c) => c.name), ["Updated", "Created"]);
+  assert.equal(newChatActivity(recent[0], "2026-10-12"), "Updated");
+  assert.equal(newChatActivity(recent[1], "2026-10-12"), "New");
+});
+
+test("creating a task with chats is atomic, undoable, and retains unrelated task drafts", (t) => {
+  const f = fixture(t);
+  f.store.command({ type: "createChat", name: "Research", projectId: null });
+  const chat = f.store.chats()[0];
+  f.store.command({ type: "savePlanDraft", key: "task-create", value: '{"name":"Unfinished task"}' });
+  const command = { type: "createPlanItem" as const, day: "2026-10-12", category: "Coding" as const, name: "Research", chatIds: [chat.id, chat.id] };
+  f.store.command(command);
+  const item = f.plans.items()[0];
+  assert.deepEqual(item.chatIds, [chat.id]);
+  assert.deepEqual(item.automaticChatIds, []);
+  assert.equal(f.plans.drafts()["task-create"], '{"name":"Unfinished task"}');
+  assert.equal(f.plans.entries()[0].workedOn, false);
+  const snapshot = () => ({ items: f.plans.items(), entries: f.plans.entries(), drafts: f.plans.drafts(), undoId: f.plans.undoId() });
+  const before = snapshot();
+  assert.throws(() => f.store.command({ ...command, chatIds: [chat.id, "00000000-0000-4000-8000-000000000000"] }));
+  assert.deepEqual(snapshot(), before);
+  f.store.command({ type: "undoPlanning", undoId: before.undoId! });
+  assert.deepEqual(f.plans.items(), []);
+  assert.equal(f.store.chats().length, 1);
+  assert.equal(f.plans.drafts()["task-create"], '{"name":"Unfinished task"}');
+});
 test("daily card parser keeps tickets and annotations in separate fields and rejects malformed cards", () => {
   const parsed = parseDailyPlan(`
 date: 2026-10-09
@@ -358,4 +401,3 @@ test("v9 planning migration backs up once, retains existing chats, and isolates 
     demo.close();
   }
 });
-

@@ -31,6 +31,8 @@ import {
 import MarkdownPreview from "./MarkdownPreview";
 import Icon from "./Icon";
 import { TaskTickets, TaskLinks, LatestRound } from "./TaskContext";
+import { NewChatList, NewChatContext } from "./NewChats";
+import { recentUnlinkedChats } from "../shared/new-chats";
 export interface PlanningHandle {
   flush: () => Promise<boolean>;
   selectTask: (id: string) => void;
@@ -93,7 +95,7 @@ const Planning = forwardRef<
   const [view, setView] = useState<"day" | "all" | "attention">("day"),
     [selected, setSelected] = useState(""),
     [search, setSearch] = useState("");
-  const [panel, setPanel] = useState<"task" | "create" | "import" | "card">(
+  const [panel, setPanel] = useState<"task" | "create" | "import" | "card" | "new-chat">(
     "task",
   );
   const [creator, setCreator] = useState(() =>
@@ -120,6 +122,7 @@ const Planning = forwardRef<
   const [chatChoices, setChatChoices] = useState<string[]>([]),
     [chatSearch, setChatSearch] = useState("");
   const [attentionChat, setAttentionChat] = useState("");
+  const [newChatId, setNewChatId] = useState("");
   const [discardReview, setDiscardReview] = useState(false);
   const [dragging, setDragging] = useState<string | null>(null),
     [dropTarget, setDropTarget] = useState<{
@@ -231,7 +234,7 @@ const Planning = forwardRef<
   const entry = current && allEntries.find((e) => e.itemId === current.id);
   useEffect(() => {
     panelRef.current?.scrollTo(0, 0);
-  }, [panel, current?.id, view, attentionChat, day]);
+  }, [panel, current?.id, view, attentionChat, newChatId, day]);
   const nameOf = (id: string) =>
     (view !== "all" && allEntries.find((e) => e.itemId === id)?.name) ||
     planning.items.find((i) => i.id === id)?.name ||
@@ -253,6 +256,8 @@ const Planning = forwardRef<
   const attention = snapshot.chats.filter(
     (c) => !c.archived && attentionReason(c),
   );
+  const newChats = recentUnlinkedChats(snapshot.chats, planning.items);
+  const newChat = newChats.find((chat) => chat.id === newChatId);
   const changeDay = async (value: string) => {
     if (!validPlanDay(value) || !(await flush())) return;
     setDay(value);
@@ -279,6 +284,33 @@ const Planning = forwardRef<
     setRename(null);
     setError("");
     panelRef.current?.scrollTo(0, 0);
+  };
+  const selectNewChat = async (id: string) => {
+    if (!(await flush())) return;
+    setNewChatId(id);
+    setAttentionChat("");
+    setPanel("new-chat");
+    setNotesEdit(false);
+    setRename(null);
+    setError("");
+  };
+  const selectLinkedTask = (id: string) => {
+    setSelected(id);
+    setView("all");
+    setSearch("");
+    setPanel("task");
+    setExpanded(null);
+  };
+  const createFromChat = (name: string, category: PlanCategory, chatId: string) => {
+    createdBefore.current = new Set(planning.items.map((item) => item.id));
+    void run({ type: "createPlanItem", day, name, category, chatIds: [chatId] }, "Task created with chat linked; removed from New")
+      .then((ok) => {
+        if (ok) {
+          setPanel("task");
+          setView("day");
+          setSearch("");
+        } else createdBefore.current = null;
+      });
   };
   const updateCreator = (patch: Partial<typeof creator>) => {
     const next = { ...creator, ...patch };
@@ -333,9 +365,9 @@ const Planning = forwardRef<
         key={id}
         type="button"
         data-task-card={id}
-        className={`plan-row ${current?.id === id ? "selected" : ""} ${waiting.length ? "plan-attention" : ""} ${dragging === id ? "dragging" : ""} ${dropTarget?.beforeId === id ? "drop-before" : ""}`}
+        className={`plan-row ${panel !== "new-chat" && current?.id === id ? "selected" : ""} ${waiting.length ? "plan-attention" : ""} ${dragging === id ? "dragging" : ""} ${dropTarget?.beforeId === id ? "drop-before" : ""}`}
         aria-label={`Select task ${nameOf(id)}`}
-        aria-pressed={current?.id === id}
+        aria-pressed={panel !== "new-chat" && current?.id === id}
         aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown Alt+ArrowLeft Alt+ArrowRight"
         title={
           view === "day"
@@ -1175,6 +1207,11 @@ const Planning = forwardRef<
           ))}
       </div>
     );
+  } else if (panel === "new-chat") {
+    detail = newChat ? <NewChatContext key={newChat.id} chat={newChat} snapshot={snapshot}
+      day={day} busy={busy} save={run} selectTask={selectLinkedTask} create={createFromChat} openChat={openChat} /> : (
+      <div className="empty"><h2>Chat no longer available</h2><p>Select another chat or task.</p></div>
+    );
   } else if (view === "attention") {
     const chat = attention.find((c) => c.id === attentionChat) || attention[0];
     detail = chat ? (
@@ -1638,33 +1675,40 @@ const Planning = forwardRef<
               </button>
             )}
           </div>
-          <nav className="planning-views" aria-label="Task views">
-            {(
-              [
-                ["day", "This day"],
-                ["attention", `Needs attention ${attention.length}`],
-                ["all", "All tasks"],
-              ] as const
-            ).map(([value, label]) => (
-              <button
-                key={value}
-                aria-pressed={view === value}
-                className={view === value ? "selected" : ""}
-                onClick={() => {
-                  void flush().then((ok) => {
-                    if (ok) {
-                      setView(value);
-                      setPanel("task");
-                      setNotesEdit(false);
-                      setRename(null);
-                    }
-                  });
-                }}
-              >
-                {label}
-              </button>
-            ))}
-          </nav>
+          <div className="planning-filter-bar">
+            <nav className="planning-views" aria-label="Task views">
+              {(
+                [
+                  ["day", "This day"],
+                  ["attention", `Needs attention ${attention.length}`],
+                  ["all", "All tasks"],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  aria-pressed={view === value}
+                  className={view === value ? "selected" : ""}
+                  onClick={() => {
+                    void flush().then((ok) => {
+                      if (ok) {
+                        setView(value);
+                        setPanel("task");
+                        setNotesEdit(false);
+                        setRename(null);
+                      }
+                    });
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </nav>
+            <button className="planning-import" disabled={busy} onClick={() => void showPanel("import")}>
+              {panel === "import" ? "Import / review card" : reviewDraft.card ? "Resume card review" : "Import card"}
+            </button>
+          </div>
+          {panel !== "import" && <NewChatList chats={newChats} snapshot={snapshot}
+            selected={panel === "new-chat" ? newChatId : ""} select={(id) => void selectNewChat(id)} />}
           {panel === "import" && cardReview ? (
             <div className="previous-card-reference">
               <h3>Previous card</h3>
@@ -1727,14 +1771,6 @@ const Planning = forwardRef<
             </>
           ) : (
             <>
-              <div className="plan-actions">
-                <button
-                  className="quiet"
-                  onClick={() => void showPanel("import")}
-                >
-                  {reviewDraft.card ? "Resume card review" : "Import card"}
-                </button>
-              </div>
               <label className="task-search">
                 <span className="sr-only">Search tasks</span>
                 <input

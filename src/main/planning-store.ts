@@ -222,14 +222,16 @@ export class PlanningStore {
     db.transaction(() => {
       const before = this.state();
       switch (c.type) {
-        case "createPlanItem":
-          this.schedule(
-            this.create(c.name, c.notes, c.tickets),
-            c.day,
-            c.category,
-          );
-          db.prepare("DELETE FROM plan_drafts WHERE key='task-create'").run();
+        case "createPlanItem": {
+          for (const chatId of c.chatIds || []) this.store.chat(chatId);
+          const itemId = this.create(c.name, c.notes, c.tickets);
+          this.schedule(itemId, c.day, c.category);
+          for (const chatId of new Set(c.chatIds || []))
+            db.prepare("INSERT INTO plan_chats (itemId,chatId,origin) VALUES (?,?,'manual')").run(itemId, chatId);
+          if (c.chatIds === undefined)
+            db.prepare("DELETE FROM plan_drafts WHERE key='task-create'").run();
           break;
+        }
         case "updatePlanItem": {
           this.requireItem(c.id);
           if (
