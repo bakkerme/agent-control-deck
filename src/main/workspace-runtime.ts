@@ -14,6 +14,7 @@ import { SecretStore, type SecretEncryption } from "./secret-store";
 import { saveMatchingSchema } from "../shared/matching-settings";
 import { InteractionQueue } from "./interactions";
 import { promptTitle } from "../shared/presentation";
+import { MatchingAnalytics } from "./matching-analytics";
 
 const unavailableEncryption: SecretEncryption = {
   available: () => false,
@@ -161,6 +162,23 @@ export class WorkspaceRuntime {
   async testMatchingConnection(input: unknown): Promise<void> {
     z.undefined().parse(input);
     await this.matcher.testConnection();
+  }
+
+  async installLocalMatching(input: unknown): Promise<void> {
+    z.undefined().parse(input);
+    await this.matcher.installLocal();
+  }
+  matchingAnalytics(input: unknown) {
+    const days = z.union([z.literal(1),z.literal(7),z.literal(30)]).parse(input);
+    return new MatchingAnalytics(this.store).summary(days);
+  }
+  exportMatchingAnalytics(input: unknown): string {
+    const days = z.union([z.literal(1),z.literal(7),z.literal(30)]).parse(input);
+    return new MatchingAnalytics(this.store).export(days);
+  }
+  clearMatchingAnalytics(input: unknown): void {
+    z.undefined().parse(input);
+    new MatchingAnalytics(this.store).clear(); this.changed();
   }
 
   planLinkUrl(input: unknown): string {

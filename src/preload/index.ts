@@ -6,6 +6,10 @@ async function invoke<T>(channel: string, input?: unknown): Promise<T> {
   return reply.value as T;
 }
 const api: DeckApi = {
+  installLocalMatching: () => invoke("deck:install-local-matching"),
+  matchingAnalytics: days => invoke("deck:matching-analytics", days),
+  exportMatchingAnalytics: days => invoke("deck:export-matching-analytics", days),
+  clearMatchingAnalytics: () => invoke("deck:clear-matching-analytics"),
   saveMatching: input => invoke("deck:save-matching", input),
   removeMatchingKey: () => invoke("deck:remove-matching-key"),
   testMatchingConnection: () => invoke("deck:test-matching-connection"),

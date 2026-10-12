@@ -62,6 +62,12 @@ A date in YAML frontmatter is also accepted. Original transcriptions remain avai
 
 ## Optional automatic chat links
 
+For CPU-only matching on this computer, choose **Local CPU model** in Settings,
+download Kai (or Vela), test it, then enable automatic links. No API key or GPU is
+required. See the [Windows-first local MVP guide](local-matching-mvp.md) for setup,
+offline operation and local performance/feedback exports. The controls below
+describe the existing cloud alternatives.
+
 In **Settings → AI chat matching**, choose **OpenRouter** or **Amazon Bedrock (direct)**,
 enter that service's API key and **Save AI settings**.
 **Test connection** sends a synthetic example. Then select **Enable automatic chat
@@ -103,7 +109,7 @@ link and durably dismisses that chat/task pair; manually linking it again clears
 the dismissal. Undo restores the link and its provenance. Background matching
 preserves the last user Undo instead of replacing it.
 
-Requests run one at a time, at most once every 12 seconds. An unchanged assessment
+Cloud requests run one at a time, at most once every 12 seconds. An unchanged assessment
 is cached across restart, including an abstention. New conversation evidence or
 changed task context can trigger another assessment. Responses are discarded if
 their context changed while waiting. Errors pause matching; save AI settings or

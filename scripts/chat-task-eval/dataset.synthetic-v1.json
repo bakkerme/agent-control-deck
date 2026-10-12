@@ -1,0 +1,2274 @@
+{
+  "schema_version": "decision_dataset.v1",
+  "name": "Everyday task matching: synthetic v1",
+  "provenance": "synthetic",
+  "notes": "Forty hand-written everyday cases: 20 clear no-matches, 16 genuine matches, two ambiguity and two missing-context diagnostics. Each partition has 10/8/1/1. Plans and their conversations stay in one group and split. Scope labels treat tasks as broad attention areas. These are synthetic examples for comparing useful links against correction cost, not a zero-error release gate or representative work validation.",
+  "examples": [
+    {
+      "id": "calibration-storefront-partial-refund",
+      "group_id": "storefront",
+      "split": "calibration",
+      "kind": "match",
+      "category": "explicit-ticket",
+      "rationale": "An explicit task ticket and refund subject agree.",
+      "context": {},
+      "expected": {
+        "link_task_id": "refunds",
+        "insufficient_context": false,
+        "label": "refunds"
+      },
+      "payload": {
+        "schema_version": "chat_task_match.v1",
+        "plan_day": "2026-10-12",
+        "tasks": [
+          {
+            "id": "refunds",
+            "title": "Refunds and returns",
+            "notes": "Customer returns, refund calculation and payment-provider refund handling.",
+            "day_note": "",
+            "ticket_keys": [
+              "SHOP-42"
+            ]
+          },
+          {
+            "id": "search",
+            "title": "Product discovery",
+            "notes": "Product search, filters, ranking and browsing the catalogue.",
+            "day_note": "",
+            "ticket_keys": [
+              "SHOP-63"
+            ]
+          },
+          {
+            "id": "build",
+            "title": "Build pipeline",
+            "notes": "Automated builds, test jobs and CI dependency caching.",
+            "day_note": "",
+            "ticket_keys": [
+              "BUILD-8"
+            ]
+          }
+        ],
+        "chat": {
+          "id": "synthetic-calibration-storefront-partial-refund",
+          "title": "Partial refund rounding",
+          "repository": "/projects/storefront",
+          "latest_round": {
+            "prompt": "For SHOP-42, fix partial refunds so two returned items use the original discount and tax amounts.",
+            "response": "The refund calculation currently reapplies the discount to the already discounted subtotal.",
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "id": "calibration-storefront-catalog-filter",
+      "group_id": "storefront",
+      "split": "calibration",
+      "kind": "match",
+      "category": "broad-task-scope",
+      "rationale": "A different ticket still belongs to the broad product discovery task.",
+      "context": {},
+      "expected": {
+        "link_task_id": "search",
+        "insufficient_context": false,
+        "label": "search"
+      },
+      "payload": {
+        "schema_version": "chat_task_match.v1",
+        "plan_day": "2026-10-12",
+        "tasks": [
+          {
+            "id": "refunds",
+            "title": "Refunds and returns",
+            "notes": "Customer returns, refund calculation and payment-provider refund handling.",
+            "day_note": "",
+            "ticket_keys": [
+              "SHOP-42"
+            ]
+          },
+          {
+            "id": "search",
+            "title": "Product discovery",
+            "notes": "Product search, filters, ranking and browsing the catalogue.",
+            "day_note": "",
+            "ticket_keys": [
+              "SHOP-63"
+            ]
+          },
+          {
+            "id": "build",
+            "title": "Build pipeline",
+            "notes": "Automated builds, test jobs and CI dependency caching.",
+            "day_note": "",
+            "ticket_keys": [
+              "BUILD-8"
+            ]
+          }
+        ],
+        "chat": {
+          "id": "synthetic-calibration-storefront-catalog-filter",
+          "title": "Stock filter on browse page",
+          "repository": "/projects/storefront",
+          "latest_round": {
+            "prompt": "SHOP-71 is the new in-stock filter on the catalogue page. Make it work together with price and brand filters.",
+            "response": "The catalogue API already accepts the stock flag; the filter panel needs to include it in requests.",
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "id": "calibration-storefront-profile-address",
+      "group_id": "storefront",
+      "split": "calibration",
+      "kind": "no_match",
+      "category": "same-repository",
+      "rationale": "Customer profile persistence falls outside refunds, product discovery and CI.",
+      "context": {},
+      "expected": {
+        "link_task_id": null,
+        "insufficient_context": false,
+        "label": null
+      },
+      "payload": {
+        "schema_version": "chat_task_match.v1",
+        "plan_day": "2026-10-12",
+        "tasks": [
+          {
+            "id": "refunds",
+            "title": "Refunds and returns",
+            "notes": "Customer returns, refund calculation and payment-provider refund handling.",
+            "day_note": "",
+            "ticket_keys": [
+              "SHOP-42"
+            ]
+          },
+          {
+            "id": "search",
+            "title": "Product discovery",
+            "notes": "Product search, filters, ranking and browsing the catalogue.",
+            "day_note": "",
+            "ticket_keys": [
+              "SHOP-63"
+            ]
+          },
+          {
+            "id": "build",
+            "title": "Build pipeline",
+            "notes": "Automated builds, test jobs and CI dependency caching.",
+            "day_note": "",
+            "ticket_keys": [
+              "BUILD-8"
+            ]
+          }
+        ],
+        "chat": {
+          "id": "synthetic-calibration-storefront-profile-address",
+          "title": "Saved delivery address",
+          "repository": "/projects/storefront",
+          "latest_round": {
+            "prompt": "The customer profile in storefront loses the saved delivery address after a page refresh. Trace the profile settings persistence.",
+            "response": "The address is sent to the profile endpoint but never reloaded into the settings form.",
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "id": "calibration-storefront-search-build-log",
+      "group_id": "storefront",
+      "split": "calibration",
+      "kind": "no_match",
+      "category": "lexical-overlap",
+      "rationale": "Searching log text is not product search, and no build job is involved.",
+      "context": {},
+      "expected": {
+        "link_task_id": null,
+        "insufficient_context": false,
+        "label": null
+      },
+      "payload": {
+        "schema_version": "chat_task_match.v1",
+        "plan_day": "2026-10-12",
+        "tasks": [
+          {
+            "id": "refunds",
+            "title": "Refunds and returns",
+            "notes": "Customer returns, refund calculation and payment-provider refund handling.",
+            "day_note": "",
+            "ticket_keys": [
+              "SHOP-42"
+            ]
+          },
+          {
+            "id": "search",
+            "title": "Product discovery",
+            "notes": "Product search, filters, ranking and browsing the catalogue.",
+            "day_note": "",
+            "ticket_keys": [
+              "SHOP-63"
+            ]
+          },
+          {
+            "id": "build",
+            "title": "Build pipeline",
+            "notes": "Automated builds, test jobs and CI dependency caching.",
+            "day_note": "",
+            "ticket_keys": [
+              "BUILD-8"
+            ]
+          }
+        ],
+        "chat": {
+          "id": "synthetic-calibration-storefront-search-build-log",
+          "title": "Find a line in a local log",
+          "repository": "/projects/storefront",
+          "latest_round": {
+            "prompt": "Write a small one-off script to search a local access log for requests from a specific IP address and print their timestamps.",
+            "response": "The log is a text file from my local storefront session. This is a troubleshooting helper.",
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "id": "calibration-storefront-missing-cart-task",
+      "group_id": "storefront",
+      "split": "calibration",
+      "kind": "no_match",
+      "category": "task-absent",
+      "rationale": "Basket and checkout work is clear, but that area has no candidate task.",
+      "context": {},
+      "expected": {
+        "link_task_id": null,
+        "insufficient_context": false,
+        "label": null
+      },
+      "payload": {
+        "schema_version": "chat_task_match.v1",
+        "plan_day": "2026-10-12",
+        "tasks": [
+          {
+            "id": "refunds",
+            "title": "Refunds and returns",
+            "notes": "Customer returns, refund calculation and payment-provider refund handling.",
+            "day_note": "",
+            "ticket_keys": [
+              "SHOP-42"
+            ]
+          },
+          {
+            "id": "search",
+            "title": "Product discovery",
+            "notes": "Product search, filters, ranking and browsing the catalogue.",
+            "day_note": "",
+            "ticket_keys": [
+              "SHOP-63"
+            ]
+          },
+          {
+            "id": "build",
+            "title": "Build pipeline",
+            "notes": "Automated builds, test jobs and CI dependency caching.",
+            "day_note": "",
+            "ticket_keys": [
+              "BUILD-8"
+            ]
+          }
+        ],
+        "chat": {
+          "id": "synthetic-calibration-storefront-missing-cart-task",
+          "title": "Basket quantities",
+          "repository": "/projects/storefront",
+          "latest_round": {
+            "prompt": "Fix the storefront basket so changing a quantity recalculates the delivery fee before checkout.",
+            "response": "The quantity update works; the delivery estimate stays stale until the page reloads.",
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "id": "calibration-photo-library-album-tags",
+      "group_id": "photo-library",
+      "split": "calibration",
+      "kind": "match",
+      "category": "topic-without-ticket",
+      "rationale": "Organising existing photos directly fits the catalogue attention area.",
+      "context": {},
+      "expected": {
+        "link_task_id": "catalogue",
+        "insufficient_context": false,
+        "label": "catalogue"
+      },
+      "payload": {
+        "schema_version": "chat_task_match.v1",
+        "plan_day": "2026-10-12",
+        "tasks": [
+          {
+            "id": "catalogue",
+            "title": "Photo catalogue",
+            "notes": "Thumbnail grid, albums, tags and organising photos already in the library.",
+            "day_note": "",
+            "ticket_keys": [
+              "PHOTO-18"
+            ]
+          },
+          {
+            "id": "import",
+            "title": "Camera import",
+            "notes": "Copy photos from removable camera media into the library and detect duplicates.",
+            "day_note": "",
+            "ticket_keys": [
+              "PHOTO-27"
+            ]
+          },
+          {
+            "id": "help",
+            "title": "Import help",
+            "notes": "Explain camera connection, supported media and duplicate handling in the user guide.",
+            "day_note": "",
+            "ticket_keys": []
+          }
+        ],
+        "chat": {
+          "id": "synthetic-calibration-photo-library-album-tags",
+          "title": "Tags for a weekend album",
+          "repository": "/projects/photo-library",
+          "latest_round": {
+            "prompt": "Add bulk tagging to an album selection in the thumbnail grid. Existing tags should stay when I add another tag.",
+            "response": "The grid already exposes selected photo IDs, so the tag editor can apply one update to the selection.",
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "id": "calibration-photo-library-card-duplicates",
+      "group_id": "photo-library",
+      "split": "calibration",
+      "kind": "match",
+      "category": "explicit-ticket",
+      "rationale": "The ticket and duplicate import behaviour fit camera import.",
+      "context": {},
+      "expected": {
+        "link_task_id": "import",
+        "insufficient_context": false,
+        "label": "import"
+      },
+      "payload": {
+        "schema_version": "chat_task_match.v1",
+        "plan_day": "2026-10-12",
+        "tasks": [
+          {
+            "id": "catalogue",
+            "title": "Photo catalogue",
+            "notes": "Thumbnail grid, albums, tags and organising photos already in the library.",
+            "day_note": "",
+            "ticket_keys": [
+              "PHOTO-18"
+            ]
+          },
+          {
+            "id": "import",
+            "title": "Camera import",
+            "notes": "Copy photos from removable camera media into the library and detect duplicates.",
+            "day_note": "",
+            "ticket_keys": [
+              "PHOTO-27"
+            ]
+          },
+          {
+            "id": "help",
+            "title": "Import help",
+            "notes": "Explain camera connection, supported media and duplicate handling in the user guide.",
+            "day_note": "",
+            "ticket_keys": []
+          }
+        ],
+        "chat": {
+          "id": "synthetic-calibration-photo-library-card-duplicates",
+          "title": "Repeated camera card import",
+          "repository": "/projects/photo-library",
+          "latest_round": {
+            "prompt": "PHOTO-27 should recognise a photo that was copied from this camera card last week and skip a second copy.",
+            "response": "Use the file content fingerprint rather than the card file name to identify a duplicate.",
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "id": "calibration-photo-library-pdf-catalogue",
+      "group_id": "photo-library",
+      "split": "calibration",
+      "kind": "no_match",
+      "category": "lexical-overlap",
+      "rationale": "A workshop brochure shares the word catalogue but is unrelated to organising library photos.",
+      "context": {},
+      "expected": {
+        "link_task_id": null,
+        "insufficient_context": false,
+        "label": null
+      },
+      "payload": {
+        "schema_version": "chat_task_match.v1",
+        "plan_day": "2026-10-12",
+        "tasks": [
+          {
+            "id": "catalogue",
+            "title": "Photo catalogue",
+            "notes": "Thumbnail grid, albums, tags and organising photos already in the library.",
+            "day_note": "",
+            "ticket_keys": [
+              "PHOTO-18"
+            ]
+          },
+          {
+            "id": "import",
+            "title": "Camera import",
+            "notes": "Copy photos from removable camera media into the library and detect duplicates.",
+            "day_note": "",
+            "ticket_keys": [
+              "PHOTO-27"
+            ]
+          },
+          {
+            "id": "help",
+            "title": "Import help",
+            "notes": "Explain camera connection, supported media and duplicate handling in the user guide.",
+            "day_note": "",
+            "ticket_keys": []
+          }
+        ],
+        "chat": {
+          "id": "synthetic-calibration-photo-library-pdf-catalogue",
+          "title": "Catalogue for the club",
+          "repository": null,
+          "latest_round": {
+            "prompt": "Create a printable PDF catalogue of our photography club workshops, with dates, prices and a booking email.",
+            "response": "I have the workshop descriptions in a text document. The PDF will be emailed to members.",
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "id": "calibration-photo-library-stale-import-title",
+      "group_id": "photo-library",
+      "split": "calibration",
+      "kind": "no_match",
+      "category": "stale-title",
+      "rationale": "The current subject is account recovery; the old title does not make it import work.",
+      "context": {},
+      "expected": {
+        "link_task_id": null,
+        "insufficient_context": false,
+        "label": null
+      },
+      "payload": {
+        "schema_version": "chat_task_match.v1",
+        "plan_day": "2026-10-12",
+        "tasks": [
+          {
+            "id": "catalogue",
+            "title": "Photo catalogue",
+            "notes": "Thumbnail grid, albums, tags and organising photos already in the library.",
+            "day_note": "",
+            "ticket_keys": [
+              "PHOTO-18"
+            ]
+          },
+          {
+            "id": "import",
+            "title": "Camera import",
+            "notes": "Copy photos from removable camera media into the library and detect duplicates.",
+            "day_note": "",
+            "ticket_keys": [
+              "PHOTO-27"
+            ]
+          },
+          {
+            "id": "help",
+            "title": "Import help",
+            "notes": "Explain camera connection, supported media and duplicate handling in the user guide.",
+            "day_note": "",
+            "ticket_keys": []
+          }
+        ],
+        "chat": {
+          "id": "synthetic-calibration-photo-library-stale-import-title",
+          "title": "Camera import",
+          "repository": "/projects/photo-library",
+          "latest_round": {
+            "prompt": "The photo-library login screen does not let a user change a forgotten password. Add a password reset email flow.",
+            "response": "The import work from earlier is finished. This round is about account recovery.",
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "id": "calibration-photo-library-backup-library",
+      "group_id": "photo-library",
+      "split": "calibration",
+      "kind": "no_match",
+      "category": "same-repository",
+      "rationale": "Upgrade backups are distinct from catalogue interactions, camera import and import help.",
+      "context": {},
+      "expected": {
+        "link_task_id": null,
+        "insufficient_context": false,
+        "label": null
+      },
+      "payload": {
+        "schema_version": "chat_task_match.v1",
+        "plan_day": "2026-10-12",
+        "tasks": [
+          {
+            "id": "catalogue",
+            "title": "Photo catalogue",
+            "notes": "Thumbnail grid, albums, tags and organising photos already in the library.",
+            "day_note": "",
+            "ticket_keys": [
+              "PHOTO-18"
+            ]
+          },
+          {
+            "id": "import",
+            "title": "Camera import",
+            "notes": "Copy photos from removable camera media into the library and detect duplicates.",
+            "day_note": "",
+            "ticket_keys": [
+              "PHOTO-27"
+            ]
+          },
+          {
+            "id": "help",
+            "title": "Import help",
+            "notes": "Explain camera connection, supported media and duplicate handling in the user guide.",
+            "day_note": "",
+            "ticket_keys": []
+          }
+        ],
+        "chat": {
+          "id": "synthetic-calibration-photo-library-backup-library",
+          "title": "Library database backup",
+          "repository": "/projects/photo-library",
+          "latest_round": {
+            "prompt": "Add an automatic backup of the photo-library SQLite database before an application upgrade.",
+            "response": "A backup should contain the album metadata database; copying photos from the camera is not involved.",
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "id": "calibration-work-board-move-card",
+      "group_id": "work-board",
+      "split": "calibration",
+      "kind": "match",
+      "category": "topic-without-ticket",
+      "rationale": "Persistent daily card ordering belongs to daily planning.",
+      "context": {},
+      "expected": {
+        "link_task_id": "planning",
+        "insufficient_context": false,
+        "label": "planning"
+      },
+      "payload": {
+        "schema_version": "chat_task_match.v1",
+        "plan_day": "2026-10-12",
+        "tasks": [
+          {
+            "id": "planning",
+            "title": "Daily planning",
+            "notes": "Create, reorder and edit daily attention cards, including their notes and status.",
+            "day_note": "",
+            "ticket_keys": [
+              "PLAN-12"
+            ]
+          },
+          {
+            "id": "references",
+            "title": "Task references",
+            "notes": "Extract and display ticket URLs and other links attached to a task.",
+            "day_note": "",
+            "ticket_keys": [
+              "LINK-5"
+            ]
+          },
+          {
+            "id": "release",
+            "title": "Desktop packaging",
+            "notes": "Produce signed desktop installers and verify installation and upgrades.",
+            "day_note": "",
+            "ticket_keys": [
+              "DESK-9"
+            ]
+          }
+        ],
+        "chat": {
+          "id": "synthetic-calibration-work-board-move-card",
+          "title": "Reorder the morning plan",
+          "repository": "/projects/work-board",
+          "latest_round": {
+            "prompt": "Let me move a daily attention card above another card and retain that order when I reopen the app.",
+            "response": "The cards have an order field; the drag action currently updates only the visible list.",
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "id": "calibration-work-board-reference-ticket",
+      "group_id": "work-board",
+      "split": "calibration",
+      "kind": "match",
+      "category": "explicit-ticket",
+      "rationale": "The explicit ticket and task link extraction identify task references.",
+      "context": {},
+      "expected": {
+        "link_task_id": "references",
+        "insufficient_context": false,
+        "label": "references"
+      },
+      "payload": {
+        "schema_version": "chat_task_match.v1",
+        "plan_day": "2026-10-12",
+        "tasks": [
+          {
+            "id": "planning",
+            "title": "Daily planning",
+            "notes": "Create, reorder and edit daily attention cards, including their notes and status.",
+            "day_note": "",
+            "ticket_keys": [
+              "PLAN-12"
+            ]
+          },
+          {
+            "id": "references",
+            "title": "Task references",
+            "notes": "Extract and display ticket URLs and other links attached to a task.",
+            "day_note": "",
+            "ticket_keys": [
+              "LINK-5"
+            ]
+          },
+          {
+            "id": "release",
+            "title": "Desktop packaging",
+            "notes": "Produce signed desktop installers and verify installation and upgrades.",
+            "day_note": "",
+            "ticket_keys": [
+              "DESK-9"
+            ]
+          }
+        ],
+        "chat": {
+          "id": "synthetic-calibration-work-board-reference-ticket",
+          "title": "Ticket URL extraction",
+          "repository": "/projects/work-board",
+          "latest_round": {
+            "prompt": "LINK-5 misses a ticket URL when it appears in parentheses in the task notes. Include that link in the references list.",
+            "response": "The link extractor stops at the opening parenthesis rather than the end of the URL.",
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "id": "calibration-work-board-quoted-ticket",
+      "group_id": "work-board",
+      "split": "calibration",
+      "kind": "no_match",
+      "category": "incidental-ticket",
+      "rationale": "A ticket mentioned as fixture filler is not the subject; theme persistence has no candidate.",
+      "context": {},
+      "expected": {
+        "link_task_id": null,
+        "insufficient_context": false,
+        "label": null
+      },
+      "payload": {
+        "schema_version": "chat_task_match.v1",
+        "plan_day": "2026-10-12",
+        "tasks": [
+          {
+            "id": "planning",
+            "title": "Daily planning",
+            "notes": "Create, reorder and edit daily attention cards, including their notes and status.",
+            "day_note": "",
+            "ticket_keys": [
+              "PLAN-12"
+            ]
+          },
+          {
+            "id": "references",
+            "title": "Task references",
+            "notes": "Extract and display ticket URLs and other links attached to a task.",
+            "day_note": "",
+            "ticket_keys": [
+              "LINK-5"
+            ]
+          },
+          {
+            "id": "release",
+            "title": "Desktop packaging",
+            "notes": "Produce signed desktop installers and verify installation and upgrades.",
+            "day_note": "",
+            "ticket_keys": [
+              "DESK-9"
+            ]
+          }
+        ],
+        "chat": {
+          "id": "synthetic-calibration-work-board-quoted-ticket",
+          "title": "Workspace preferences",
+          "repository": "/projects/work-board",
+          "latest_round": {
+            "prompt": "The example text in my preferences test happens to contain LINK-5. The actual bug is that the selected colour theme resets after restarting work-board.",
+            "response": "The test seed uses old ticket notes as filler. Theme persistence is stored separately from task references.",
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "id": "calibration-work-board-repository-picker",
+      "group_id": "work-board",
+      "split": "calibration",
+      "kind": "no_match",
+      "category": "same-repository",
+      "rationale": "Project browsing UI is outside daily cards, task references and installer packaging.",
+      "context": {},
+      "expected": {
+        "link_task_id": null,
+        "insufficient_context": false,
+        "label": null
+      },
+      "payload": {
+        "schema_version": "chat_task_match.v1",
+        "plan_day": "2026-10-12",
+        "tasks": [
+          {
+            "id": "planning",
+            "title": "Daily planning",
+            "notes": "Create, reorder and edit daily attention cards, including their notes and status.",
+            "day_note": "",
+            "ticket_keys": [
+              "PLAN-12"
+            ]
+          },
+          {
+            "id": "references",
+            "title": "Task references",
+            "notes": "Extract and display ticket URLs and other links attached to a task.",
+            "day_note": "",
+            "ticket_keys": [
+              "LINK-5"
+            ]
+          },
+          {
+            "id": "release",
+            "title": "Desktop packaging",
+            "notes": "Produce signed desktop installers and verify installation and upgrades.",
+            "day_note": "",
+            "ticket_keys": [
+              "DESK-9"
+            ]
+          }
+        ],
+        "chat": {
+          "id": "synthetic-calibration-work-board-repository-picker",
+          "title": "Project list names",
+          "repository": "/projects/work-board",
+          "latest_round": {
+            "prompt": "Make the project picker in work-board show the full repository name on hover when it is too long for the row.",
+            "response": "The text is truncated correctly, but there is no tooltip on the project label.",
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "id": "calibration-work-board-two-equal-areas",
+      "group_id": "work-board",
+      "split": "calibration",
+      "kind": "ambiguous",
+      "category": "multiple-subjects",
+      "rationale": "Two supplied attention areas are explicit and equally central; no single preferred home is labelled.",
+      "context": {},
+      "expected": {
+        "link_task_id": null,
+        "insufficient_context": false
+      },
+      "payload": {
+        "schema_version": "chat_task_match.v1",
+        "plan_day": "2026-10-12",
+        "tasks": [
+          {
+            "id": "planning",
+            "title": "Daily planning",
+            "notes": "Create, reorder and edit daily attention cards, including their notes and status.",
+            "day_note": "",
+            "ticket_keys": [
+              "PLAN-12"
+            ]
+          },
+          {
+            "id": "references",
+            "title": "Task references",
+            "notes": "Extract and display ticket URLs and other links attached to a task.",
+            "day_note": "",
+            "ticket_keys": [
+              "LINK-5"
+            ]
+          },
+          {
+            "id": "release",
+            "title": "Desktop packaging",
+            "notes": "Produce signed desktop installers and verify installation and upgrades.",
+            "day_note": "",
+            "ticket_keys": [
+              "DESK-9"
+            ]
+          }
+        ],
+        "chat": {
+          "id": "synthetic-calibration-work-board-two-equal-areas",
+          "title": "Cards and references",
+          "repository": "/projects/work-board",
+          "latest_round": {
+            "prompt": "In one pass, fix daily card ordering and the task URL extractor. Both are equally important; keep the changes together.",
+            "response": "I will update card order persistence and link extraction in this chat.",
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "id": "calibration-service-console-late-samples",
+      "group_id": "service-console",
+      "split": "calibration",
+      "kind": "match",
+      "category": "broad-task-scope",
+      "rationale": "Late sample handling fits ingestion even though its ticket differs from the task ticket.",
+      "context": {},
+      "expected": {
+        "link_task_id": "metrics",
+        "insufficient_context": false,
+        "label": "metrics"
+      },
+      "payload": {
+        "schema_version": "chat_task_match.v1",
+        "plan_day": "2026-10-12",
+        "tasks": [
+          {
+            "id": "metrics",
+            "title": "Metrics ingestion",
+            "notes": "Receive service measurements, validate samples and store time series.",
+            "day_note": "",
+            "ticket_keys": [
+              "MET-4"
+            ]
+          },
+          {
+            "id": "alerts",
+            "title": "Email alerts",
+            "notes": "Deliver threshold-triggered email notifications, including retries and templates.",
+            "day_note": "",
+            "ticket_keys": [
+              "ALERT-11"
+            ]
+          },
+          {
+            "id": "access",
+            "title": "Operator access",
+            "notes": "Operator accounts, login and role-based access to the console.",
+            "day_note": "",
+            "ticket_keys": [
+              "OPS-3"
+            ]
+          }
+        ],
+        "chat": {
+          "id": "synthetic-calibration-service-console-late-samples",
+          "title": "Late measurement batches",
+          "repository": "/projects/service-console",
+          "latest_round": {
+            "prompt": "MET-19 needs to accept yesterday's measurement batch without putting it into today's time bucket.",
+            "response": "Use each sample timestamp when writing the time series, rather than the arrival time.",
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "id": "calibration-service-console-email-retry",
+      "group_id": "service-console",
+      "split": "calibration",
+      "kind": "match",
+      "category": "topic-without-ticket",
+      "rationale": "The actual work is retrying alert email delivery.",
+      "context": {},
+      "expected": {
+        "link_task_id": "alerts",
+        "insufficient_context": false,
+        "label": "alerts"
+      },
+      "payload": {
+        "schema_version": "chat_task_match.v1",
+        "plan_day": "2026-10-12",
+        "tasks": [
+          {
+            "id": "metrics",
+            "title": "Metrics ingestion",
+            "notes": "Receive service measurements, validate samples and store time series.",
+            "day_note": "",
+            "ticket_keys": [
+              "MET-4"
+            ]
+          },
+          {
+            "id": "alerts",
+            "title": "Email alerts",
+            "notes": "Deliver threshold-triggered email notifications, including retries and templates.",
+            "day_note": "",
+            "ticket_keys": [
+              "ALERT-11"
+            ]
+          },
+          {
+            "id": "access",
+            "title": "Operator access",
+            "notes": "Operator accounts, login and role-based access to the console.",
+            "day_note": "",
+            "ticket_keys": [
+              "OPS-3"
+            ]
+          }
+        ],
+        "chat": {
+          "id": "synthetic-calibration-service-console-email-retry",
+          "title": "Retry alert delivery",
+          "repository": "/projects/service-console",
+          "latest_round": {
+            "prompt": "An alert email is lost when the mail service times out. Retry delivery with a bounded delay and keep the same notification ID.",
+            "response": "The threshold check succeeds; the delivery worker marks the email done before the mail service responds.",
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "id": "calibration-service-console-dashboard-layout",
+      "group_id": "service-console",
+      "split": "calibration",
+      "kind": "no_match",
+      "category": "same-repository",
+      "rationale": "Dashboard layout is distinct from ingestion, email delivery and login permissions.",
+      "context": {},
+      "expected": {
+        "link_task_id": null,
+        "insufficient_context": false,
+        "label": null
+      },
+      "payload": {
+        "schema_version": "chat_task_match.v1",
+        "plan_day": "2026-10-12",
+        "tasks": [
+          {
+            "id": "metrics",
+            "title": "Metrics ingestion",
+            "notes": "Receive service measurements, validate samples and store time series.",
+            "day_note": "",
+            "ticket_keys": [
+              "MET-4"
+            ]
+          },
+          {
+            "id": "alerts",
+            "title": "Email alerts",
+            "notes": "Deliver threshold-triggered email notifications, including retries and templates.",
+            "day_note": "",
+            "ticket_keys": [
+              "ALERT-11"
+            ]
+          },
+          {
+            "id": "access",
+            "title": "Operator access",
+            "notes": "Operator accounts, login and role-based access to the console.",
+            "day_note": "",
+            "ticket_keys": [
+              "OPS-3"
+            ]
+          }
+        ],
+        "chat": {
+          "id": "synthetic-calibration-service-console-dashboard-layout",
+          "title": "Dashboard panels",
+          "repository": "/projects/service-console",
+          "latest_round": {
+            "prompt": "Allow operators to resize service-console dashboard panels and save their preferred layout.",
+            "response": "Measurement collection and alert emails already work. This only changes how the existing panels are arranged.",
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "id": "calibration-service-console-billing-receipts",
+      "group_id": "service-console",
+      "split": "calibration",
+      "kind": "no_match",
+      "category": "task-absent",
+      "rationale": "Billing receipts have a clear subject but no supplied billing task.",
+      "context": {},
+      "expected": {
+        "link_task_id": null,
+        "insufficient_context": false,
+        "label": null
+      },
+      "payload": {
+        "schema_version": "chat_task_match.v1",
+        "plan_day": "2026-10-12",
+        "tasks": [
+          {
+            "id": "metrics",
+            "title": "Metrics ingestion",
+            "notes": "Receive service measurements, validate samples and store time series.",
+            "day_note": "",
+            "ticket_keys": [
+              "MET-4"
+            ]
+          },
+          {
+            "id": "alerts",
+            "title": "Email alerts",
+            "notes": "Deliver threshold-triggered email notifications, including retries and templates.",
+            "day_note": "",
+            "ticket_keys": [
+              "ALERT-11"
+            ]
+          },
+          {
+            "id": "access",
+            "title": "Operator access",
+            "notes": "Operator accounts, login and role-based access to the console.",
+            "day_note": "",
+            "ticket_keys": [
+              "OPS-3"
+            ]
+          }
+        ],
+        "chat": {
+          "id": "synthetic-calibration-service-console-billing-receipts",
+          "title": "Subscription receipts",
+          "repository": "/projects/service-console",
+          "latest_round": {
+            "prompt": "Generate a PDF receipt for each paid service-console subscription and put it on the billing page.",
+            "response": "The payment records are already present; the missing feature is receipt generation.",
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "id": "calibration-service-console-continue",
+      "group_id": "service-console",
+      "split": "calibration",
+      "kind": "missing_context",
+      "category": "sparse-context",
+      "rationale": "The round does not identify the proposed change; repository identity alone is insufficient.",
+      "context": {},
+      "expected": {
+        "link_task_id": null,
+        "insufficient_context": true
+      },
+      "payload": {
+        "schema_version": "chat_task_match.v1",
+        "plan_day": "2026-10-12",
+        "tasks": [
+          {
+            "id": "metrics",
+            "title": "Metrics ingestion",
+            "notes": "Receive service measurements, validate samples and store time series.",
+            "day_note": "",
+            "ticket_keys": [
+              "MET-4"
+            ]
+          },
+          {
+            "id": "alerts",
+            "title": "Email alerts",
+            "notes": "Deliver threshold-triggered email notifications, including retries and templates.",
+            "day_note": "",
+            "ticket_keys": [
+              "ALERT-11"
+            ]
+          },
+          {
+            "id": "access",
+            "title": "Operator access",
+            "notes": "Operator accounts, login and role-based access to the console.",
+            "day_note": "",
+            "ticket_keys": [
+              "OPS-3"
+            ]
+          }
+        ],
+        "chat": {
+          "id": "synthetic-calibration-service-console-continue",
+          "title": "New chat",
+          "repository": "/projects/service-console",
+          "latest_round": {
+            "prompt": "Yes, go ahead with that change.",
+            "response": "",
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "id": "holdout-lending-library-renew-loan",
+      "group_id": "lending-library",
+      "split": "holdout",
+      "kind": "match",
+      "category": "explicit-ticket",
+      "rationale": "The ticket and renewal reservation rule agree on loans.",
+      "context": {},
+      "expected": {
+        "link_task_id": "loans",
+        "insufficient_context": false,
+        "label": "loans"
+      },
+      "payload": {
+        "schema_version": "chat_task_match.v1",
+        "plan_day": "2026-10-13",
+        "tasks": [
+          {
+            "id": "loans",
+            "title": "Loans and reservations",
+            "notes": "Checkouts, returns, due dates and reserving physical library books.",
+            "day_note": "",
+            "ticket_keys": [
+              "LIB-32"
+            ]
+          },
+          {
+            "id": "discovery",
+            "title": "Book discovery",
+            "notes": "Search and filter the book catalogue, author pages and available-copy listings.",
+            "day_note": "",
+            "ticket_keys": [
+              "LIB-56"
+            ]
+          },
+          {
+            "id": "members",
+            "title": "Member accounts",
+            "notes": "Library member login, contact information and membership renewal.",
+            "day_note": "",
+            "ticket_keys": [
+              "MEM-7"
+            ]
+          }
+        ],
+        "chat": {
+          "id": "synthetic-holdout-lending-library-renew-loan",
+          "title": "Loan renewal limit",
+          "repository": "/projects/lending-library",
+          "latest_round": {
+            "prompt": "For LIB-32, prevent a loan renewal when another member has reserved the same book.",
+            "response": "The reservation exists, but the renewal endpoint never checks the queue.",
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "id": "holdout-lending-library-author-filter",
+      "group_id": "lending-library",
+      "split": "holdout",
+      "kind": "match",
+      "category": "broad-task-scope",
+      "rationale": "Catalogue filtering remains discovery work despite a different ticket.",
+      "context": {},
+      "expected": {
+        "link_task_id": "discovery",
+        "insufficient_context": false,
+        "label": "discovery"
+      },
+      "payload": {
+        "schema_version": "chat_task_match.v1",
+        "plan_day": "2026-10-13",
+        "tasks": [
+          {
+            "id": "loans",
+            "title": "Loans and reservations",
+            "notes": "Checkouts, returns, due dates and reserving physical library books.",
+            "day_note": "",
+            "ticket_keys": [
+              "LIB-32"
+            ]
+          },
+          {
+            "id": "discovery",
+            "title": "Book discovery",
+            "notes": "Search and filter the book catalogue, author pages and available-copy listings.",
+            "day_note": "",
+            "ticket_keys": [
+              "LIB-56"
+            ]
+          },
+          {
+            "id": "members",
+            "title": "Member accounts",
+            "notes": "Library member login, contact information and membership renewal.",
+            "day_note": "",
+            "ticket_keys": [
+              "MEM-7"
+            ]
+          }
+        ],
+        "chat": {
+          "id": "synthetic-holdout-lending-library-author-filter",
+          "title": "Find books by an author",
+          "repository": "/projects/lending-library",
+          "latest_round": {
+            "prompt": "LIB-81 adds an author filter to catalogue results. Preserve the availability filter when a reader chooses an author.",
+            "response": "The result request drops the available-only parameter as soon as the author changes.",
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "id": "holdout-lending-library-printer-settings",
+      "group_id": "lending-library",
+      "split": "holdout",
+      "kind": "no_match",
+      "category": "same-repository",
+      "rationale": "Local desk device settings are distinct from loans, catalogue discovery and member accounts.",
+      "context": {},
+      "expected": {
+        "link_task_id": null,
+        "insufficient_context": false,
+        "label": null
+      },
+      "payload": {
+        "schema_version": "chat_task_match.v1",
+        "plan_day": "2026-10-13",
+        "tasks": [
+          {
+            "id": "loans",
+            "title": "Loans and reservations",
+            "notes": "Checkouts, returns, due dates and reserving physical library books.",
+            "day_note": "",
+            "ticket_keys": [
+              "LIB-32"
+            ]
+          },
+          {
+            "id": "discovery",
+            "title": "Book discovery",
+            "notes": "Search and filter the book catalogue, author pages and available-copy listings.",
+            "day_note": "",
+            "ticket_keys": [
+              "LIB-56"
+            ]
+          },
+          {
+            "id": "members",
+            "title": "Member accounts",
+            "notes": "Library member login, contact information and membership renewal.",
+            "day_note": "",
+            "ticket_keys": [
+              "MEM-7"
+            ]
+          }
+        ],
+        "chat": {
+          "id": "synthetic-holdout-lending-library-printer-settings",
+          "title": "Desk printer setup",
+          "repository": "/projects/lending-library",
+          "latest_round": {
+            "prompt": "The lending-library staff preferences should remember which receipt printer each desk uses.",
+            "response": "The selected device is lost whenever the staff preferences window closes.",
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "id": "holdout-lending-library-reserve-memory",
+      "group_id": "lending-library",
+      "split": "holdout",
+      "kind": "no_match",
+      "category": "lexical-overlap",
+      "rationale": "Reserving memory has no connection to book reservations or the other library tasks.",
+      "context": {},
+      "expected": {
+        "link_task_id": null,
+        "insufficient_context": false,
+        "label": null
+      },
+      "payload": {
+        "schema_version": "chat_task_match.v1",
+        "plan_day": "2026-10-13",
+        "tasks": [
+          {
+            "id": "loans",
+            "title": "Loans and reservations",
+            "notes": "Checkouts, returns, due dates and reserving physical library books.",
+            "day_note": "",
+            "ticket_keys": [
+              "LIB-32"
+            ]
+          },
+          {
+            "id": "discovery",
+            "title": "Book discovery",
+            "notes": "Search and filter the book catalogue, author pages and available-copy listings.",
+            "day_note": "",
+            "ticket_keys": [
+              "LIB-56"
+            ]
+          },
+          {
+            "id": "members",
+            "title": "Member accounts",
+            "notes": "Library member login, contact information and membership renewal.",
+            "day_note": "",
+            "ticket_keys": [
+              "MEM-7"
+            ]
+          }
+        ],
+        "chat": {
+          "id": "synthetic-holdout-lending-library-reserve-memory",
+          "title": "Memory reservation in a helper",
+          "repository": "/projects/file-helper",
+          "latest_round": {
+            "prompt": "Explain why this C helper reserves a large buffer at startup even when its input file is tiny. I am reading the helper code, not changing the library site.",
+            "response": "The helper uses a fixed allocation for a compressed file decoder.",
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "id": "holdout-lending-library-missing-inventory",
+      "group_id": "lending-library",
+      "split": "holdout",
+      "kind": "no_match",
+      "category": "task-absent",
+      "rationale": "Supplier invoice administration is absent from the three attention areas.",
+      "context": {},
+      "expected": {
+        "link_task_id": null,
+        "insufficient_context": false,
+        "label": null
+      },
+      "payload": {
+        "schema_version": "chat_task_match.v1",
+        "plan_day": "2026-10-13",
+        "tasks": [
+          {
+            "id": "loans",
+            "title": "Loans and reservations",
+            "notes": "Checkouts, returns, due dates and reserving physical library books.",
+            "day_note": "",
+            "ticket_keys": [
+              "LIB-32"
+            ]
+          },
+          {
+            "id": "discovery",
+            "title": "Book discovery",
+            "notes": "Search and filter the book catalogue, author pages and available-copy listings.",
+            "day_note": "",
+            "ticket_keys": [
+              "LIB-56"
+            ]
+          },
+          {
+            "id": "members",
+            "title": "Member accounts",
+            "notes": "Library member login, contact information and membership renewal.",
+            "day_note": "",
+            "ticket_keys": [
+              "MEM-7"
+            ]
+          }
+        ],
+        "chat": {
+          "id": "synthetic-holdout-lending-library-missing-inventory",
+          "title": "Supplier invoices",
+          "repository": "/projects/lending-library",
+          "latest_round": {
+            "prompt": "Add a lending-library back-office page for recording invoices from book suppliers.",
+            "response": "Staff need invoice totals and payment dates for purchased stock.",
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "id": "holdout-voice-notebook-input-device",
+      "group_id": "voice-notebook",
+      "split": "holdout",
+      "kind": "match",
+      "category": "topic-without-ticket",
+      "rationale": "Input device selection and unplug behaviour fit microphone capture.",
+      "context": {},
+      "expected": {
+        "link_task_id": "capture",
+        "insufficient_context": false,
+        "label": "capture"
+      },
+      "payload": {
+        "schema_version": "chat_task_match.v1",
+        "plan_day": "2026-10-13",
+        "tasks": [
+          {
+            "id": "capture",
+            "title": "Microphone capture",
+            "notes": "Audio input devices, recording controls and reliable capture of microphone audio.",
+            "day_note": "",
+            "ticket_keys": [
+              "VOICE-14"
+            ]
+          },
+          {
+            "id": "transcripts",
+            "title": "Transcript workspace",
+            "notes": "Edit and search recorded transcripts and navigate their timestamps.",
+            "day_note": "",
+            "ticket_keys": [
+              "TEXT-6"
+            ]
+          },
+          {
+            "id": "distribution",
+            "title": "Application distribution",
+            "notes": "Build and publish desktop installers and handle application upgrades.",
+            "day_note": "",
+            "ticket_keys": [
+              "SHIP-21"
+            ]
+          }
+        ],
+        "chat": {
+          "id": "synthetic-holdout-voice-notebook-input-device",
+          "title": "Switch microphone devices",
+          "repository": "/projects/voice-notebook",
+          "latest_round": {
+            "prompt": "Let the user change the input microphone without restarting voice-notebook. Keep recording controls responsive when a device is unplugged.",
+            "response": "The recorder currently opens the input device once at application startup.",
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "id": "holdout-voice-notebook-installer-upgrade",
+      "group_id": "voice-notebook",
+      "split": "holdout",
+      "kind": "match",
+      "category": "explicit-ticket",
+      "rationale": "The ticket and installer upgrade purpose identify application distribution.",
+      "context": {},
+      "expected": {
+        "link_task_id": "distribution",
+        "insufficient_context": false,
+        "label": "distribution"
+      },
+      "payload": {
+        "schema_version": "chat_task_match.v1",
+        "plan_day": "2026-10-13",
+        "tasks": [
+          {
+            "id": "capture",
+            "title": "Microphone capture",
+            "notes": "Audio input devices, recording controls and reliable capture of microphone audio.",
+            "day_note": "",
+            "ticket_keys": [
+              "VOICE-14"
+            ]
+          },
+          {
+            "id": "transcripts",
+            "title": "Transcript workspace",
+            "notes": "Edit and search recorded transcripts and navigate their timestamps.",
+            "day_note": "",
+            "ticket_keys": [
+              "TEXT-6"
+            ]
+          },
+          {
+            "id": "distribution",
+            "title": "Application distribution",
+            "notes": "Build and publish desktop installers and handle application upgrades.",
+            "day_note": "",
+            "ticket_keys": [
+              "SHIP-21"
+            ]
+          }
+        ],
+        "chat": {
+          "id": "synthetic-holdout-voice-notebook-installer-upgrade",
+          "title": "Upgrade preserves settings",
+          "repository": "/projects/voice-notebook",
+          "latest_round": {
+            "prompt": "SHIP-21 needs an installer upgrade check that verifies the saved notebook preferences survive installation over the previous release.",
+            "response": "I will test the installer on an existing installation with a preferences file.",
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "id": "holdout-voice-notebook-search-records",
+      "group_id": "voice-notebook",
+      "split": "holdout",
+      "kind": "no_match",
+      "category": "lexical-overlap",
+      "rationale": "Searching purchasing records is unrelated to transcript search or audio capture.",
+      "context": {},
+      "expected": {
+        "link_task_id": null,
+        "insufficient_context": false,
+        "label": null
+      },
+      "payload": {
+        "schema_version": "chat_task_match.v1",
+        "plan_day": "2026-10-13",
+        "tasks": [
+          {
+            "id": "capture",
+            "title": "Microphone capture",
+            "notes": "Audio input devices, recording controls and reliable capture of microphone audio.",
+            "day_note": "",
+            "ticket_keys": [
+              "VOICE-14"
+            ]
+          },
+          {
+            "id": "transcripts",
+            "title": "Transcript workspace",
+            "notes": "Edit and search recorded transcripts and navigate their timestamps.",
+            "day_note": "",
+            "ticket_keys": [
+              "TEXT-6"
+            ]
+          },
+          {
+            "id": "distribution",
+            "title": "Application distribution",
+            "notes": "Build and publish desktop installers and handle application upgrades.",
+            "day_note": "",
+            "ticket_keys": [
+              "SHIP-21"
+            ]
+          }
+        ],
+        "chat": {
+          "id": "synthetic-holdout-voice-notebook-search-records",
+          "title": "Search a supplier spreadsheet",
+          "repository": null,
+          "latest_round": {
+            "prompt": "Help me search a spreadsheet of microphone suppliers for orders that have not shipped yet.",
+            "response": "The sheet has supplier, order date and dispatch date columns.",
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "id": "holdout-voice-notebook-stale-transcript-title",
+      "group_id": "voice-notebook",
+      "split": "holdout",
+      "kind": "no_match",
+      "category": "stale-title",
+      "rationale": "Billing settings are the current subject; the old transcript title is stale.",
+      "context": {},
+      "expected": {
+        "link_task_id": null,
+        "insufficient_context": false,
+        "label": null
+      },
+      "payload": {
+        "schema_version": "chat_task_match.v1",
+        "plan_day": "2026-10-13",
+        "tasks": [
+          {
+            "id": "capture",
+            "title": "Microphone capture",
+            "notes": "Audio input devices, recording controls and reliable capture of microphone audio.",
+            "day_note": "",
+            "ticket_keys": [
+              "VOICE-14"
+            ]
+          },
+          {
+            "id": "transcripts",
+            "title": "Transcript workspace",
+            "notes": "Edit and search recorded transcripts and navigate their timestamps.",
+            "day_note": "",
+            "ticket_keys": [
+              "TEXT-6"
+            ]
+          },
+          {
+            "id": "distribution",
+            "title": "Application distribution",
+            "notes": "Build and publish desktop installers and handle application upgrades.",
+            "day_note": "",
+            "ticket_keys": [
+              "SHIP-21"
+            ]
+          }
+        ],
+        "chat": {
+          "id": "synthetic-holdout-voice-notebook-stale-transcript-title",
+          "title": "Transcript workspace",
+          "repository": "/projects/voice-notebook",
+          "latest_round": {
+            "prompt": "Add a paid-subscription management page in voice-notebook so users can update their payment method.",
+            "response": "Transcript editing is already done. I am working on the subscription account page now.",
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "id": "holdout-voice-notebook-cloud-sync",
+      "group_id": "voice-notebook",
+      "split": "holdout",
+      "kind": "no_match",
+      "category": "same-repository",
+      "rationale": "Cross-device synchronisation is a separate area from capture, transcript interactions and distribution.",
+      "context": {},
+      "expected": {
+        "link_task_id": null,
+        "insufficient_context": false,
+        "label": null
+      },
+      "payload": {
+        "schema_version": "chat_task_match.v1",
+        "plan_day": "2026-10-13",
+        "tasks": [
+          {
+            "id": "capture",
+            "title": "Microphone capture",
+            "notes": "Audio input devices, recording controls and reliable capture of microphone audio.",
+            "day_note": "",
+            "ticket_keys": [
+              "VOICE-14"
+            ]
+          },
+          {
+            "id": "transcripts",
+            "title": "Transcript workspace",
+            "notes": "Edit and search recorded transcripts and navigate their timestamps.",
+            "day_note": "",
+            "ticket_keys": [
+              "TEXT-6"
+            ]
+          },
+          {
+            "id": "distribution",
+            "title": "Application distribution",
+            "notes": "Build and publish desktop installers and handle application upgrades.",
+            "day_note": "",
+            "ticket_keys": [
+              "SHIP-21"
+            ]
+          }
+        ],
+        "chat": {
+          "id": "synthetic-holdout-voice-notebook-cloud-sync",
+          "title": "Notebook synchronisation",
+          "repository": "/projects/voice-notebook",
+          "latest_round": {
+            "prompt": "Sync saved notebooks between two computers and show a conflict when both have edited the same notebook offline.",
+            "response": "This needs a sync protocol for saved notebook records, not changes to the transcript editor.",
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "id": "holdout-appointment-desk-cancelled-slot",
+      "group_id": "appointment-desk",
+      "split": "holdout",
+      "kind": "match",
+      "category": "topic-without-ticket",
+      "rationale": "Cancellation and slot availability fit appointment scheduling.",
+      "context": {},
+      "expected": {
+        "link_task_id": "booking",
+        "insufficient_context": false,
+        "label": "booking"
+      },
+      "payload": {
+        "schema_version": "chat_task_match.v1",
+        "plan_day": "2026-10-13",
+        "tasks": [
+          {
+            "id": "booking",
+            "title": "Appointment scheduling",
+            "notes": "Book, reschedule and cancel appointments and show available time slots.",
+            "day_note": "",
+            "ticket_keys": [
+              "BOOK-23"
+            ]
+          },
+          {
+            "id": "audit",
+            "title": "Access audit",
+            "notes": "Record and inspect who viewed or changed records, with timestamps and audit filters.",
+            "day_note": "",
+            "ticket_keys": [
+              "AUDIT-10"
+            ]
+          },
+          {
+            "id": "exports",
+            "title": "Administrative exports",
+            "notes": "Download scheduled activity as CSV for administrative reporting.",
+            "day_note": "",
+            "ticket_keys": [
+              "CSV-8"
+            ]
+          }
+        ],
+        "chat": {
+          "id": "synthetic-holdout-appointment-desk-cancelled-slot",
+          "title": "Cancelled appointment slot",
+          "repository": "/projects/appointment-desk",
+          "latest_round": {
+            "prompt": "When an appointment is cancelled, make its time slot available for another booking immediately.",
+            "response": "The calendar marks it cancelled but the availability calculation still treats the slot as occupied.",
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "id": "holdout-appointment-desk-csv-columns",
+      "group_id": "appointment-desk",
+      "split": "holdout",
+      "kind": "match",
+      "category": "explicit-ticket",
+      "rationale": "The CSV ticket and export fields identify administrative exports.",
+      "context": {},
+      "expected": {
+        "link_task_id": "exports",
+        "insufficient_context": false,
+        "label": "exports"
+      },
+      "payload": {
+        "schema_version": "chat_task_match.v1",
+        "plan_day": "2026-10-13",
+        "tasks": [
+          {
+            "id": "booking",
+            "title": "Appointment scheduling",
+            "notes": "Book, reschedule and cancel appointments and show available time slots.",
+            "day_note": "",
+            "ticket_keys": [
+              "BOOK-23"
+            ]
+          },
+          {
+            "id": "audit",
+            "title": "Access audit",
+            "notes": "Record and inspect who viewed or changed records, with timestamps and audit filters.",
+            "day_note": "",
+            "ticket_keys": [
+              "AUDIT-10"
+            ]
+          },
+          {
+            "id": "exports",
+            "title": "Administrative exports",
+            "notes": "Download scheduled activity as CSV for administrative reporting.",
+            "day_note": "",
+            "ticket_keys": [
+              "CSV-8"
+            ]
+          }
+        ],
+        "chat": {
+          "id": "synthetic-holdout-appointment-desk-csv-columns",
+          "title": "CSV field order",
+          "repository": "/projects/appointment-desk",
+          "latest_round": {
+            "prompt": "CSV-8 should export appointment date, duration and booking status in the documented column order.",
+            "response": "The export currently puts status before duration and omits the date header.",
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "id": "holdout-appointment-desk-response-mention",
+      "group_id": "appointment-desk",
+      "split": "holdout",
+      "kind": "no_match",
+      "category": "incidental-response",
+      "rationale": "Incidental response mentions do not change the prompt subject of colour preference persistence.",
+      "context": {},
+      "expected": {
+        "link_task_id": null,
+        "insufficient_context": false,
+        "label": null
+      },
+      "payload": {
+        "schema_version": "chat_task_match.v1",
+        "plan_day": "2026-10-13",
+        "tasks": [
+          {
+            "id": "booking",
+            "title": "Appointment scheduling",
+            "notes": "Book, reschedule and cancel appointments and show available time slots.",
+            "day_note": "",
+            "ticket_keys": [
+              "BOOK-23"
+            ]
+          },
+          {
+            "id": "audit",
+            "title": "Access audit",
+            "notes": "Record and inspect who viewed or changed records, with timestamps and audit filters.",
+            "day_note": "",
+            "ticket_keys": [
+              "AUDIT-10"
+            ]
+          },
+          {
+            "id": "exports",
+            "title": "Administrative exports",
+            "notes": "Download scheduled activity as CSV for administrative reporting.",
+            "day_note": "",
+            "ticket_keys": [
+              "CSV-8"
+            ]
+          }
+        ],
+        "chat": {
+          "id": "synthetic-holdout-appointment-desk-response-mention",
+          "title": "Session colour preference",
+          "repository": "/projects/appointment-desk",
+          "latest_round": {
+            "prompt": "Remember the chosen interface colour palette after signing out of appointment-desk and signing back in.",
+            "response": "This appears to be a preferences storage issue. The audit log and appointment CSV export are examples of other pages using the same palette.",
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "id": "holdout-appointment-desk-staff-payroll",
+      "group_id": "appointment-desk",
+      "split": "holdout",
+      "kind": "no_match",
+      "category": "same-repository",
+      "rationale": "Payroll calculations are outside scheduling, access audit and appointment exports.",
+      "context": {},
+      "expected": {
+        "link_task_id": null,
+        "insufficient_context": false,
+        "label": null
+      },
+      "payload": {
+        "schema_version": "chat_task_match.v1",
+        "plan_day": "2026-10-13",
+        "tasks": [
+          {
+            "id": "booking",
+            "title": "Appointment scheduling",
+            "notes": "Book, reschedule and cancel appointments and show available time slots.",
+            "day_note": "",
+            "ticket_keys": [
+              "BOOK-23"
+            ]
+          },
+          {
+            "id": "audit",
+            "title": "Access audit",
+            "notes": "Record and inspect who viewed or changed records, with timestamps and audit filters.",
+            "day_note": "",
+            "ticket_keys": [
+              "AUDIT-10"
+            ]
+          },
+          {
+            "id": "exports",
+            "title": "Administrative exports",
+            "notes": "Download scheduled activity as CSV for administrative reporting.",
+            "day_note": "",
+            "ticket_keys": [
+              "CSV-8"
+            ]
+          }
+        ],
+        "chat": {
+          "id": "synthetic-holdout-appointment-desk-staff-payroll",
+          "title": "Staff payroll totals",
+          "repository": "/projects/appointment-desk",
+          "latest_round": {
+            "prompt": "Add staff overtime totals to the payroll calculation in appointment-desk. The source is the employee time-sheet table.",
+            "response": "Appointments are not the input; the payroll screen uses staff hours and hourly rates.",
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "id": "holdout-appointment-desk-scheduling-and-audit",
+      "group_id": "appointment-desk",
+      "split": "holdout",
+      "kind": "ambiguous",
+      "category": "multiple-subjects",
+      "rationale": "Scheduling and access audit are equally explicit supplied homes; an automatic single link should abstain.",
+      "context": {},
+      "expected": {
+        "link_task_id": null,
+        "insufficient_context": false
+      },
+      "payload": {
+        "schema_version": "chat_task_match.v1",
+        "plan_day": "2026-10-13",
+        "tasks": [
+          {
+            "id": "booking",
+            "title": "Appointment scheduling",
+            "notes": "Book, reschedule and cancel appointments and show available time slots.",
+            "day_note": "",
+            "ticket_keys": [
+              "BOOK-23"
+            ]
+          },
+          {
+            "id": "audit",
+            "title": "Access audit",
+            "notes": "Record and inspect who viewed or changed records, with timestamps and audit filters.",
+            "day_note": "",
+            "ticket_keys": [
+              "AUDIT-10"
+            ]
+          },
+          {
+            "id": "exports",
+            "title": "Administrative exports",
+            "notes": "Download scheduled activity as CSV for administrative reporting.",
+            "day_note": "",
+            "ticket_keys": [
+              "CSV-8"
+            ]
+          }
+        ],
+        "chat": {
+          "id": "synthetic-holdout-appointment-desk-scheduling-and-audit",
+          "title": "Two equally sized fixes",
+          "repository": "/projects/appointment-desk",
+          "latest_round": {
+            "prompt": "Use this chat to fix cancelled appointment availability and the access audit date filter. Neither is the main item; I want to spend equal time on both.",
+            "response": "Both changes are scoped for this round.",
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "id": "holdout-garden-controller-probe-offset",
+      "group_id": "garden-controller",
+      "split": "holdout",
+      "kind": "match",
+      "category": "broad-task-scope",
+      "rationale": "Probe calibration fits soil readings, including work under a new ticket.",
+      "context": {},
+      "expected": {
+        "link_task_id": "sensors",
+        "insufficient_context": false,
+        "label": "sensors"
+      },
+      "payload": {
+        "schema_version": "chat_task_match.v1",
+        "plan_day": "2026-10-13",
+        "tasks": [
+          {
+            "id": "sensors",
+            "title": "Soil sensor readings",
+            "notes": "Collect and calibrate soil moisture measurements and flag faulty readings.",
+            "day_note": "",
+            "ticket_keys": [
+              "SOIL-5"
+            ]
+          },
+          {
+            "id": "watering",
+            "title": "Watering schedules",
+            "notes": "Configure irrigation times and control watering duration and valve activation.",
+            "day_note": "",
+            "ticket_keys": [
+              "WATER-16"
+            ]
+          },
+          {
+            "id": "history",
+            "title": "Garden history charts",
+            "notes": "Display historical moisture and watering activity with usable chart navigation.",
+            "day_note": "",
+            "ticket_keys": [
+              "CHART-2"
+            ]
+          }
+        ],
+        "chat": {
+          "id": "synthetic-holdout-garden-controller-probe-offset",
+          "title": "Calibrate a replacement probe",
+          "repository": "/projects/garden-controller",
+          "latest_round": {
+            "prompt": "SOIL-22 adds a calibration offset for a replacement moisture probe. Apply it before recording each measurement.",
+            "response": "The new probe consistently reads five points higher than the reference measurement.",
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "id": "holdout-garden-controller-watering-duration",
+      "group_id": "garden-controller",
+      "split": "holdout",
+      "kind": "match",
+      "category": "topic-without-ticket",
+      "rationale": "Configuring irrigation run duration belongs to watering schedules.",
+      "context": {},
+      "expected": {
+        "link_task_id": "watering",
+        "insufficient_context": false,
+        "label": "watering"
+      },
+      "payload": {
+        "schema_version": "chat_task_match.v1",
+        "plan_day": "2026-10-13",
+        "tasks": [
+          {
+            "id": "sensors",
+            "title": "Soil sensor readings",
+            "notes": "Collect and calibrate soil moisture measurements and flag faulty readings.",
+            "day_note": "",
+            "ticket_keys": [
+              "SOIL-5"
+            ]
+          },
+          {
+            "id": "watering",
+            "title": "Watering schedules",
+            "notes": "Configure irrigation times and control watering duration and valve activation.",
+            "day_note": "",
+            "ticket_keys": [
+              "WATER-16"
+            ]
+          },
+          {
+            "id": "history",
+            "title": "Garden history charts",
+            "notes": "Display historical moisture and watering activity with usable chart navigation.",
+            "day_note": "",
+            "ticket_keys": [
+              "CHART-2"
+            ]
+          }
+        ],
+        "chat": {
+          "id": "synthetic-holdout-garden-controller-watering-duration",
+          "title": "Shorten the evening watering",
+          "repository": "/projects/garden-controller",
+          "latest_round": {
+            "prompt": "Let me set the evening irrigation run to eight minutes without changing the morning run. Use that duration when the valve activates.",
+            "response": "Both runs currently share one duration setting.",
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "id": "holdout-garden-controller-firmware-installer",
+      "group_id": "garden-controller",
+      "split": "holdout",
+      "kind": "no_match",
+      "category": "same-repository",
+      "rationale": "Firmware delivery is outside soil measurement, watering rules and history charting.",
+      "context": {},
+      "expected": {
+        "link_task_id": null,
+        "insufficient_context": false,
+        "label": null
+      },
+      "payload": {
+        "schema_version": "chat_task_match.v1",
+        "plan_day": "2026-10-13",
+        "tasks": [
+          {
+            "id": "sensors",
+            "title": "Soil sensor readings",
+            "notes": "Collect and calibrate soil moisture measurements and flag faulty readings.",
+            "day_note": "",
+            "ticket_keys": [
+              "SOIL-5"
+            ]
+          },
+          {
+            "id": "watering",
+            "title": "Watering schedules",
+            "notes": "Configure irrigation times and control watering duration and valve activation.",
+            "day_note": "",
+            "ticket_keys": [
+              "WATER-16"
+            ]
+          },
+          {
+            "id": "history",
+            "title": "Garden history charts",
+            "notes": "Display historical moisture and watering activity with usable chart navigation.",
+            "day_note": "",
+            "ticket_keys": [
+              "CHART-2"
+            ]
+          }
+        ],
+        "chat": {
+          "id": "synthetic-holdout-garden-controller-firmware-installer",
+          "title": "Firmware update screen",
+          "repository": "/projects/garden-controller",
+          "latest_round": {
+            "prompt": "Add a garden-controller screen that uploads a firmware image to the hub and shows update progress.",
+            "response": "The hub update API already exists. The missing feature is the upload and progress UI.",
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "id": "holdout-garden-controller-garden-budget",
+      "group_id": "garden-controller",
+      "split": "holdout",
+      "kind": "no_match",
+      "category": "task-absent",
+      "rationale": "Expense tracking is clearly identified, with no matching attention area.",
+      "context": {},
+      "expected": {
+        "link_task_id": null,
+        "insufficient_context": false,
+        "label": null
+      },
+      "payload": {
+        "schema_version": "chat_task_match.v1",
+        "plan_day": "2026-10-13",
+        "tasks": [
+          {
+            "id": "sensors",
+            "title": "Soil sensor readings",
+            "notes": "Collect and calibrate soil moisture measurements and flag faulty readings.",
+            "day_note": "",
+            "ticket_keys": [
+              "SOIL-5"
+            ]
+          },
+          {
+            "id": "watering",
+            "title": "Watering schedules",
+            "notes": "Configure irrigation times and control watering duration and valve activation.",
+            "day_note": "",
+            "ticket_keys": [
+              "WATER-16"
+            ]
+          },
+          {
+            "id": "history",
+            "title": "Garden history charts",
+            "notes": "Display historical moisture and watering activity with usable chart navigation.",
+            "day_note": "",
+            "ticket_keys": [
+              "CHART-2"
+            ]
+          }
+        ],
+        "chat": {
+          "id": "synthetic-holdout-garden-controller-garden-budget",
+          "title": "Garden supply costs",
+          "repository": "/projects/garden-controller",
+          "latest_round": {
+            "prompt": "Track seed and compost purchases in a garden-controller expenses page and sum the monthly spend.",
+            "response": "Each entry needs a date, supplier and amount.",
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "id": "holdout-garden-controller-unspecified-fix",
+      "group_id": "garden-controller",
+      "split": "holdout",
+      "kind": "missing_context",
+      "category": "sparse-context",
+      "rationale": "Neither message identifies the behaviour; the repository does not supply the missing subject.",
+      "context": {},
+      "expected": {
+        "link_task_id": null,
+        "insufficient_context": true
+      },
+      "payload": {
+        "schema_version": "chat_task_match.v1",
+        "plan_day": "2026-10-13",
+        "tasks": [
+          {
+            "id": "sensors",
+            "title": "Soil sensor readings",
+            "notes": "Collect and calibrate soil moisture measurements and flag faulty readings.",
+            "day_note": "",
+            "ticket_keys": [
+              "SOIL-5"
+            ]
+          },
+          {
+            "id": "watering",
+            "title": "Watering schedules",
+            "notes": "Configure irrigation times and control watering duration and valve activation.",
+            "day_note": "",
+            "ticket_keys": [
+              "WATER-16"
+            ]
+          },
+          {
+            "id": "history",
+            "title": "Garden history charts",
+            "notes": "Display historical moisture and watering activity with usable chart navigation.",
+            "day_note": "",
+            "ticket_keys": [
+              "CHART-2"
+            ]
+          }
+        ],
+        "chat": {
+          "id": "synthetic-holdout-garden-controller-unspecified-fix",
+          "title": "New chat",
+          "repository": "/projects/garden-controller",
+          "latest_round": {
+            "prompt": "It still does the same thing. Try the other approach.",
+            "response": "I need the earlier details to know which behaviour you mean.",
+            "truncated": false
+          }
+        }
+      }
+    }
+  ]
+}

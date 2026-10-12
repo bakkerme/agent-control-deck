@@ -1,0 +1,422 @@
+{
+  "schema_version": "decision_dataset.v1",
+  "name": "FORMAT EXAMPLE ONLY",
+  "provenance": "synthetic",
+  "notes": "Eight hand-written format examples, not representative work or validated calibration. Replace with reviewed examples. Keep each source conversation and its variations in one group and one split. Default calibration needs at least ten accepted distinct cases, so this template intentionally cannot qualify.",
+  "examples": [
+    {
+      "id": "example-0",
+      "group_id": "independent-conversation-0",
+      "split": "calibration",
+      "context": {},
+      "expected": {
+        "link_task_id": "parser",
+        "insufficient_context": false,
+        "label": "parser"
+      },
+      "payload": {
+        "schema_version": "chat_task_match.v1",
+        "plan_day": "2026-10-11",
+        "tasks": [
+          {
+            "id": "parser",
+            "title": "Save-file parser",
+            "notes": "Read-only parsing, malformed files and checksum handling",
+            "day_note": "",
+            "ticket_keys": [
+              "SAVE-31"
+            ]
+          },
+          {
+            "id": "release",
+            "title": "Desktop release",
+            "notes": "Installer packaging and platform validation",
+            "day_note": "",
+            "ticket_keys": [
+              "REL-12"
+            ]
+          },
+          {
+            "id": "guides",
+            "title": "User guides",
+            "notes": "Document setup and everyday workflows",
+            "day_note": "",
+            "ticket_keys": []
+          }
+        ],
+        "chat": {
+          "id": "example-chat-0",
+          "title": "New chat",
+          "repository": null,
+          "latest_round": {
+            "prompt": "Explain why SAVE-31 accepts a truncated save header.",
+            "response": "",
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "id": "example-1",
+      "group_id": "independent-conversation-1",
+      "split": "calibration",
+      "context": {},
+      "expected": {
+        "link_task_id": "release",
+        "insufficient_context": false,
+        "label": "release"
+      },
+      "payload": {
+        "schema_version": "chat_task_match.v1",
+        "plan_day": "2026-10-11",
+        "tasks": [
+          {
+            "id": "parser",
+            "title": "Save-file parser",
+            "notes": "Read-only parsing, malformed files and checksum handling",
+            "day_note": "",
+            "ticket_keys": [
+              "SAVE-31"
+            ]
+          },
+          {
+            "id": "release",
+            "title": "Desktop release",
+            "notes": "Installer packaging and platform validation",
+            "day_note": "",
+            "ticket_keys": [
+              "REL-12"
+            ]
+          },
+          {
+            "id": "guides",
+            "title": "User guides",
+            "notes": "Document setup and everyday workflows",
+            "day_note": "",
+            "ticket_keys": []
+          }
+        ],
+        "chat": {
+          "id": "example-chat-1",
+          "title": "New chat",
+          "repository": null,
+          "latest_round": {
+            "prompt": "Check the REL-12 installer on a clean Windows machine.",
+            "response": "",
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "id": "example-2",
+      "group_id": "independent-conversation-2",
+      "split": "calibration",
+      "context": {},
+      "expected": {
+        "link_task_id": null,
+        "insufficient_context": false,
+        "label": null
+      },
+      "payload": {
+        "schema_version": "chat_task_match.v1",
+        "plan_day": "2026-10-11",
+        "tasks": [
+          {
+            "id": "parser",
+            "title": "Save-file parser",
+            "notes": "Read-only parsing, malformed files and checksum handling",
+            "day_note": "",
+            "ticket_keys": [
+              "SAVE-31"
+            ]
+          },
+          {
+            "id": "release",
+            "title": "Desktop release",
+            "notes": "Installer packaging and platform validation",
+            "day_note": "",
+            "ticket_keys": [
+              "REL-12"
+            ]
+          },
+          {
+            "id": "guides",
+            "title": "User guides",
+            "notes": "Document setup and everyday workflows",
+            "day_note": "",
+            "ticket_keys": []
+          }
+        ],
+        "chat": {
+          "id": "example-chat-2",
+          "title": "New chat",
+          "repository": null,
+          "latest_round": {
+            "prompt": "Plan a vegetable garden for next spring.",
+            "response": "",
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "id": "example-3",
+      "group_id": "independent-conversation-3",
+      "split": "calibration",
+      "context": {},
+      "expected": {
+        "link_task_id": null,
+        "insufficient_context": true
+      },
+      "payload": {
+        "schema_version": "chat_task_match.v1",
+        "plan_day": "2026-10-11",
+        "tasks": [
+          {
+            "id": "parser",
+            "title": "Save-file parser",
+            "notes": "Read-only parsing, malformed files and checksum handling",
+            "day_note": "",
+            "ticket_keys": [
+              "SAVE-31"
+            ]
+          },
+          {
+            "id": "release",
+            "title": "Desktop release",
+            "notes": "Installer packaging and platform validation",
+            "day_note": "",
+            "ticket_keys": [
+              "REL-12"
+            ]
+          },
+          {
+            "id": "guides",
+            "title": "User guides",
+            "notes": "Document setup and everyday workflows",
+            "day_note": "",
+            "ticket_keys": []
+          }
+        ],
+        "chat": {
+          "id": "example-chat-3",
+          "title": "New chat",
+          "repository": null,
+          "latest_round": {
+            "prompt": "Carry on.",
+            "response": "",
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "id": "example-4",
+      "group_id": "independent-conversation-4",
+      "split": "holdout",
+      "context": {},
+      "expected": {
+        "link_task_id": "guides",
+        "insufficient_context": false,
+        "label": "guides"
+      },
+      "payload": {
+        "schema_version": "chat_task_match.v1",
+        "plan_day": "2026-10-11",
+        "tasks": [
+          {
+            "id": "parser",
+            "title": "Save-file parser",
+            "notes": "Read-only parsing, malformed files and checksum handling",
+            "day_note": "",
+            "ticket_keys": [
+              "SAVE-31"
+            ]
+          },
+          {
+            "id": "release",
+            "title": "Desktop release",
+            "notes": "Installer packaging and platform validation",
+            "day_note": "",
+            "ticket_keys": [
+              "REL-12"
+            ]
+          },
+          {
+            "id": "guides",
+            "title": "User guides",
+            "notes": "Document setup and everyday workflows",
+            "day_note": "",
+            "ticket_keys": []
+          }
+        ],
+        "chat": {
+          "id": "example-chat-4",
+          "title": "New chat",
+          "repository": null,
+          "latest_round": {
+            "prompt": "Write a setup guide for first-time users.",
+            "response": "",
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "id": "example-5",
+      "group_id": "independent-conversation-5",
+      "split": "holdout",
+      "context": {},
+      "expected": {
+        "link_task_id": "parser",
+        "insufficient_context": false,
+        "label": "parser"
+      },
+      "payload": {
+        "schema_version": "chat_task_match.v1",
+        "plan_day": "2026-10-11",
+        "tasks": [
+          {
+            "id": "parser",
+            "title": "Save-file parser",
+            "notes": "Read-only parsing, malformed files and checksum handling",
+            "day_note": "",
+            "ticket_keys": [
+              "SAVE-31"
+            ]
+          },
+          {
+            "id": "release",
+            "title": "Desktop release",
+            "notes": "Installer packaging and platform validation",
+            "day_note": "",
+            "ticket_keys": [
+              "REL-12"
+            ]
+          },
+          {
+            "id": "guides",
+            "title": "User guides",
+            "notes": "Document setup and everyday workflows",
+            "day_note": "",
+            "ticket_keys": []
+          }
+        ],
+        "chat": {
+          "id": "example-chat-5",
+          "title": "New chat",
+          "repository": null,
+          "latest_round": {
+            "prompt": "Report corrupt checksum bytes without changing the save file.",
+            "response": "",
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "id": "example-6",
+      "group_id": "independent-conversation-6",
+      "split": "holdout",
+      "context": {},
+      "expected": {
+        "link_task_id": null,
+        "insufficient_context": false,
+        "label": null
+      },
+      "payload": {
+        "schema_version": "chat_task_match.v1",
+        "plan_day": "2026-10-11",
+        "tasks": [
+          {
+            "id": "parser",
+            "title": "Save-file parser",
+            "notes": "Read-only parsing, malformed files and checksum handling",
+            "day_note": "",
+            "ticket_keys": [
+              "SAVE-31"
+            ]
+          },
+          {
+            "id": "release",
+            "title": "Desktop release",
+            "notes": "Installer packaging and platform validation",
+            "day_note": "",
+            "ticket_keys": [
+              "REL-12"
+            ]
+          },
+          {
+            "id": "guides",
+            "title": "User guides",
+            "notes": "Document setup and everyday workflows",
+            "day_note": "",
+            "ticket_keys": []
+          }
+        ],
+        "chat": {
+          "id": "example-chat-6",
+          "title": "New chat",
+          "repository": null,
+          "latest_round": {
+            "prompt": "Compare two camera lenses for wildlife photography.",
+            "response": "",
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "id": "example-7",
+      "group_id": "independent-conversation-7",
+      "split": "holdout",
+      "context": {},
+      "expected": {
+        "link_task_id": null,
+        "insufficient_context": true
+      },
+      "payload": {
+        "schema_version": "chat_task_match.v1",
+        "plan_day": "2026-10-11",
+        "tasks": [
+          {
+            "id": "parser",
+            "title": "Save-file parser",
+            "notes": "Read-only parsing, malformed files and checksum handling",
+            "day_note": "",
+            "ticket_keys": [
+              "SAVE-31"
+            ]
+          },
+          {
+            "id": "release",
+            "title": "Desktop release",
+            "notes": "Installer packaging and platform validation",
+            "day_note": "",
+            "ticket_keys": [
+              "REL-12"
+            ]
+          },
+          {
+            "id": "guides",
+            "title": "User guides",
+            "notes": "Document setup and everyday workflows",
+            "day_note": "",
+            "ticket_keys": []
+          }
+        ],
+        "chat": {
+          "id": "example-chat-7",
+          "title": "New chat",
+          "repository": null,
+          "latest_round": {
+            "prompt": "Do the thing we discussed.",
+            "response": "",
+            "truncated": false
+          }
+        }
+      }
+    }
+  ]
+}
