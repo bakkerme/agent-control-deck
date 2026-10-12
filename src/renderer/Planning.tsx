@@ -257,7 +257,7 @@ const Planning = forwardRef<
     (c) => !c.archived && attentionReason(c),
   );
   const newChats = recentUnlinkedChats(snapshot.chats, planning.items);
-  const newChat = snapshot.chats.find((chat) => chat.id === newChatId && !chat.archived);
+  const newChat = newChats.find((chat) => chat.id === newChatId);
   const changeDay = async (value: string) => {
     if (!validPlanDay(value) || !(await flush())) return;
     setDay(value);
@@ -288,6 +288,7 @@ const Planning = forwardRef<
   const selectNewChat = async (id: string) => {
     if (!(await flush())) return;
     setNewChatId(id);
+    setAttentionChat("");
     setPanel("new-chat");
     setNotesEdit(false);
     setRename(null);

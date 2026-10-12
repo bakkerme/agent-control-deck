@@ -88,9 +88,13 @@ export function NewChatContext({ chat, snapshot, day, busy, save, selectTask, cr
           }}>
             <label>Task<select aria-label="Task" required value={target} disabled={busy} onChange={(event) => setTarget(event.target.value)}>
               <option value="">Choose a task</option>
-              {snapshot.planning.items.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+              {snapshot.planning.items.map((item) => {
+                const latest = snapshot.planning.entries.filter((entry) => entry.itemId === item.id)
+                  .sort((a, b) => b.day.localeCompare(a.day))[0];
+                return <option key={item.id} value={item.id}>{item.name} · {latest ? `${latest.day} · ${latest.category}` : "Not on a card"}</option>;
+              })}
             </select></label>
-            <small>Tasks from all cards are available. Earlier cards keep their dates.</small>
+            <small>Tasks from all cards are available, with their latest card date and category. Earlier cards keep their dates.</small>
             <div className="plan-actions"><button className="primary" disabled={busy || !task}>Link chat</button>
               <button type="button" disabled={busy} onClick={() => setForm(null)}>Cancel</button></div>
           </form>}
