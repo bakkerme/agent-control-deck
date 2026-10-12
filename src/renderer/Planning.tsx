@@ -33,6 +33,7 @@ import Icon from "./Icon";
 import { TaskTickets, TaskLinks, LatestRound } from "./TaskContext";
 import { NewChatList, NewChatContext } from "./NewChats";
 import { recentUnlinkedChats } from "../shared/new-chats";
+import type { EditorHandle } from "./ChatEditor";
 export interface PlanningHandle {
   flush: () => Promise<boolean>;
   selectTask: (id: string) => void;
@@ -84,8 +85,9 @@ const Planning = forwardRef<
     mutate: (c: Command) => Promise<void>;
     openChat: (id: string) => void;
     configureJira: () => void;
+    active?: boolean;
   }
->(function Planning({ snapshot, mutate, openChat, configureJira }, ref) {
+>(function Planning({ snapshot, mutate, openChat, configureJira, active = true }, ref) {
   const { planning } = snapshot;
   const scope = snapshot.demo ? "demo" : "live";
   const initialDay = localStorage.getItem(`planning-day-${scope}`);
@@ -130,12 +132,14 @@ const Planning = forwardRef<
       beforeId: string | null;
     } | null>(null);
   const panelRef = useRef<HTMLElement>(null),
+    newChatEditor = useRef<EditorHandle>(null),
     lock = useRef(false),
     draftQueue = useRef(new Map<string, string | null>()),
     draftFlight = useRef<Promise<boolean> | null>(null),
     draftTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined),
     createdBefore = useRef<Set<string> | null>(null);
-  const flush = useCallback((): Promise<boolean> => {
+  const flush = useCallback(async (): Promise<boolean> => {
+    if (newChatEditor.current && !(await newChatEditor.current.flush())) return false;
     clearTimeout(draftTimer.current);
     if (draftFlight.current) return draftFlight.current;
     const operation = (async () => {
@@ -1209,7 +1213,8 @@ const Planning = forwardRef<
     );
   } else if (panel === "new-chat") {
     detail = newChat ? <NewChatContext key={newChat.id} chat={newChat} snapshot={snapshot}
-      day={day} busy={busy} save={run} selectTask={selectLinkedTask} create={createFromChat} openChat={openChat} /> : (
+      day={day} busy={busy} save={run} selectTask={selectLinkedTask} create={createFromChat} openChat={openChat}
+      editorRef={newChatEditor} mutate={mutate} report={setError} configureJira={configureJira} active={active} /> : (
       <div className="empty"><h2>Chat no longer available</h2><p>Select another chat or task.</p></div>
     );
   } else if (view === "attention") {

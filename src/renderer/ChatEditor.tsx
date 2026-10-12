@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
   forwardRef,
+  type ReactNode,
 } from "react";
 import type {
   Chat,
@@ -62,6 +63,8 @@ const ChatEditor = forwardRef<
     createProject: () => void;
     report: (s: string) => void;
     configureJira: () => void;
+    children?: ReactNode;
+    historyPreview?: ReactNode;
   }
 >(function ChatEditor(
   {
@@ -77,6 +80,8 @@ const ChatEditor = forwardRef<
     report,
     configureJira,
     repositoryOnly = false,
+    children,
+    historyPreview,
   },
   ref,
 ) {
@@ -495,6 +500,7 @@ const ChatEditor = forwardRef<
           </small>
         )}
       </section>
+      {children}
       <section className="notes-section" aria-label="Chat notes">
         <div className="notes-heading">
           <h3>Your notes</h3>
@@ -546,7 +552,7 @@ const ChatEditor = forwardRef<
       </section>
       <section className="history" aria-label="Chat activity">
         <h3>Chat activity</h3>
-        {chat.preview && (
+        {historyPreview !== undefined ? historyPreview : chat.preview && (
           <div className="preview">
             <MarkdownPreview text={displayPreview(chat)} />
           </div>
