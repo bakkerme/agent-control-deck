@@ -10,7 +10,7 @@ import type {MatchPayload} from "../src/shared/chat-matching";
 import {removeFixture} from "./fixture-cleanup";
 const payload:MatchPayload={schema_version:"chat_task_match.v1",plan_day:"2026-10-12",tasks:[{id:"a",title:"One",notes:"",day_note:"",ticket_keys:[]}],chat:{id:"chat",title:"",repository:null,latest_round:{prompt:"One",response:"",truncated:false}}};
 test("Windows Python paths and clean worker environment preserve OS essentials, not secrets",()=>{
-  assert.ok(localPython("folder with spaces","kai","win32").endsWith("Scripts/python.exe"));
+  assert.equal(localPython("folder with spaces","kai","win32"),join("folder with spaces",".venvs","kai","Scripts","python.exe"));
   const env=localEnvironment({PATH:"system-path",SystemRoot:"C:/Windows",OPENROUTER_API_KEY:"private",PYTHONPATH:"injected",NODE_OPTIONS:"injected",HF_TOKEN:"secret"});
   assert.equal(env.SystemRoot,"C:/Windows");assert.equal(env.PATH,"system-path");
   assert.equal(env.OPENROUTER_API_KEY,undefined);assert.equal(env.PYTHONPATH,undefined);assert.equal(env.NODE_OPTIONS,undefined);assert.equal(env.HF_TOKEN,undefined);
