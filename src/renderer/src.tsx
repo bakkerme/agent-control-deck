@@ -230,6 +230,7 @@ function App() {
           mutate={mutate}
           openChat={openChat}
           configureJira={() => void navigate(() => setPage("settings"))}
+          active={page === "today"}
         />
       </div>
       {page === "settings" ? (
