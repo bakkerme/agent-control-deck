@@ -27,6 +27,13 @@ test("production concise adapter exactly matches the evaluated portable adapter"
   const run=spawnSync(process.execPath,["--input-type=module","-e",code],{encoding:"utf8",env:{...process.env,ELECTRON_RUN_AS_NODE:"1"}});
   assert.equal(run.status,0,run.stderr);assert.deepEqual(localRequest(payload),JSON.parse(run.stdout));
 });
+test("local adapter rejects task and context errors even with valid probabilities",()=>{
+  const answers={task:{type:"choice",probabilities:{candidate_0:.7,no_match:.3}},context:{type:"choice",probabilities:{sufficient:.5,insufficient:.5}}};
+  for(const model of ["kai","vela"] as const) for(const question of ["task","context"] as const) {
+    assert.throws(()=>localOutput({answers:{...answers,[question]:{...answers[question],error:"native question failed"}}},payload,model),/Local model question failed/);
+    assert.doesNotThrow(()=>localOutput({answers:{...answers,[question]:{...answers[question],error:null}}},payload,model));
+  }
+});
 test("resident protocol reuses one worker, records cold first call and cancels only the owned worker",async t=>{
   const root=mkdtempSync(join(tmpdir(),"acd local worker "));
   const python=localPython(root,"kai");mkdirSync(join(python,".."),{recursive:true});writeFileSync(python,"");writeFileSync(join(root,"kai.provenance.json"),"{}");

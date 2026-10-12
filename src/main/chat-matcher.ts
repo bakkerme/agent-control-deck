@@ -126,7 +126,7 @@ export class ChatMatcher {
         eligible.add(chat.id);
         const pending = this.queue.get(chat.id);
         if (pending?.fingerprint !== job.fingerprint && (pending || this.queue.size < 64))
-          this.queue.set(chat.id, { ...job, queuedAt: pending?.queuedAt ?? this.clock(), readyAt: this.clock()+1000 });
+          this.queue.set(chat.id, { ...job, queuedAt: this.clock(), readyAt: this.clock()+1000 });
       }
       if (isLocal) {
         for (const id of this.queue.keys()) if (!eligible.has(id)) this.queue.delete(id);

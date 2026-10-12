@@ -20,7 +20,11 @@ export function localRequest(payload: MatchPayload) {
     },
   };
 }
-const distribution = z.object({ type: z.literal("choice"), probabilities: z.record(z.string(), z.number().finite().min(0).max(1)) });
+const distribution = z.object({
+  type: z.literal("choice"),
+  error: z.unknown().refine(value => !value, "Local model question failed").optional(),
+  probabilities: z.record(z.string(), z.number().finite().min(0).max(1)),
+});
 export function localOutput(raw: unknown, payload: MatchPayload, model: LocalModel) {
   const data = z.object({ answers: z.object({ task: distribution, context: distribution }) }).parse(raw);
   const task = data.answers.task.probabilities, context = data.answers.context.probabilities;

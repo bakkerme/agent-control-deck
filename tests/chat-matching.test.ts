@@ -140,6 +140,21 @@ test("local links need no key, use calibrated Kai policy, coalesce evidence and 
   f.reopen();await f.matcher.tick();assert.equal(local.calls,1);
 });
 
+test("replacing queued local evidence measures waiting from the new payload", async t=>{
+  const local=localFixtureClient(),f=fixture(t,local.client),original=local.client.request;
+  let submittedPrompt="";
+  local.client.request=async(...args)=>{submittedPrompt=args[0].chat.latest_round.prompt;return original(...args);};
+  await f.matcher.save(localConfig);await f.matcher.tick();
+  f.advance(10_000);f.emit("Newest PAY-142 request");await f.matcher.tick();
+  assert.equal(local.calls,0);
+  f.advance(1000);await f.matcher.tick();
+  assert.equal(submittedPrompt,"Newest PAY-142 request");
+  const row=f.store.db.prepare("SELECT data FROM matching_measurements WHERE chatId=?").get(f.chatId) as {data:string};
+  const measurement=JSON.parse(row.data);
+  assert.equal(measurement.waitMs,1000);
+  assert.ok(measurement.endToEndMs>=measurement.waitMs);
+});
+
 test("local freshness rejection records a stale result without linking and leaves ingestion usable", async t=>{
   const local=localFixtureClient(),f=fixture(t,local.client),original=local.client.request;
   local.client.request=async(...args)=>{const result=await original(...args);f.emit("A different PAY-142 request");return result;};
