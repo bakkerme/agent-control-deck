@@ -6,6 +6,7 @@ import type {
 } from "./planning";
 import type { MatchingStatus, SaveMatchingInput } from "./matching-settings";
 import type { AgentRequest, AgentResponse } from "./interactions";
+import type { MatchingAnalyticsSummary } from "./matching-analytics";
 export const states = [
   "running",
   "idle",
@@ -246,6 +247,10 @@ export type Command =
   | { type: "setDemo"; enabled: boolean }
   | { type: "advanceDemo" };
 export interface DeckApi {
+  installLocalMatching(): Promise<void>;
+  matchingAnalytics(days: 1 | 7 | 30): Promise<MatchingAnalyticsSummary>;
+  exportMatchingAnalytics(days: 1 | 7 | 30): Promise<string>;
+  clearMatchingAnalytics(): Promise<void>;
   saveMatching(input: SaveMatchingInput): Promise<void>;
   removeMatchingKey(): Promise<void>;
   testMatchingConnection(): Promise<void>;

@@ -1,3 +1,4 @@
+import { MatchingAnalytics, analyticsIncomplete } from "./matching-analytics";
 import { createHash, randomUUID } from "node:crypto";
 import type { Store } from "./store";
 import type { Command } from "../shared/types";
@@ -183,6 +184,17 @@ export class PlanningStore {
         ).run(c.key, c.value);
       return true;
     }
+    const linksBefore = (c.type === "undoPlanning" || c.type === "setPlanChats") ?
+      db.prepare("SELECT itemId,chatId,origin FROM plan_chats").all() as {itemId:string;chatId:string;origin:string}[] : null;
+    const recordFeedback = () => {
+      if (!linksBefore) return;
+      try {
+        const after = db.prepare("SELECT itemId,chatId,origin FROM plan_chats").all() as typeof linksBefore;
+        const analytics = new MatchingAnalytics(this.store);
+        for (const link of linksBefore) if (link.origin === "ai" && !after.some(a=>a.itemId===link.itemId && a.chatId===link.chatId)) analytics.feedback(link.chatId,link.itemId,"removed");
+        for (const link of after) if (!linksBefore.some(a=>a.itemId===link.itemId && a.chatId===link.chatId)) analytics.feedback(link.chatId,link.itemId,c.type === "undoPlanning" ? "undo-restored" : "manually-linked");
+      } catch { analyticsIncomplete(this.store); }
+    };
     if (c.type === "undoPlanning") {
       db.transaction(() => {
         const undo = db
@@ -216,6 +228,7 @@ export class PlanningStore {
           }
         db.prepare("DELETE FROM plan_undo").run();
       })();
+      recordFeedback();
       return true;
     }
     if (!commands.has(c.type)) return false;
@@ -456,6 +469,7 @@ export class PlanningStore {
         );
       }
     })();
+    recordFeedback();
     return true;
   }
 }

@@ -1,5 +1,8 @@
 # Chat-to-task matching experiment
 
+For CPU-only decision-model testing, see [local decision evaluation](local-decision-eval.md).
+It reuses these fixtures and the desktop's link policy in a separate offline harness.
+
 This standalone harness tests the proposed automatic chat binding. It does not read
 your database, modify task links, or integrate AI into the desktop app. All 15 cases
 are synthetic. Three cases exercise local skip rules; the full live run makes 12

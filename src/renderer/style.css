@@ -877,6 +877,11 @@ summary {
 .matching-advanced { margin: 12px 0; }
 .matching-advanced summary { cursor: pointer; }
 .matching-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.matching-table { overflow-x: auto; margin: 12px 0; }
+.matching-table table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.matching-table td, .matching-table th { padding: 8px; text-align: left; border-bottom: 1px solid var(--border); }
+.matching-table small { display: block; }
+.matching-analytics { margin-top: 20px; border-top: 1px solid var(--border); padding-top: 12px; }
 .latest-round { padding: 14px; border-top: 1px solid var(--border); overflow-wrap: anywhere; }
 .latest-round h3 { margin: 15px 0 5px; }
 .latest-round .markdown { font-size: 13px; }

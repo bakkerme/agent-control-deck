@@ -154,6 +154,10 @@ async function launch(
         }
       ).deckTestInvoke;
       window.deck = {
+        installLocalMatching: () => invoke("installLocalMatching"),
+        matchingAnalytics: days => invoke("matchingAnalytics", days),
+        exportMatchingAnalytics: days => invoke("exportMatchingAnalytics", days),
+        clearMatchingAnalytics: () => invoke("clearMatchingAnalytics"),
         saveMatching: (input) => invoke("saveMatching", input),
         removeMatchingKey: () => invoke("removeMatchingKey"),
         testMatchingConnection: () => invoke("testMatchingConnection"),
