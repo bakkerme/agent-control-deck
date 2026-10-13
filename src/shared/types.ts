@@ -69,6 +69,7 @@ export interface Chat {
 }
 export interface ChatRound {
   prompt: string;
+  firstPrompt: string;
   response: string;
   request: string;
   requestKind: "approval" | "question" | "unavailable" | null;

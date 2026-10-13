@@ -45,6 +45,20 @@ export function attentionReason(chat: Chat): string | null {
   if (chat.state === "error") return "Error";
   return finishedTurn(chat) ? "Turn finished" : null;
 }
+export interface ChatProgress { action: number; working: number; finished: number }
+// Rolls a task's linked chats into the three questions a card answers: what needs me, what is
+// moving, and what is done. Idle manual chats and unknown states belong to none of them.
+export function chatProgress(chats: Chat[], time = Date.now()): ChatProgress {
+  const progress = { action: 0, working: 0, finished: 0 };
+  for (const chat of chats) {
+    if (chat.archived) continue;
+    const state = effectiveState(chat, time);
+    if (state === "waiting" || state === "error") progress.action++;
+    else if (state === "running" || state === "monitoring") progress.working++;
+    else if (chat.lifecycle === "ended" || finishedTurn(chat)) progress.finished++;
+  }
+  return progress;
+}
 export function priorityAttention(chat: Chat, projects: Project[]): string | null {
   return projects.some(p => p.priority && p.id === chat.projectId)
     ? attentionReason(chat) : null;

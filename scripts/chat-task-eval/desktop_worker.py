@@ -1,10 +1,51 @@
-"""Bounded JSON-lines protocol for one resident CPU model. Never writes chat input."""
+"""Resident CPU model protocol. Local diagnostics may include request excerpts; protocol errors are generic."""
 import contextlib
+import importlib.abc
+import importlib.machinery
 import json
 import os
 from pathlib import Path
 import sys
 import time
+import traceback
+
+ready = False
+
+def posix_keys(value):
+    """Rewrite Windows path separators in mapping keys, recursively."""
+    if isinstance(value, dict):
+        return {(k.replace("\\", "/") if isinstance(k, str) else k): posix_keys(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [posix_keys(v) for v in value]
+    return value
+
+
+class _PosixIdentityKeys(importlib.abc.MetaPathFinder):
+    """Windows workaround for Decision-2.0 checkpoint identities.
+
+    The model's vendored code hashes str(path.relative_to(root)) keys, which use backslashes on Windows, while its
+    manifest records forward slashes, so the identity check can never pass there. Wrap the vendored canonical()
+    serializer so file-path keys are normalized before hashing. Nothing else in the model code is altered.
+    """
+    suffix = "._vendor.dev2model.data"
+
+    def find_spec(self, name, path, target=None):
+        if not name.endswith(self.suffix):
+            return None
+        spec = importlib.machinery.PathFinder.find_spec(name, path)
+        if spec and spec.loader and hasattr(spec.loader, "exec_module"):
+            run = spec.loader.exec_module
+            def exec_module(module):
+                run(module)
+                original = module.canonical
+                module.canonical = lambda value: original(posix_keys(value))
+            spec.loader.exec_module = exec_module
+        return spec
+
+
+if sys.platform == "win32":
+    sys.meta_path.insert(0, _PosixIdentityKeys())
+
 
 def emit(value):
     print(json.dumps(value, allow_nan=False, separators=(",", ":")), flush=True)
@@ -33,6 +74,8 @@ def main():
                 model = AutoModel.from_pretrained(str(root), trust_remote_code=True, local_files_only=True, device="cpu", threads=threads)
             else:
                 raise ValueError("Unsupported model")
+    global ready
+    ready = True
     emit({"ready": True, "startup_ms": (time.perf_counter()-started)*1000, "peak_rss_bytes": memory.peak})
     cold = True
     while True:
@@ -45,6 +88,7 @@ def main():
         started = time.perf_counter(); before = process.cpu_times()
         with MemorySampler(process) as memory:
             try:
+                # Keep model diagnostics in the bounded local log, never in the JSON protocol.
                 with contextlib.redirect_stdout(sys.stderr), torch.inference_mode():
                     raw = model.system_one(**request["request"])
                 after = process.cpu_times()
@@ -52,12 +96,16 @@ def main():
                       "cpu_ms": (after.user+after.system-before.user-before.system)*1000, "peak_rss_bytes": memory.peak})
                 cold = False
             except Exception:
-                # Errors can echo confidential request content. Send only a fixed code.
+                # Tracebacks aid local diagnosis and may include input; UI/export errors stay generic.
+                traceback.print_exc(file=sys.stderr)
                 emit({"id": request["id"], "error": "inference_failed"})
 
 if __name__ == "__main__":
     try:
         main()
     except Exception:
+        # Before the first request is read there is no chat content to leak, so startup failures may be diagnosed.
+        if not ready:
+            traceback.print_exc(file=sys.stderr)
         emit({"error": "worker_failed"})
         sys.exit(1)

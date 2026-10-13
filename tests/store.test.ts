@@ -401,7 +401,7 @@ test("v1 migration backs up and preserves chats, relationships, history, and ded
   legacy.close();
   const store = new Store(filename);
   try {
-    assert.equal(store.db.pragma("user_version", { simple: true }), 13);
+    assert.equal(store.db.pragma("user_version", { simple: true }), 14);
     assert.deepEqual(tables.map((table) => store.db.prepare(`SELECT * FROM ${table}`).all().map((row) => {
       const original = { ...row as Record<string, unknown> };
       if (table === "projects") { delete original.kind; delete original.priority; delete original.repositoryPath; delete original.mergedInto; }
@@ -443,7 +443,7 @@ test("v2 settings migration preserves records, backs up once, and isolates demo 
   const migrated = f.reopen();
   assert.deepEqual(migrated.chat(chat.id), before);
   assert.deepEqual(migrated.settings(), { jiraBaseUrl: "", linkRules: [] });
-  assert.equal(migrated.db.pragma("user_version", { simple: true }), 13);
+  assert.equal(migrated.db.pragma("user_version", { simple: true }), 14);
   migrated.command({ type: "updateSettings", jiraBaseUrl: "https://company.example/jira/" });
   assert.deepEqual(f.reopen().settings(), { jiraBaseUrl: "https://company.example/jira", linkRules: [] });
   assert.equal(readdirSync(f.dir).filter(n => /^workspace\.sqlite\.bak-\d+$/.test(n)).length, 1);
@@ -525,7 +525,7 @@ test("v5 priority migration defaults flags off, preserves records, and backs up 
   const projects = f.store.projects();
   f.store.db.exec("DROP TABLE matching_measurements; DROP TABLE matching_feedback; DROP TABLE ai_link_dismissals; DROP TABLE ai_match_attempts; DROP TABLE plan_wrapups; DROP TABLE plan_drafts; DROP TABLE plan_undo; DROP TABLE chat_rounds; DROP TABLE plan_chats; DROP TABLE plan_entries; DROP TABLE plan_imports; DROP TABLE plan_items; DROP TABLE background_snapshots; DROP TABLE chat_links; ALTER TABLE projects DROP COLUMN priority; ALTER TABLE projects DROP COLUMN mergedInto; ALTER TABLE projects DROP COLUMN repositoryPath; PRAGMA user_version=5;");
   f.reopen();
-  assert.equal(f.store.db.pragma("user_version", { simple: true }), 13);
+  assert.equal(f.store.db.pragma("user_version", { simple: true }), 14);
   assert.deepEqual(f.store.chat(chat.id), {...before, latestRound: null});
   assert.deepEqual(f.store.activity(chat.id), activities);
   assert.deepEqual(f.store.projects(), projects);
@@ -545,9 +545,33 @@ test("a newer database is rejected without resetting it", (t) => {
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const filename = join(dir, "workspace.sqlite");
   const db = new Database(filename);
-  db.exec("CREATE TABLE future_data(value TEXT); INSERT INTO future_data VALUES ('keep'); PRAGMA user_version=14;");
+  db.exec("CREATE TABLE future_data(value TEXT); INSERT INTO future_data VALUES ('keep'); PRAGMA user_version=15;");
   db.close();
   assert.throws(() => new Store(filename), /newer version/);
   const preserved = new Database(filename, { readonly: true });
   try { assert.deepEqual(preserved.prepare("SELECT * FROM future_data").all(), [{ value: "keep" }]); } finally { preserved.close(); }
+});
+
+
+test("legacy routine rows do not hide or evict meaningful activity", t => {
+  const f = fixture(t);
+  f.store.ingest(f.source.id, event("first", "UserPromptSubmit", { prompt: "Keep this history" }));
+  const chat = f.store.chats()[0];
+  const first = f.store.activity(chat.id)[0];
+  const insert = f.store.db.prepare("INSERT INTO activities VALUES (?,?,?,?,?)");
+  for (let i = 0; i < 100; i++) {
+    insert.run(`legacy-${i}`, chat.id, "2026-01-02T00:00:00.000Z", "PostToolUse", "Tool completed — turn continuing");
+  }
+  // Apply the same behavior to existing v14 databases without deleting their rows.
+  f.reopen();
+  assert.deepEqual(f.store.activity(chat.id).map(row => row.id), [first.id]);
+  f.store.ingest(f.source.id, event("second", "UserPromptSubmit", { prompt: "Next task" }, "2026-01-03T00:00:00.000Z"));
+  assert.equal(f.store.activity(chat.id).length, 2);
+  assert.ok(f.store.activity(chat.id).some(row => row.id === first.id));
+  for (let i = 0; i < 100; i++) {
+    f.store.ingest(f.source.id, event(`new-${i}`, "UserPromptSubmit", { prompt: "Next task" }, "2026-01-03T00:00:00.000Z"));
+  }
+  assert.equal(f.store.activity(chat.id).length, 100);
+  assert.equal(f.store.activity(chat.id).some(row => row.id === first.id), false);
+  assert.equal((f.store.db.prepare("SELECT COUNT(*) AS count FROM activities WHERE kind='PostToolUse'").get() as { count: number }).count, 100);
 });
