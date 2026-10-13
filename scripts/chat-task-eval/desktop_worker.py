@@ -88,16 +88,15 @@ def main():
         started = time.perf_counter(); before = process.cpu_times()
         with MemorySampler(process) as memory:
             try:
-                with contextlib.redirect_stdout(sys.stderr), torch.inference_mode():
+                # Model diagnostics may include request text. Discard both streams during inference.
+                with open(os.devnull, "w") as diagnostics, contextlib.redirect_stdout(diagnostics), contextlib.redirect_stderr(diagnostics), torch.inference_mode():
                     raw = model.system_one(**request["request"])
                 after = process.cpu_times()
                 emit({"id": request["id"], "raw": raw, "cold": cold, "inference_ms": (time.perf_counter()-started)*1000,
                       "cpu_ms": (after.user+after.system-before.user-before.system)*1000, "peak_rss_bytes": memory.peak})
                 cold = False
-            except Exception as error:
-                # Chat data stays on this machine, so the full traceback and message go to worker.log.
-                traceback.print_exc(file=sys.stderr)
-                emit({"id": request["id"], "error": "inference_failed", "detail": f"{type(error).__name__}: {error}"[:2000]})
+            except Exception:
+                emit({"id": request["id"], "error": "inference_failed"})
 
 if __name__ == "__main__":
     try:

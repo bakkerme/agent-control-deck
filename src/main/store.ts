@@ -55,6 +55,11 @@ const isRoutineActivity = (kind: string, summary: string) =>
     kind === "PostToolUseFailure" ||
     kind === "ElicitationResult") &&
   ROUTINE_ACTIVITY.has(summary);
+// Keep legacy routine rows out of both the visible history and its retention budget.
+const MEANINGFUL_ACTIVITY_SQL = `NOT (
+  kind IN ('PostToolUse', 'PostToolUseFailure', 'ElicitationResult') AND
+  summary IN ('Tool completed — turn continuing', 'Tool returned an error — turn continuing', 'Input received — work resumed')
+)`;
 export class Store {
   readonly db: Database.Database;
   constructor(readonly filename: string) {
@@ -489,15 +494,13 @@ export class Store {
     return source;
   }
   activity(id: string): Activity[] {
-    // Also hides routine rows recorded before they stopped being stored.
-    return (
-      this.db
-        .prepare(
-          "SELECT * FROM activities WHERE chatId=? ORDER BY observedAt DESC, rowid DESC LIMIT 100",
-        )
-        .all(id) as Activity[]
-    ).filter((a) => !isRoutineActivity(a.kind, a.summary));
+    return this.db
+      .prepare(
+        `SELECT * FROM activities WHERE chatId=? AND ${MEANINGFUL_ACTIVITY_SQL} ORDER BY observedAt DESC, rowid DESC LIMIT 100`,
+      )
+      .all(id) as Activity[];
   }
+
   private requireProject(id: string): void {
     if (
       !this.db
@@ -908,7 +911,7 @@ export class Store {
           );
         this.db
           .prepare(
-            "DELETE FROM activities WHERE chatId=? AND id NOT IN (SELECT id FROM activities WHERE chatId=? ORDER BY observedAt DESC,rowid DESC LIMIT 100)",
+            `DELETE FROM activities WHERE chatId=? AND ${MEANINGFUL_ACTIVITY_SQL} AND id NOT IN (SELECT id FROM activities WHERE chatId=? AND ${MEANINGFUL_ACTIVITY_SQL} ORDER BY observedAt DESC,rowid DESC LIMIT 100)`,
           )
           .run(chat.id, chat.id);
       }

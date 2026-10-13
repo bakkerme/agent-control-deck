@@ -32,7 +32,8 @@ export class LocalMatcher implements LocalClient {
   private startup: Promise<void> | null = null;
   private pending: { id: number; resolve: (row: any) => void; reject: (error: Error) => void } | null = null;
   private sequence = 0;
-  private closeLog: () => void = () => {};  constructor(private root: string, private changed: () => void, private assets =
+  private closeLog: () => void = () => {};
+  constructor(private root: string, private changed: () => void, private assets =
     (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath && existsSync(join((process as any).resourcesPath, "local-matching"))
       ? join((process as any).resourcesPath, "local-matching") : resolve("out/local-matching"),
     private launch: typeof spawn = spawn) {}
@@ -98,17 +99,24 @@ export class LocalMatcher implements LocalClient {
     const child = this.launch(localPython(this.root, model), ["-u", join(this.assets, "desktop_worker.py"), join(this.root, model), profile.repo, profile.revision, String(threads)],
       { env: localEnvironment(process.env,this.root), shell: false, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
     this.child = child;
-    // Chat data never leaves this machine, so keep worker stderr (including inference tracebacks) for diagnosis.
+    // Only startup diagnostics are safe to retain; inference output can contain chat text.
     // Synchronous descriptor so stop() releases the file immediately (Windows cannot delete open files).
     let fd: number | null = null;
     try { fd = openSync(join(this.root, "worker.log"), "w"); } catch { /* logging is best effort */ }
-    const log = { write: (text: string | Buffer) => { if (fd !== null) try { writeSync(fd, Buffer.from(text)); } catch { /* best effort */ } },
-      end: () => { if (fd !== null) { try { closeSync(fd); } catch { /* already closed */ } fd = null; } } };
-    let logged = 0;
-    child.stderr?.on("data", (data: Buffer) => {
-      if (logged > 4 * 1024 * 1024) { return; }
-      logged += data.length; log.write(data);
-    });
+    let logged = 0, acceptingDiagnostics = true;
+    const log = { write: (text: string | Buffer) => {
+      if (fd === null) return;
+      const data = Buffer.from(text).subarray(0, Math.max(0, 4 * 1024 * 1024 - logged));
+      try {
+        let offset = 0;
+        while (offset < data.length) {
+          const written = writeSync(fd, data, offset, data.length - offset);
+          if (!written) break;
+          offset += written; logged += written;
+        }
+      } catch { /* logging is best effort */ }
+    }, end: () => { if (fd !== null) { try { closeSync(fd); } catch { /* already closed */ } fd = null; } } };
+    child.stderr?.on("data", (data: Buffer) => { if (acceptingDiagnostics) log.write(data); });
     child.once("close", () => log.end());
     this.closeLog = log.end;
     let buffer = "";
@@ -134,13 +142,13 @@ export class LocalMatcher implements LocalClient {
             const row = JSON.parse(line);
             if (row.ready && this.state.state === "loading") {
               const value = z.object({ ready: z.literal(true), startup_ms: z.number().finite().nonnegative() }).parse(row);
+              acceptingDiagnostics = false;
               this.update({ state: "ready", progress: "CPU model ready", startupMs: value.startup_ms }); done();
             } else if (this.pending && row.id === this.pending.id) {
               const pending = this.pending; this.pending = null;
               if (row.error) {
-                const detail = typeof row.detail === "string" ? row.detail : String(row.error);
-                log.write(`[${new Date().toISOString()}] inference failed: ${detail}\n`);
-                pending.reject(new Error(`Local inference failed: ${detail}`));
+                log.write(`[${new Date().toISOString()}] inference failed\n`);
+                pending.reject(new Error("Local inference failed"));
               } else pending.resolve(row);
             } else if (row.error) { this.kill(child); failed(); }
             else { throw new Error("Unexpected worker message"); }
