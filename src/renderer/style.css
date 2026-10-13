@@ -749,6 +749,7 @@ summary {
 .plan-work-mark.worked { background: #377c57; border-color: #377c57; color: white; }
 .plan-row-chats { display: block; font-size: 12px; color: var(--muted); margin-top: 8px; }
 .plan-needs-input { color: #9b3640; }
+.plan-chat-progress { display: flex; flex-wrap: wrap; gap: 4px 10px; }
 .plan-add { border-color: transparent; background: transparent; font-size: 12px; color: var(--muted); padding: 6px 0; }
 .plan-summary { color: var(--muted); font-size: 12px; margin-top: 20px; }
 .plan-details h2 { margin: 7px 0; overflow-wrap: anywhere; }

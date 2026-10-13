@@ -1,7 +1,9 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
 import {spawn,spawnSync} from "node:child_process";
-import {mkdtempSync,mkdirSync,writeFileSync} from "node:fs";
+import {mkdtempSync,mkdirSync,writeFileSync,readFileSync} from "node:fs";
+import {EventEmitter} from "node:events";
+import {PassThrough} from "node:stream";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {LocalMatcher,localPython,localEnvironment} from "../src/main/local-matcher";
@@ -48,3 +50,43 @@ test("resident protocol reuses one worker, records cold first call and cancels o
   assert.equal(client.status("kai").state,"ready");assert.equal(client.status("kai").startupMs,20);
   client.stop();assert.equal(client.status("kai").state,"installed");
 });
+
+for (const startupBytes of [0, 4 * 1024 * 1024 - 10, 4 * 1024 * 1024, 4 * 1024 * 1024 + 100]) {
+  test(`local inference diagnostics stay bounded and protocol errors stay generic after ${startupBytes} startup bytes`, async t => {
+    const root = mkdtempSync(join(tmpdir(), "acd worker diagnostics "));
+    const python = localPython(root, "kai");
+    mkdirSync(join(python, ".."), {recursive:true}); writeFileSync(python, "");
+    writeFileSync(join(root, "kai.provenance.json"), "{}");
+    const child = Object.assign(new EventEmitter(), {
+      stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(),
+      exitCode: null, signalCode: null, kill() { child.emit("close", 0); return true; },
+    });
+    const secret = "PRIVATE CHAT CONTENT";
+    const diagnostic = "ValueError: local diagnostic input\n";
+    child.stdin.on("data", line => {
+      const {id} = JSON.parse(line.toString());
+      child.stderr.write(diagnostic);
+      child.stdout.write(JSON.stringify({id, error: secret, detail: secret}) + "\n");
+    });
+    const launch = (() => {
+      queueMicrotask(() => {
+        child.stderr.write(Buffer.alloc(startupBytes, "x"));
+        child.stdout.write(JSON.stringify({ready:true, startup_ms:1}) + "\n");
+      });
+      return child;
+    }) as unknown as typeof spawn;
+    const client = new LocalMatcher(root, () => {}, root, launch);
+    t.after(() => { client.stop(); removeFixture(root); });
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await assert.rejects(client.request(payload, "kai", 4), {message:`Local inference failed; see ${join(root, "worker.log")} for details`});
+    }
+    const log = readFileSync(join(root, "worker.log"));
+    assert.equal(log.includes(secret), false);
+    assert.equal(JSON.stringify(client.status("kai")).includes(secret), false);
+    if (startupBytes) assert.equal(log.length, 4 * 1024 * 1024);
+    else {
+      assert.match(log.toString(), /inference failed/);
+      assert.equal(log.toString().split(diagnostic).length - 1, 2);
+    }
+  });
+}

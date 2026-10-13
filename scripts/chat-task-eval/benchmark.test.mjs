@@ -73,7 +73,9 @@ test("one model setup failure still evaluates the other and writes final evidenc
     const report = JSON.parse(await readFile(join(reportDirectory, "report.json"), "utf8"));
     assert.equal(report.runs.length, 2); assert.equal(report.runs[0].model, "kai"); assert.equal(report.runs[0].summary.unrun_trials, 1);
     assert.equal(report.runs[1].model, "julia"); assert.equal(report.runs[1].summary.errors, 1);
-    assert.ok(calls.some(([, args]) => args[0]?.endsWith("bundle_download.py")));
+    const downloadCall = calls.findIndex(([, args]) => args[0]?.endsWith("bundle_download.py"));
+    assert.ok(downloadCall >= 0);
+    assert.ok(calls.slice(0, downloadCall).some(([, args]) => args[0] === "pip" && args.includes("truststore==0.10.5")));
     assert.ok((await readFile(join(reportDirectory, "report.html"), "utf8")).includes("Kai setup failure"));
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

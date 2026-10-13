@@ -45,6 +45,21 @@ type ProjectRow = Project & {
 
 const now = () => new Date().toISOString();
 const uuid = () => randomUUID();
+const ROUTINE_ACTIVITY = new Set([
+  "Tool completed — turn continuing",
+  "Tool returned an error — turn continuing",
+  "Input received — work resumed",
+]);
+const isRoutineActivity = (kind: string, summary: string) =>
+  (kind === "PostToolUse" ||
+    kind === "PostToolUseFailure" ||
+    kind === "ElicitationResult") &&
+  ROUTINE_ACTIVITY.has(summary);
+// Keep legacy routine rows out of both the visible history and its retention budget.
+const MEANINGFUL_ACTIVITY_SQL = `NOT (
+  kind IN ('PostToolUse', 'PostToolUseFailure', 'ElicitationResult') AND
+  summary IN ('Tool completed — turn continuing', 'Tool returned an error — turn continuing', 'Input received — work resumed')
+)`;
 export class Store {
   readonly db: Database.Database;
   constructor(readonly filename: string) {
@@ -57,11 +72,11 @@ export class Store {
       const version = this.db.pragma("user_version", {
         simple: true,
       }) as number;
-      if (version > 13)
+      if (version > 14)
         throw new Error(
           "This database was created by a newer version of Agent Control Deck",
         );
-      if (version < 13 && existed) {
+      if (version < 14 && existed) {
         this.db.pragma("wal_checkpoint(TRUNCATE)");
         copyFileSync(filename, `${filename}.bak-${Date.now()}`);
       }
@@ -315,8 +330,16 @@ export class Store {
           `);
         })();
       }
+      if (version < 14) {
+        this.db.transaction(() => {
+          this.db.exec(`
+            ALTER TABLE chat_rounds ADD COLUMN firstPrompt TEXT NOT NULL DEFAULT '';
+            PRAGMA user_version = 14;
+          `);
+        })();
+      }
       this.reconcileRepositories(() => {
-        if (version >= 13 && existed) {
+        if (version >= 14 && existed) {
           this.db.pragma("wal_checkpoint(TRUNCATE)");
           copyFileSync(filename, `${filename}.bak-${Date.now()}`);
         }
@@ -451,7 +474,7 @@ export class Store {
     ).map(({ chatId, ...agent }) => agent);
     const round = this.db
       .prepare(
-        "SELECT prompt,response,request,requestKind,observedAt,truncated FROM chat_rounds WHERE chatId=?",
+        "SELECT prompt,firstPrompt,response,request,requestKind,observedAt,truncated FROM chat_rounds WHERE chatId=?",
       )
       .get(id) as ChatRound | undefined;
     return {
@@ -473,10 +496,11 @@ export class Store {
   activity(id: string): Activity[] {
     return this.db
       .prepare(
-        "SELECT * FROM activities WHERE chatId=? ORDER BY observedAt DESC, rowid DESC LIMIT 100",
+        `SELECT * FROM activities WHERE chatId=? AND ${MEANINGFUL_ACTIVITY_SQL} ORDER BY observedAt DESC, rowid DESC LIMIT 100`,
       )
       .all(id) as Activity[];
   }
+
   private requireProject(id: string): void {
     if (
       !this.db
@@ -873,20 +897,24 @@ export class Store {
           )
           .run(chat.id, chat.id, MAX_CHAT_LINKS);
       }
-      this.db
-        .prepare("INSERT INTO activities VALUES (?,?,?,?,?)")
-        .run(
-          uuid(),
-          chat.id,
-          observedAt,
-          observation.kind,
-          observation.summary,
-        );
-      this.db
-        .prepare(
-          "DELETE FROM activities WHERE chatId=? AND id NOT IN (SELECT id FROM activities WHERE chatId=? ORDER BY observedAt DESC,rowid DESC LIMIT 100)",
-        )
-        .run(chat.id, chat.id);
+      // Routine mid-turn resumptions update state but would crowd out the
+      // history that matters.
+      if (!isRoutineActivity(observation.kind, observation.summary)) {
+        this.db
+          .prepare("INSERT INTO activities VALUES (?,?,?,?,?)")
+          .run(
+            uuid(),
+            chat.id,
+            observedAt,
+            observation.kind,
+            observation.summary,
+          );
+        this.db
+          .prepare(
+            `DELETE FROM activities WHERE chatId=? AND ${MEANINGFUL_ACTIVITY_SQL} AND id NOT IN (SELECT id FROM activities WHERE chatId=? AND ${MEANINGFUL_ACTIVITY_SQL} ORDER BY observedAt DESC,rowid DESC LIMIT 100)`,
+          )
+          .run(chat.id, chat.id);
+      }
       if (!chat.lastEventAt || observedAt >= chat.lastEventAt) {
         if (!observation.subagent)
           this.observeRound(chat.id, observation, observedAt);
@@ -937,6 +965,8 @@ export class Store {
       observation.lifecycle === "ended";
     if (!update && !previous) return;
     const prompt = update?.prompt ?? previous?.prompt ?? "";
+    // Only a chat first seen here can record its opening prompt; older rows stay empty rather than claim a later one.
+    const firstPrompt = previous ? previous.firstPrompt : (update?.prompt ?? "");
     const response = newPrompt
       ? ""
       : update?.response || previous?.response || "";
@@ -945,11 +975,12 @@ export class Store {
       update?.requestKind ?? (clear ? null : (previous?.requestKind ?? null));
     this.db
       .prepare(
-        "INSERT INTO chat_rounds (chatId,prompt,response,request,requestKind,observedAt,truncated) VALUES (?,?,?,?,?,?,?) ON CONFLICT(chatId) DO UPDATE SET prompt=excluded.prompt,response=excluded.response,request=excluded.request,requestKind=excluded.requestKind,observedAt=excluded.observedAt,truncated=excluded.truncated",
+        "INSERT INTO chat_rounds (chatId,prompt,firstPrompt,response,request,requestKind,observedAt,truncated) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(chatId) DO UPDATE SET prompt=excluded.prompt,response=excluded.response,request=excluded.request,requestKind=excluded.requestKind,observedAt=excluded.observedAt,truncated=excluded.truncated",
       )
       .run(
         chatId,
         prompt,
+        firstPrompt,
         response,
         request,
         kind,

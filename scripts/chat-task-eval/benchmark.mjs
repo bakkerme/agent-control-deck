@@ -169,7 +169,7 @@ export async function main(args = process.argv.slice(2), dependencies = {}) {
         try { await access(python); } catch { await exec(uv, ["venv", "--python", "3.13", "--managed-python", venv], common); }
         const cpuIndex = process.platform === "darwin" ? [] : ["--index-url", "https://download.pytorch.org/whl/cpu"];
         await exec(uv, ["pip", "install", "--python", python, spec.requirements[0], ...(spec.cpu_requirements ?? []), ...cpuIndex], common);
-        await exec(uv, ["pip", "install", "--python", python, ...spec.requirements], common);
+        await exec(uv, ["pip", "install", "--python", python, ...spec.requirements, "truststore==0.10.5"], common);
         packages[model] = { repo: spec.repo, revision: spec.revision, python: await exec(python, ["--version"], { env }),
           packages: await exec(uv, ["pip", "freeze", "--python", python], { env }) };
         await writeFile(join(directory, "environment.json"), JSON.stringify(packages, null, 2) + "\n");

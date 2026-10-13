@@ -75,6 +75,8 @@ tasks. Saving a key does not enable matching; the checkbox controls sending boun
 chat/task context to the selected model. Keys use OS-backed encryption and never
 appear in snapshots or the database. See [automatic chat links](docs/daily-planning.md#optional-automatic-chat-links).
 
+Local CPU matching keeps startup and inference diagnostics in `local-matching/worker.log` beneath the active data directory. The log is capped at 4 MiB and replaced when a worker starts; exception details can include chat input, so review it before sharing. UI and exported errors stay generic and point to the log.
+
 The app backs up an existing database before schema migrations. For a manual backup, quit the app and copy the displayed data directory. Keep backups private: they contain your notes and previews.
 
 ## Checks and packaging

@@ -33,6 +33,7 @@ export function runtimeEnvironment(workDir, environment = process.env) {
   const env = Object.fromEntries(Object.entries(environment).filter(([k]) =>
     !/KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL/i.test(k) && !/^(PYTHON|UV_|HF_|TRANSFORMERS_|PIP_|VIRTUAL_ENV|CONDA_|NODE_OPTIONS)/i.test(k)));
   return { ...env, UV_UNMANAGED_INSTALL: join(workDir, ".tools", "uv"), UV_NO_MODIFY_PATH: "1", UV_NO_CONFIG: "1",
+    UV_SYSTEM_CERTS: "1", // trust the OS certificate store so corporate TLS-inspection proxies work
     UV_PYTHON_INSTALL_DIR: join(workDir, ".python"), UV_PYTHON_BIN_DIR: join(workDir, ".tools", "python"),
     UV_CACHE_DIR: join(workDir, ".cache", "uv"), HF_HOME: join(workDir, ".hf-cache"), HF_HUB_DISABLE_TELEMETRY: "1",
     HF_HUB_DISABLE_IMPLICIT_TOKEN: "1", PYTHONNOUSERSITE: "1", PYTHONUTF8: "1", CUDA_VISIBLE_DEVICES: "" };

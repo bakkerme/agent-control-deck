@@ -1,6 +1,6 @@
 import { useEffect, useState, type Ref } from "react";
 import type { Activity, Chat, Command, Snapshot } from "../shared/types";
-import { planCategories, type PlanCategory } from "../shared/planning";
+import { localPlanDay, planCategories, type PlanCategory } from "../shared/planning";
 import { newChatActivity } from "../shared/new-chats";
 import { age, displayName, message, providerLabel, Status } from "./components";
 import { LatestRound } from "./TaskContext";
@@ -24,10 +24,10 @@ export function NewChatList({ chats, snapshot, selected, select }: {
         }}>
         <span><span aria-hidden="true">{collapsed ? "›" : "⌄"}</span><strong>New</strong>
           <span className="new-chats-count">{chats.length}</span></span>
-        <small>Unlinked chats</small>
+        <small>Not on today's card</small>
       </button>
       <div id="new-chats-content" hidden={collapsed}>
-        <small className="new-chats-caption">Created or updated today · not on any card</small>
+        <small className="new-chats-caption">Created or updated today · not on today's card</small>
         {(showAll ? chats : chats.slice(0, 3)).map((chat) => (
           <button key={chat.id} className={`new-chat-row ${selected === chat.id ? "selected" : ""}`}
             aria-label={`Select new chat ${displayName(chat)}`} aria-pressed={selected === chat.id}
@@ -40,7 +40,7 @@ export function NewChatList({ chats, snapshot, selected, select }: {
               <small>{chat.lastEventAt ? `Last event ${age(chat.lastEventAt)}` : `Created ${age(chat.createdAt)}`}</small></span>
           </button>
         ))}
-        {!chats.length && <small>No unlinked chats created or updated today.</small>}
+        {!chats.length && <small>No chats created or updated today are missing from today's card.</small>}
         {chats.length > 3 && <button className="quiet new-chats-more" onClick={() => setShowAll(!showAll)}>
           {showAll ? "Show less" : `Show ${chats.length - 3} more`}
         </button>}
@@ -49,10 +49,9 @@ export function NewChatList({ chats, snapshot, selected, select }: {
   );
 }
 
-export function NewChatContext({ chat, snapshot, day, busy, save, selectTask, create, openChat, editorRef, mutate, report, configureJira, active }: {
+export function NewChatContext({ chat, snapshot, busy, save, selectTask, create, openChat, editorRef, mutate, report, configureJira, active }: {
   chat: Chat;
   snapshot: Snapshot;
-  day: string;
   busy: boolean;
   save: (command: Command, notice?: string) => Promise<boolean>;
   selectTask: (id: string) => void;
@@ -81,6 +80,15 @@ export function NewChatContext({ chat, snapshot, day, busy, save, selectTask, cr
   }, [active, chat.id, chat.lastEventAt, report]);
   const linked = snapshot.planning.items.filter((item) => item.chatIds.includes(chat.id));
   const task = snapshot.planning.items.find((item) => item.id === target);
+  const today = localPlanDay();
+  const onToday = new Set(snapshot.planning.entries.filter((entry) => entry.day === today).map((entry) => entry.itemId));
+  const todayTasks = snapshot.planning.items.filter((item) => onToday.has(item.id));
+  const otherTasks = snapshot.planning.items.filter((item) => !onToday.has(item.id));
+  const taskOption = (item: (typeof snapshot.planning.items)[number]) => {
+    const latest = snapshot.planning.entries.filter((entry) => entry.itemId === item.id)
+      .sort((a, b) => b.day.localeCompare(a.day))[0];
+    return <option key={item.id} value={item.id}>{item.name} · {latest ? `${latest.day} · ${latest.category}` : "Not on a card"}</option>;
+  };
   // Navigation flushes the editor before hiding Today. Remount it on return so
   // edits made in Repositories are reflected without discarding pending drafts.
   if (!active) return null;
@@ -95,43 +103,41 @@ export function NewChatContext({ chat, snapshot, day, busy, save, selectTask, cr
         historyPreview={<LatestRound chat={chat} fullHistory={() => openChat(chat.id)} />}>
       <section className="plan-detail-section">
         <h3>{linked.length ? "Linked tasks" : "Task links (optional)"}</h3>
-        {linked.length ? linked.map((item) => <button key={item.id} onClick={() => selectTask(item.id)}>{item.name}</button>) : <>
-          <small>This chat can stay here without a task.</small>
-          <div className="plan-actions">
-            <button className="primary" disabled={busy || !snapshot.planning.items.length} onClick={() => setForm("link")}>Link to existing task</button>
-            <button disabled={busy} onClick={() => setForm("create")}>Create task from chat</button>
-          </div>
-          {form === "link" && <form className="new-chat-form" aria-label="Link new chat" onSubmit={(event) => {
-            event.preventDefault();
-            if (!task) return;
-            void save({ type: "setPlanChats", id: task.id, chatIds: [...new Set([...task.chatIds, chat.id])] }, "Chat linked; removed from New")
-              .then((ok) => { if (ok) selectTask(task.id); });
-          }}>
-            <label>Task<select aria-label="Task" required value={target} disabled={busy} onChange={(event) => setTarget(event.target.value)}>
-              <option value="">Choose a task</option>
-              {snapshot.planning.items.map((item) => {
-                const latest = snapshot.planning.entries.filter((entry) => entry.itemId === item.id)
-                  .sort((a, b) => b.day.localeCompare(a.day))[0];
-                return <option key={item.id} value={item.id}>{item.name} · {latest ? `${latest.day} · ${latest.category}` : "Not on a card"}</option>;
-              })}
-            </select></label>
-            <small>Tasks from all cards are available, with their latest card date and category. Earlier cards keep their dates.</small>
-            <div className="plan-actions"><button className="primary" disabled={busy || !task}>Link chat</button>
-              <button type="button" disabled={busy} onClick={() => setForm(null)}>Cancel</button></div>
-          </form>}
-          {form === "create" && <form className="new-chat-form" aria-label="Create task from chat" onSubmit={(event) => {
-            event.preventDefault();
-            if (name.trim()) create(name.trim(), category, chat.id);
-          }}>
-            <label>Task name<input required maxLength={200} value={name} disabled={busy} onChange={(event) => setName(event.target.value)} /></label>
-            <label>Category<select aria-label="Category" value={category} disabled={busy} onChange={(event) => setCategory(event.target.value as PlanCategory)}>
-              {planCategories.map((value) => <option key={value}>{value}</option>)}
-            </select></label>
-            <small>Added to {day} with this chat linked.</small>
-            <div className="plan-actions"><button className="primary" disabled={busy || !name.trim()}>Create task</button>
-              <button type="button" disabled={busy} onClick={() => setForm(null)}>Cancel</button></div>
-          </form>}
-        </>}
+        {linked.map((item) => <button key={item.id} onClick={() => selectTask(item.id)}>{item.name}</button>)}
+        <small>{linked.length ? "This chat stays in New until linked to a task on today's card." : "This chat can stay here without a task."}</small>
+        <div className="plan-actions">
+          <button className="primary" disabled={busy || !snapshot.planning.items.length} onClick={() => setForm("link")}>Link to existing task</button>
+          <button disabled={busy} onClick={() => setForm("create")}>Create task from chat</button>
+        </div>
+        {form === "link" && <form className="new-chat-form" aria-label="Link new chat" onSubmit={(event) => {
+          event.preventDefault();
+          if (!task) return;
+          void save({ type: "setPlanChats", id: task.id, chatIds: [...new Set([...task.chatIds, chat.id])] }, onToday.has(task.id)
+            ? "Chat linked; removed from New"
+            : "Chat linked; stays in New until added to today's card")
+            .then((ok) => { if (ok) selectTask(task.id); });
+        }}>
+          <label>Task<select aria-label="Task" required value={target} disabled={busy} onChange={(event) => setTarget(event.target.value)}>
+            <option value="">Choose a task</option>
+            {todayTasks.length > 0 && <optgroup label="Today's card">{todayTasks.map(taskOption)}</optgroup>}
+            {otherTasks.length > 0 && <optgroup label="Other tasks">{otherTasks.map(taskOption)}</optgroup>}
+          </select></label>
+          <small>Tasks from all cards are available, with their latest card date and category. Earlier cards keep their dates. Linking to another card keeps this chat in New.</small>
+          <div className="plan-actions"><button className="primary" disabled={busy || !task}>Link chat</button>
+            <button type="button" disabled={busy} onClick={() => setForm(null)}>Cancel</button></div>
+        </form>}
+        {form === "create" && <form className="new-chat-form" aria-label="Create task from chat" onSubmit={(event) => {
+          event.preventDefault();
+          if (name.trim()) create(name.trim(), category, chat.id);
+        }}>
+          <label>Task name<input required maxLength={200} value={name} disabled={busy} onChange={(event) => setName(event.target.value)} /></label>
+          <label>Category<select aria-label="Category" value={category} disabled={busy} onChange={(event) => setCategory(event.target.value as PlanCategory)}>
+            {planCategories.map((value) => <option key={value}>{value}</option>)}
+          </select></label>
+          <small>Added to today's card ({today}) with this chat linked.</small>
+          <div className="plan-actions"><button className="primary" disabled={busy || !name.trim()}>Create task</button>
+            <button type="button" disabled={busy} onClick={() => setForm(null)}>Cancel</button></div>
+        </form>}
       </section>
       </ChatEditor>
     </div>

@@ -177,7 +177,7 @@ test("v4 migration preserves user data and backs up once without fabricating obs
   f.store.db.exec("DROP TABLE matching_measurements; DROP TABLE matching_feedback; DROP TABLE ai_link_dismissals; DROP TABLE ai_match_attempts; DROP TABLE plan_wrapups; DROP TABLE plan_drafts; DROP TABLE plan_undo; DROP TABLE chat_rounds; DROP TABLE plan_chats; DROP TABLE plan_entries; DROP TABLE plan_imports; DROP TABLE plan_items; DROP TABLE background_snapshots; DROP TABLE chat_links; DROP TABLE subagents; ALTER TABLE chats DROP COLUMN subagentBaselineAt; ALTER TABLE projects DROP COLUMN priority; ALTER TABLE projects DROP COLUMN mergedInto; ALTER TABLE projects DROP COLUMN repositoryPath; PRAGMA user_version=4;");
   f.reopen();
   assert.deepEqual(f.chat, {...before, latestRound: null});
-  assert.equal(f.store.db.pragma("user_version", { simple: true }), 13);
+  assert.equal(f.store.db.pragma("user_version", { simple: true }), 14);
   assert.deepEqual(f.store.db.pragma("foreign_key_check"), []);
   f.reopen();
   assert.equal(readdirSync(f.dir).filter(name => name.includes(".bak-")).length, 1);
@@ -297,7 +297,7 @@ test("v8 migration preserves response links and user data without fabricating mo
   f.reopen();
   assert.deepEqual(f.chat, {...before, latestRound: null});
   assert.deepEqual(f.store.links(), links);
-  assert.equal(f.store.db.pragma("user_version", { simple: true }), 13);
+  assert.equal(f.store.db.pragma("user_version", { simple: true }), 14);
   assert.deepEqual(f.store.db.pragma("foreign_key_check"), []);
   f.reopen();
   assert.equal(readdirSync(f.dir).filter(name => name.includes(".bak-")).length, 1);
