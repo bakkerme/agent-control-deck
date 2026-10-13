@@ -99,11 +99,11 @@ export class LocalMatcher implements LocalClient {
     const child = this.launch(localPython(this.root, model), ["-u", join(this.assets, "desktop_worker.py"), join(this.root, model), profile.repo, profile.revision, String(threads)],
       { env: localEnvironment(process.env,this.root), shell: false, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
     this.child = child;
-    // Only startup diagnostics are safe to retain; inference output can contain chat text.
+    // Keep useful diagnostics locally, including inference tracebacks, under one byte limit.
     // Synchronous descriptor so stop() releases the file immediately (Windows cannot delete open files).
     let fd: number | null = null;
     try { fd = openSync(join(this.root, "worker.log"), "w"); } catch { /* logging is best effort */ }
-    let logged = 0, acceptingDiagnostics = true;
+    let logged = 0;
     const log = { write: (text: string | Buffer) => {
       if (fd === null) return;
       const data = Buffer.from(text).subarray(0, Math.max(0, 4 * 1024 * 1024 - logged));
@@ -116,7 +116,7 @@ export class LocalMatcher implements LocalClient {
         }
       } catch { /* logging is best effort */ }
     }, end: () => { if (fd !== null) { try { closeSync(fd); } catch { /* already closed */ } fd = null; } } };
-    child.stderr?.on("data", (data: Buffer) => { if (acceptingDiagnostics) log.write(data); });
+    child.stderr?.on("data", (data: Buffer) => { log.write(data); });
     child.once("close", () => log.end());
     this.closeLog = log.end;
     let buffer = "";
@@ -142,13 +142,12 @@ export class LocalMatcher implements LocalClient {
             const row = JSON.parse(line);
             if (row.ready && this.state.state === "loading") {
               const value = z.object({ ready: z.literal(true), startup_ms: z.number().finite().nonnegative() }).parse(row);
-              acceptingDiagnostics = false;
               this.update({ state: "ready", progress: "CPU model ready", startupMs: value.startup_ms }); done();
             } else if (this.pending && row.id === this.pending.id) {
               const pending = this.pending; this.pending = null;
               if (row.error) {
                 log.write(`[${new Date().toISOString()}] inference failed\n`);
-                pending.reject(new Error("Local inference failed"));
+                pending.reject(new Error(`Local inference failed; see ${join(this.root, "worker.log")} for details`));
               } else pending.resolve(row);
             } else if (row.error) { this.kill(child); failed(); }
             else { throw new Error("Unexpected worker message"); }

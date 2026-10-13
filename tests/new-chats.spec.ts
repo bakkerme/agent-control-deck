@@ -49,8 +49,20 @@ test("Today discovers unlinked chats and supports linking, creation, undo, and p
     const earlierId = initial.planning.entries.find((entry) => entry.day === nextPlanDay(today, -1))!.itemId;
     const earlier = initial.planning.items.find((item) => item.id === earlierId)!;
     const picker = page.getByRole("form", { name: "Link new chat", exact: true }).getByLabel("Task", { exact: true });
-    await expect(picker.getByRole("group", { name: "Other tasks", exact: true }).getByRole("option", { name: `Earlier card · ${nextPlanDay(today, -1)} · Coding`, exact: true })).toHaveAttribute("value", earlier.id);
-    await expect(picker.getByRole("group", { name: "Today's card", exact: true }).getByRole("option", { name: `Earlier card · ${today} · Coding`, exact: true })).toHaveCount(1);
+    // Native optgroups can be hidden from role queries while the select is closed.
+    // Verify semantic groups and their options in the DOM, then exercise selection.
+    const groups = picker.locator("optgroup");
+    await expect(groups).toHaveCount(2);
+    await expect(groups.nth(0)).toHaveAttribute("label", "Today's card");
+    await expect(groups.nth(1)).toHaveAttribute("label", "Other tasks");
+    const todayOptions = groups.nth(0).locator("option");
+    const otherOptions = groups.nth(1).locator("option");
+    await expect(todayOptions).toHaveCount(1);
+    await expect(todayOptions).toHaveText(`Earlier card · ${today} · Coding`);
+    await expect(todayOptions).toHaveAttribute("value", todayTask.itemId);
+    await expect(otherOptions).toHaveCount(1);
+    await expect(otherOptions).toHaveText(`Earlier card · ${nextPlanDay(today, -1)} · Coding`);
+    await expect(otherOptions).toHaveAttribute("value", earlier.id);
     await page.getByRole("form", { name: "Link new chat", exact: true }).getByLabel("Task", { exact: true }).selectOption(earlier.id);
     await page.getByRole("form", { name: "Link new chat", exact: true }).getByRole("button", { name: "Link chat", exact: true }).click();
     await expect(section.locator(".new-chats-count")).toHaveText("4");

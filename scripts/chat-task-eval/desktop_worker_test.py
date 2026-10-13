@@ -23,7 +23,7 @@ class PosixKeysTest(unittest.TestCase):
         json.dumps(worker.posix_keys(value))
 
 
-class InferencePrivacyTest(unittest.TestCase):
+class InferenceDiagnosticsTest(unittest.TestCase):
     def run_worker(self, fail):
         secret = "PRIVATE CHAT CONTENT"
         def infer(**request):
@@ -51,15 +51,20 @@ class InferencePrivacyTest(unittest.TestCase):
                 patch.object(sys, "stdin", stdin), contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr), \
                 patch.dict(worker.os.environ), patch.object(worker, "ready", False):
             worker.main()
-        self.assertNotIn(secret, stdout.getvalue() + stderr.getvalue())
-        self.assertEqual(stderr.getvalue(), "")
-        return [json.loads(line) for line in stdout.getvalue().splitlines()]
+        self.assertNotIn(secret, stdout.getvalue())
+        self.assertIn(secret, stderr.getvalue())
+        return [json.loads(line) for line in stdout.getvalue().splitlines()], stderr.getvalue()
 
-    def test_inference_exception_is_generic_and_has_no_traceback(self):
-        self.assertEqual(self.run_worker(True)[1], {"id": 1, "error": "inference_failed"})
+    def test_inference_exception_logs_traceback_but_protocol_error_is_generic(self):
+        rows, diagnostics = self.run_worker(True)
+        self.assertEqual(rows[1], {"id": 1, "error": "inference_failed"})
+        self.assertIn("Traceback (most recent call last)", diagnostics)
+        self.assertIn("ValueError: PRIVATE CHAT CONTENT", diagnostics)
 
-    def test_successful_inference_does_not_log_model_output(self):
-        self.assertEqual(self.run_worker(False)[1]["raw"], {"answer": "ok"})
+    def test_successful_inference_keeps_diagnostics_out_of_protocol(self):
+        rows, diagnostics = self.run_worker(False)
+        self.assertEqual(rows[1]["raw"], {"answer": "ok"})
+        self.assertNotIn("Traceback", diagnostics)
 
 
 if __name__ == "__main__":
