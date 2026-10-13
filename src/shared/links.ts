@@ -5,8 +5,7 @@ export const MAX_EVENT_LINKS = 100;
 export const MAX_CHAT_LINKS = 1000;
 
 // Extract only explicit web URLs. No page requests, provider storage or title lookup.
-export function detectLinks(text: string): Pick<ChatLink, "url" | "label">[] {
-  const found = new Map<string, Pick<ChatLink, "url" | "label">>();
+export function* linkOccurrences(text: string): Generator<{ url: string; label: string; start: number; end: number }> {
   const input = text.slice(0, 262144);
   const pattern = /https?:\/\/[^\s<>"'`]+/gi;
   for (let match = pattern.exec(input); match; match = pattern.exec(input)) {
@@ -47,6 +46,22 @@ export function detectLinks(text: string): Pick<ChatLink, "url" | "label">[] {
     const url = new URL(candidate).href;
     if (url.length > 2000) continue;
     const label = markdown?.[1].replace(/\\([\\`*_{}\[\]()#+.!>-])/g, "$1").trim().slice(0, 500) ?? "";
+    let start = match.index, end = start + candidate.length;
+    if (markdown) {
+      const close = /^>?[ \t]*(?:"[^"\n]{0,500}"[ \t]*)?\)/.exec(input.slice(end, end + 600));
+      if (close) {
+        start -= markdown[0].length;
+        if (input[start - 1] === "!") start--;
+        end += close[0].length;
+      }
+    } else if (input[start - 1] === "<" && input[end] === ">") { start--; end++; }
+    yield { url, label, start, end };
+  }
+}
+
+export function detectLinks(text: string): Pick<ChatLink, "url" | "label">[] {
+  const found = new Map<string, Pick<ChatLink, "url" | "label">>();
+  for (const { url, label } of linkOccurrences(text)) {
     const existing = found.get(url);
     if (existing) {
       if (!existing.label && label) existing.label = label;

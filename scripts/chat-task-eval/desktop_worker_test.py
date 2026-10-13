@@ -30,7 +30,10 @@ class InferenceDiagnosticsTest(unittest.TestCase):
             print(secret)
             print(secret, file=sys.stderr)
             if fail:
-                raise ValueError(secret)
+                error = ValueError(secret)
+                if fail == "too_long":
+                    error.type = "too_long"
+                raise error
             return {"answer": "ok"}
         class Memory:
             peak = 1
@@ -65,6 +68,11 @@ class InferenceDiagnosticsTest(unittest.TestCase):
         rows, diagnostics = self.run_worker(False)
         self.assertEqual(rows[1]["raw"], {"answer": "ok"})
         self.assertNotIn("Traceback", diagnostics)
+
+    def test_known_native_length_error_has_a_permanent_generic_protocol_code(self):
+        rows, diagnostics = self.run_worker("too_long")
+        self.assertEqual(rows[1], {"id": 1, "error": "input_too_large"})
+        self.assertIn("Traceback", diagnostics)
 
 
 if __name__ == "__main__":
