@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Chat, Project } from "../src/shared/types";
-import { priorityAttention } from "../src/shared/status";
+import { chatProgress, priorityAttention } from "../src/shared/status";
 
 const chat = (patch: Partial<Chat> = {}): Chat => ({
   id: "chat", projectId: "custom", repoProjectId: "repo", provider: "claude", sourceId: "source", externalId: "session",
@@ -36,4 +36,17 @@ test("priority does not infer completion for running, unobserved, or unfinished 
   // Explicit requests still matter while a child works; archiving removes them.
   assert.equal(priorityAttention(chat({ state: "waiting", subagents: [worker] }), projects), "Needs input");
   assert.equal(priorityAttention(chat({ state: "waiting", archived: true }), projects), null);
+});
+
+test("task cards count linked chats that need action, are working, or have finished", () => {
+  const now = Date.parse("2026-10-06T00:01:00Z");
+  const fresh = { id: "child", type: "Explore", state: "running" as const, lastEventAt: "2026-10-06T00:00:30Z" };
+  const chats = [
+    chat({ state: "waiting" }), chat({ state: "error" }),
+    chat({ state: "running" }), chat({ subagents: [fresh] }),
+    chat(), chat({ lifecycle: "ended" }),
+    chat({ state: "waiting", archived: true }), chat({ provider: "manual" }), chat({ state: "unknown" }),
+  ];
+  assert.deepEqual(chatProgress(chats, now), { action: 2, working: 2, finished: 2 });
+  assert.deepEqual(chatProgress([], now), { action: 0, working: 0, finished: 0 });
 });

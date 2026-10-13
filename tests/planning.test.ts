@@ -43,7 +43,7 @@ function fixture(t: { after: (fn: () => void) => void }) {
     },
   };
 }
-test("New chats use local creation/event dates, ignore user edits, and exclude links on any card", (t) => {
+test("New chats use local creation/event dates, ignore user edits, and exclude only chats linked to a task on today's card", (t) => {
   const f = fixture(t);
   const stamp = (day: number, hour: number) => new Date(2026, 9, day, hour).toISOString();
   for (const name of ["Created", "Updated", "Edited", "Archived", "Linked", "Before midnight"])
@@ -56,10 +56,14 @@ test("New chats use local creation/event dates, ignore user edits, and exclude l
   f.store.db.prepare("UPDATE chats SET createdAt=? WHERE id=?").run(stamp(12, 9), chat("Created").id);
   for (const name of ["Updated", "Archived", "Linked"])
     f.store.db.prepare("UPDATE chats SET lastEventAt=? WHERE id=?").run(stamp(12, 10), chat(name).id);
+  f.store.db.prepare("UPDATE chats SET lastEventAt=? WHERE id=?").run(stamp(12, 11), chat("Linked").id);
   f.store.command({ type: "updateChat", id: chat("Archived").id, patch: { archived: true } });
   f.store.command({ type: "createPlanItem", day: "2026-10-01", category: "Coding", name: "Earlier card", chatIds: [chat("Linked").id] });
-  const recent = recentUnlinkedChats(f.store.chats(), f.plans.items(), "2026-10-12");
-  assert.deepEqual(recent.map((c) => c.name), ["Updated", "Created"]);
+  let recent = recentUnlinkedChats(f.store.chats(), f.plans.items(), f.plans.entries(), "2026-10-12");
+  assert.deepEqual(recent.map((c) => c.name), ["Linked", "Updated", "Created"]);
+  f.store.command({ type: "createPlanItem", day: "2026-10-12", category: "Coding", name: "Today card", chatIds: [chat("Updated").id] });
+  recent = recentUnlinkedChats(f.store.chats(), f.plans.items(), f.plans.entries(), "2026-10-12");
+  assert.deepEqual(recent.map((c) => c.name), ["Linked", "Created"]);
   assert.equal(newChatActivity(recent[0], "2026-10-12"), "Updated");
   assert.equal(newChatActivity(recent[1], "2026-10-12"), "New");
 });

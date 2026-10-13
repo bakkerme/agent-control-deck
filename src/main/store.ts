@@ -45,6 +45,16 @@ type ProjectRow = Project & {
 
 const now = () => new Date().toISOString();
 const uuid = () => randomUUID();
+const ROUTINE_ACTIVITY = new Set([
+  "Tool completed — turn continuing",
+  "Tool returned an error — turn continuing",
+  "Input received — work resumed",
+]);
+const isRoutineActivity = (kind: string, summary: string) =>
+  (kind === "PostToolUse" ||
+    kind === "PostToolUseFailure" ||
+    kind === "ElicitationResult") &&
+  ROUTINE_ACTIVITY.has(summary);
 export class Store {
   readonly db: Database.Database;
   constructor(readonly filename: string) {
@@ -471,11 +481,14 @@ export class Store {
     return source;
   }
   activity(id: string): Activity[] {
-    return this.db
-      .prepare(
-        "SELECT * FROM activities WHERE chatId=? ORDER BY observedAt DESC, rowid DESC LIMIT 100",
-      )
-      .all(id) as Activity[];
+    // Also hides routine rows recorded before they stopped being stored.
+    return (
+      this.db
+        .prepare(
+          "SELECT * FROM activities WHERE chatId=? ORDER BY observedAt DESC, rowid DESC LIMIT 100",
+        )
+        .all(id) as Activity[]
+    ).filter((a) => !isRoutineActivity(a.kind, a.summary));
   }
   private requireProject(id: string): void {
     if (
@@ -873,20 +886,24 @@ export class Store {
           )
           .run(chat.id, chat.id, MAX_CHAT_LINKS);
       }
-      this.db
-        .prepare("INSERT INTO activities VALUES (?,?,?,?,?)")
-        .run(
-          uuid(),
-          chat.id,
-          observedAt,
-          observation.kind,
-          observation.summary,
-        );
-      this.db
-        .prepare(
-          "DELETE FROM activities WHERE chatId=? AND id NOT IN (SELECT id FROM activities WHERE chatId=? ORDER BY observedAt DESC,rowid DESC LIMIT 100)",
-        )
-        .run(chat.id, chat.id);
+      // Routine mid-turn resumptions update state but would crowd out the
+      // history that matters.
+      if (!isRoutineActivity(observation.kind, observation.summary)) {
+        this.db
+          .prepare("INSERT INTO activities VALUES (?,?,?,?,?)")
+          .run(
+            uuid(),
+            chat.id,
+            observedAt,
+            observation.kind,
+            observation.summary,
+          );
+        this.db
+          .prepare(
+            "DELETE FROM activities WHERE chatId=? AND id NOT IN (SELECT id FROM activities WHERE chatId=? ORDER BY observedAt DESC,rowid DESC LIMIT 100)",
+          )
+          .run(chat.id, chat.id);
+      }
       if (!chat.lastEventAt || observedAt >= chat.lastEventAt) {
         if (!observation.subagent)
           this.observeRound(chat.id, observation, observedAt);
