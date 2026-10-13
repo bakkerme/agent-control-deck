@@ -67,11 +67,11 @@ export class Store {
       const version = this.db.pragma("user_version", {
         simple: true,
       }) as number;
-      if (version > 13)
+      if (version > 14)
         throw new Error(
           "This database was created by a newer version of Agent Control Deck",
         );
-      if (version < 13 && existed) {
+      if (version < 14 && existed) {
         this.db.pragma("wal_checkpoint(TRUNCATE)");
         copyFileSync(filename, `${filename}.bak-${Date.now()}`);
       }
@@ -325,8 +325,16 @@ export class Store {
           `);
         })();
       }
+      if (version < 14) {
+        this.db.transaction(() => {
+          this.db.exec(`
+            ALTER TABLE chat_rounds ADD COLUMN firstPrompt TEXT NOT NULL DEFAULT '';
+            PRAGMA user_version = 14;
+          `);
+        })();
+      }
       this.reconcileRepositories(() => {
-        if (version >= 13 && existed) {
+        if (version >= 14 && existed) {
           this.db.pragma("wal_checkpoint(TRUNCATE)");
           copyFileSync(filename, `${filename}.bak-${Date.now()}`);
         }
@@ -461,7 +469,7 @@ export class Store {
     ).map(({ chatId, ...agent }) => agent);
     const round = this.db
       .prepare(
-        "SELECT prompt,response,request,requestKind,observedAt,truncated FROM chat_rounds WHERE chatId=?",
+        "SELECT prompt,firstPrompt,response,request,requestKind,observedAt,truncated FROM chat_rounds WHERE chatId=?",
       )
       .get(id) as ChatRound | undefined;
     return {
@@ -954,6 +962,8 @@ export class Store {
       observation.lifecycle === "ended";
     if (!update && !previous) return;
     const prompt = update?.prompt ?? previous?.prompt ?? "";
+    // Only a chat first seen here can record its opening prompt; older rows stay empty rather than claim a later one.
+    const firstPrompt = previous ? previous.firstPrompt : (update?.prompt ?? "");
     const response = newPrompt
       ? ""
       : update?.response || previous?.response || "";
@@ -962,11 +972,12 @@ export class Store {
       update?.requestKind ?? (clear ? null : (previous?.requestKind ?? null));
     this.db
       .prepare(
-        "INSERT INTO chat_rounds (chatId,prompt,response,request,requestKind,observedAt,truncated) VALUES (?,?,?,?,?,?,?) ON CONFLICT(chatId) DO UPDATE SET prompt=excluded.prompt,response=excluded.response,request=excluded.request,requestKind=excluded.requestKind,observedAt=excluded.observedAt,truncated=excluded.truncated",
+        "INSERT INTO chat_rounds (chatId,prompt,firstPrompt,response,request,requestKind,observedAt,truncated) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(chatId) DO UPDATE SET prompt=excluded.prompt,response=excluded.response,request=excluded.request,requestKind=excluded.requestKind,observedAt=excluded.observedAt,truncated=excluded.truncated",
       )
       .run(
         chatId,
         prompt,
+        firstPrompt,
         response,
         request,
         kind,

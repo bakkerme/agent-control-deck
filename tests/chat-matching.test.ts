@@ -145,10 +145,10 @@ test("replacing queued local evidence measures waiting from the new payload", as
   let submittedPrompt="";
   local.client.request=async(...args)=>{submittedPrompt=args[0].chat.latest_round.prompt;return original(...args);};
   await f.matcher.save(localConfig);await f.matcher.tick();
-  f.advance(10_000);f.emit("Newest PAY-142 request");await f.matcher.tick();
+  f.advance(10_000);f.store.command({type:"updateChat",id:f.chatId,patch:{name:"Payments webhook retries"}});await f.matcher.tick();
   assert.equal(local.calls,0);
   f.advance(1000);await f.matcher.tick();
-  assert.equal(submittedPrompt,"Newest PAY-142 request");
+  assert.equal(submittedPrompt,"Investigate PAY-142 webhook retries");
   const row=f.store.db.prepare("SELECT data FROM matching_measurements WHERE chatId=?").get(f.chatId) as {data:string};
   const measurement=JSON.parse(row.data);
   assert.equal(measurement.waitMs,1000);
@@ -157,7 +157,7 @@ test("replacing queued local evidence measures waiting from the new payload", as
 
 test("local freshness rejection records a stale result without linking and leaves ingestion usable", async t=>{
   const local=localFixtureClient(),f=fixture(t,local.client),original=local.client.request;
-  local.client.request=async(...args)=>{const result=await original(...args);f.emit("A different PAY-142 request");return result;};
+  local.client.request=async(...args)=>{const result=await original(...args);f.store.command({type:"updateChat",id:f.chatId,patch:{name:"Renamed during inference"}});return result;};
   await f.matcher.save(localConfig);await f.matcher.tick();f.advance(1000);await f.matcher.tick();
   assert.equal(f.plans.items().some(i=>i.chatIds.includes(f.chatId)),false);
   assert.equal(new MatchingAnalytics(f.store).summary().outcomes.stale,1);
@@ -181,9 +181,9 @@ test("analytics distinguish remove and Undo; clearing preserves links and the ma
 
 test("v12 analytics migration preserves links, dismissals and cache and makes a backup",async t=>{
   const f=fixture(t);await f.enable();await f.matcher.tick();
-  f.store.db.exec("DROP TABLE matching_measurements; DROP TABLE matching_feedback; PRAGMA user_version=12;");
+  f.store.db.exec("DROP TABLE matching_measurements; DROP TABLE matching_feedback; ALTER TABLE chat_rounds DROP COLUMN firstPrompt; PRAGMA user_version=12;");
   f.reopen();
-  assert.equal(f.store.db.pragma("user_version",{simple:true}),13);
+  assert.equal(f.store.db.pragma("user_version",{simple:true}),14);
   assert.deepEqual(f.plans.items().find(i=>i.id===f.itemId)!.automaticChatIds,[f.chatId]);
   assert.ok(f.store.db.prepare("SELECT * FROM ai_match_attempts WHERE chatId=?").get(f.chatId));
   assert.ok(readdirSync(f.dir).some(name=>name.startsWith("workspace.sqlite.bak-")));
@@ -273,7 +273,34 @@ test("unchanged abstentions are cached across restart; new conversation evidence
   f.useClient(async payload => { f.calls.push(payload); return reply(payload, null); });
   await f.enable(); await f.matcher.tick(); f.advance(); await f.matcher.tick();
   f.reopen(); f.advance(); await f.matcher.tick(); assert.equal(f.calls.length, 1);
-  f.emit("Review a new topic under PAY-142"); f.advance(); await f.matcher.tick(); assert.equal(f.calls.length, 2);
+  f.emit("Review a new topic under PAY-142"); f.advance(); await f.matcher.tick(); assert.equal(f.calls.length, 1);
+  f.store.command({ type: "updateChat", id: f.chatId, patch: { name: "Payments retries" } }); f.advance(); await f.matcher.tick(); assert.equal(f.calls.length, 2);
+});
+test("matching sends the opening prompt, never the response, and falls back to the title for older chats", async t => {
+  const f = fixture(t);
+  f.useClient(async payload => { f.calls.push(payload); return reply(payload, null); });
+  f.emit("Later unrelated request");
+  f.store.ingest(f.store.sources()[0].id, { version: 1, eventId: "late-answer", observedAt: new Date().toISOString(),
+    payload: { hook_event_name: "Stop", session_id: "chat", cwd: "/fixture/customer-portal", last_assistant_message: "A long answer" } });
+  await f.enable(); await f.matcher.tick();
+  assert.equal(f.calls[0].chat.latest_round.prompt, "Investigate PAY-142 webhook retries");
+  assert.equal(f.calls[0].chat.latest_round.response, "");
+  f.store.db.prepare("UPDATE chat_rounds SET firstPrompt='' WHERE chatId=?").run(f.chatId);
+  f.store.command({ type: "updateChat", id: f.chatId, patch: { name: "Webhook retry work" } });
+  f.advance(); await f.matcher.tick();
+  assert.equal(f.calls[1].chat.latest_round.prompt, "Webhook retry work");
+});
+test("a local per-chat failure is remembered without pausing matching for other chats", async t => {
+  let fail = true; const seen: string[] = [];
+  const local: LocalClient = { status: () => ({ state: "installed", progress: "", error: null, startupMs: null }), install: async () => {}, stop: () => {},
+    request: async payload => { seen.push(payload.chat.id); if (fail) { fail = false; throw new Error("Local inference timed out"); }
+      return { output: reply(payload, null).output, contextScore: .5, inferenceMs: 1, cpuMs: 1, peakRssBytes: 1, cold: false }; } };
+  const f = fixture(t, local), second = f.emit("Another PAY-142 request", "second");
+  await f.matcher.save(localConfig); await f.matcher.tick(); f.advance(1000); await f.matcher.tick();
+  assert.equal(f.matcher.status().error, null);
+  f.advance(1000); await f.matcher.tick(); f.advance(1000); await f.matcher.tick();
+  assert.equal(seen.length, 2); assert.deepEqual(new Set(seen), new Set([f.chatId, second]));
+  assert.equal(new MatchingAnalytics(f.store).summary().outcomes.error, 1);
 });
 test("parallel ticks serialize and enforce the twelve-second request interval", async t => {
   const f = fixture(t);
@@ -348,7 +375,7 @@ test("only today's observed chats and tasks are eligible", async t => {
 test("v11 migration keeps manual associations and makes one recoverable backup", t => {
   const f = fixture(t);
   f.store.command({ type: "setPlanChats", id: f.itemId, chatIds: [f.chatId] });
-  f.store.db.exec("DROP TABLE matching_measurements; DROP TABLE matching_feedback; DROP TABLE ai_link_dismissals; DROP TABLE ai_match_attempts; ALTER TABLE plan_chats DROP COLUMN origin; PRAGMA user_version=11;");
+  f.store.db.exec("DROP TABLE matching_measurements; DROP TABLE matching_feedback; DROP TABLE ai_link_dismissals; DROP TABLE ai_match_attempts; ALTER TABLE plan_chats DROP COLUMN origin; ALTER TABLE chat_rounds DROP COLUMN firstPrompt; PRAGMA user_version=11;");
   f.reopen();
   const item = f.plans.items().find(item => item.id === f.itemId)!;
   assert.deepEqual(item.chatIds, [f.chatId]); assert.deepEqual(item.automaticChatIds, []);
