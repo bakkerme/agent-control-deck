@@ -19,6 +19,8 @@ async function main() {
   progress("Installing CPU dependencies");
   await command(uv, ["pip", "install", "--python", python, profile.requirements[0], ...(process.platform === "darwin" ? [] : ["--index-url", "https://download.pytorch.org/whl/cpu"])], options);
   await command(uv, ["pip", "install", "--python", python, ...profile.requirements], options);
+  // Lets the model download trust the OS certificate store (corporate TLS-inspection proxies).
+  await command(uv, ["pip", "install", "--python", python, "truststore==0.10.5"], options);
   progress("Downloading and verifying model (this can take several minutes)");
   const input = join(root, `${model}.setup.json`);
   await writeFile(input, JSON.stringify({ model_id: profile.repo, revision: profile.revision, model_path: join(root, model), exclude: profile.exclude }));

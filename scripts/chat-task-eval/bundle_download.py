@@ -1,12 +1,23 @@
 """Pinned, resumable HF CLI downloads for the standalone benchmark."""
 import argparse
 from datetime import datetime, timezone
+import importlib.util
 import json
 from pathlib import Path
 import subprocess
 import sys
 
 from local_worker import save, sha256, verify_checkpoint
+
+
+# Run the HF CLI with the OS certificate store (truststore) so corporate TLS-inspection proxies validate.
+_HF_WITH_OS_CERTS = "import sys, truststore; truststore.inject_into_ssl(); from huggingface_hub.cli.hf import main; sys.exit(main())"
+
+
+def hf_command():
+    if importlib.util.find_spec("truststore"):
+        return [sys.executable, "-c", _HF_WITH_OS_CERTS]
+    return [str(Path(sys.executable).parent / ("hf.exe" if sys.platform == "win32" else "hf"))]
 
 
 def prepare(config):
@@ -30,13 +41,13 @@ def prepare(config):
         raise ValueError("Unregistered model directory; choose another --work-dir")
     root.parent.mkdir(parents=True, exist_ok=True)
     save(pending, identity)
-    hf = Path(sys.executable).parent / ("hf.exe" if sys.platform == "win32" else "hf")
-    subprocess.run([str(hf), "download", identity["repo_id"], "--revision", identity["revision"],
+    hf = hf_command()
+    subprocess.run([*hf, "download", identity["repo_id"], "--revision", identity["revision"],
                     "--local-dir", str(root), *(["--exclude", *config["exclude"]] if config.get("exclude") else [])], check=True, shell=False,
                     creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
     if config.get("base"):
         base = config["base"]
-        subprocess.run([str(hf), "download", base["repo"], *base["include"], "--revision", base["revision"],
+        subprocess.run([*hf, "download", base["repo"], *base["include"], "--revision", base["revision"],
                         "--local-dir", str(root / "base")], check=True, shell=False,
                         creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
     provenance = {**identity, "download_backend": "hf", "downloaded_at": datetime.now(timezone.utc).isoformat()}

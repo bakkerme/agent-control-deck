@@ -1,5 +1,5 @@
 import { spawn, fork, type ChildProcess } from "node:child_process";
-import { existsSync } from "node:fs";
+import { closeSync, existsSync, openSync, writeSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { z } from "zod";
 import { StringDecoder } from "node:string_decoder";
@@ -32,7 +32,7 @@ export class LocalMatcher implements LocalClient {
   private startup: Promise<void> | null = null;
   private pending: { id: number; resolve: (row: any) => void; reject: (error: Error) => void } | null = null;
   private sequence = 0;
-  constructor(private root: string, private changed: () => void, private assets =
+  private closeLog: () => void = () => {};  constructor(private root: string, private changed: () => void, private assets =
     (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath && existsSync(join((process as any).resourcesPath, "local-matching"))
       ? join((process as any).resourcesPath, "local-matching") : resolve("out/local-matching"),
     private launch: typeof spawn = spawn) {}
@@ -55,7 +55,7 @@ export class LocalMatcher implements LocalClient {
   stop(): void {
     const worker = this.child, setup = this.setup;
     this.child = null; this.setup = null; this.active = "";
-    this.kill(worker); this.kill(setup);
+    this.kill(worker); this.kill(setup); this.closeLog(); this.closeLog = () => {};
     this.pending?.reject(new Error("Local matching cancelled")); this.pending = null;
     this.startup = null;
   }
@@ -79,7 +79,7 @@ export class LocalMatcher implements LocalClient {
     try {
       await new Promise<void>((done, reject) => {
         child.once("error", () => reject(new Error("Could not start local setup")));
-        child.once("close", code => code === 0 && complete && this.setup === child && this.installed(model) ? done() : reject(new Error("Local setup failed. Check the local matching setup log, then retry.")));
+        child.once("close", code => code === 0 && complete && this.setup === child && this.installed(model) ? done() : reject(new Error(`Local setup failed. Check ${join(this.root, "setup.log")}, then retry.`)));
       });
       this.update({ state: "installed", progress: "Model installed; test it before enabling links" });
     } catch (error) {
@@ -97,15 +97,28 @@ export class LocalMatcher implements LocalClient {
     const profile = LOCAL_MODELS[model];
     const child = this.launch(localPython(this.root, model), ["-u", join(this.assets, "desktop_worker.py"), join(this.root, model), profile.repo, profile.revision, String(threads)],
       { env: localEnvironment(process.env,this.root), shell: false, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
-    this.child = child; child.stderr?.resume();
+    this.child = child;
+    // Chat data never leaves this machine, so keep worker stderr (including inference tracebacks) for diagnosis.
+    // Synchronous descriptor so stop() releases the file immediately (Windows cannot delete open files).
+    let fd: number | null = null;
+    try { fd = openSync(join(this.root, "worker.log"), "w"); } catch { /* logging is best effort */ }
+    const log = { write: (text: string | Buffer) => { if (fd !== null) try { writeSync(fd, Buffer.from(text)); } catch { /* best effort */ } },
+      end: () => { if (fd !== null) { try { closeSync(fd); } catch { /* already closed */ } fd = null; } } };
+    let logged = 0;
+    child.stderr?.on("data", (data: Buffer) => {
+      if (logged > 4 * 1024 * 1024) { return; }
+      logged += data.length; log.write(data);
+    });
+    child.once("close", () => log.end());
+    this.closeLog = log.end;
     let buffer = "";
     const decoder = new StringDecoder("utf8");
     const loading = new Promise<void>((done, reject) => {
       const failed = () => {
-        reject(new Error("Local CPU worker failed; test the model to retry"));
+        reject(new Error(`Local CPU worker failed; see ${join(this.root, "worker.log")}, then test the model to retry`));
         if (this.child === child) {
           this.pending?.reject(new Error("Local CPU worker failed")); this.pending = null;
-          this.child = null; this.update({ state: "error", error: "Local CPU worker failed; test the model to retry" });
+          this.child = null; this.update({ state: "error", error: `Local CPU worker failed; see ${join(this.root, "worker.log")}, then test the model to retry` });
         }
       };
       child.once("error", failed); child.once("close", failed);
@@ -124,7 +137,11 @@ export class LocalMatcher implements LocalClient {
               this.update({ state: "ready", progress: "CPU model ready", startupMs: value.startup_ms }); done();
             } else if (this.pending && row.id === this.pending.id) {
               const pending = this.pending; this.pending = null;
-              row.error ? pending.reject(new Error("Local inference failed (input length or runtime error)")) : pending.resolve(row);
+              if (row.error) {
+                const detail = typeof row.detail === "string" ? row.detail : String(row.error);
+                log.write(`[${new Date().toISOString()}] inference failed: ${detail}\n`);
+                pending.reject(new Error(`Local inference failed: ${detail}`));
+              } else pending.resolve(row);
             } else if (row.error) { this.kill(child); failed(); }
             else { throw new Error("Unexpected worker message"); }
           } catch { this.kill(child); failed(); }

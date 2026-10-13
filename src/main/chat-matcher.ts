@@ -177,7 +177,7 @@ export class ChatMatcher {
       this.lastCheckedAt=checkedAt;
     } catch (error) {
       if (generation !== this.generation || this.disposed) measurement.outcome="cancelled";
-      else this.error=isLocal ? "Local matching failed. Test the model or save AI settings to retry." : error instanceof Error ? error.message : "Chat matching failed. Save AI settings to retry.";
+      else this.error=isLocal ? `Local matching failed: ${error instanceof Error ? error.message : "unknown error"}. See worker.log, then test the model or save AI settings to retry.` : error instanceof Error ? error.message : "Chat matching failed. Save AI settings to retry.";
     } finally {
       measurement.endToEndMs=wait+performance.now()-started;
       if (!this.disposed) { try { new MatchingAnalytics(this.store).record(job.payload.chat.id,measurement); } catch { analyticsIncomplete(this.store); } }

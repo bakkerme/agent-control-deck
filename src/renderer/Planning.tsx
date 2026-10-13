@@ -19,7 +19,7 @@ import {
   type PlanEntry,
 } from "../shared/planning";
 import { parseTicket } from "../shared/tickets";
-import { attentionReason } from "../shared/status";
+import { attentionReason, chatProgress } from "../shared/status";
 import {
   displayName,
   providerLabel,
@@ -243,10 +243,21 @@ const Planning = forwardRef<
     (view !== "all" && allEntries.find((e) => e.itemId === id)?.name) ||
     planning.items.find((i) => i.id === id)?.name ||
     "Task";
+  // Day view ordering: done tasks sink to the bottom; otherwise tasks with a
+  // finished/attention-needing chat rise to the top. Saved order breaks ties.
+  const rank = (id: string) => {
+    if (allEntries.find((e) => e.itemId === id)?.workedOn) return 2;
+    const item = planning.items.find((i) => i.id === id);
+    return item &&
+      snapshot.chats.some((c) => item.chatIds.includes(c.id) && attentionReason(c))
+      ? 0
+      : 1;
+  };
+  const ordered = [...allEntries].sort((a, b) => rank(a.itemId) - rank(b.itemId));
   const shown = (
     view === "all"
       ? planning.items
-      : allEntries.map((e) => planning.items.find((i) => i.id === e.itemId)!)
+      : ordered.map((e) => planning.items.find((i) => i.id === e.itemId)!)
   ).filter(
     (i) =>
       i &&
@@ -260,7 +271,7 @@ const Planning = forwardRef<
   const attention = snapshot.chats.filter(
     (c) => !c.archived && attentionReason(c),
   );
-  const newChats = recentUnlinkedChats(snapshot.chats, planning.items);
+  const newChats = recentUnlinkedChats(snapshot.chats, planning.items, planning.entries);
   const newChat = newChats.find((chat) => chat.id === newChatId);
   const changeDay = async (value: string) => {
     if (!validPlanDay(value) || !(await flush())) return;
@@ -360,16 +371,15 @@ const Planning = forwardRef<
   const taskRow = (id: string) => {
     const item = planning.items.find((i) => i.id === id)!,
       e = allEntries.find((e) => e.itemId === id),
-      waiting = snapshot.chats.filter(
-        (c) =>
-          item.chatIds.includes(c.id) && c.state === "waiting" && !c.archived,
-      );
+      linked = snapshot.chats.filter((c) => item.chatIds.includes(c.id)),
+      waiting = linked.filter((c) => c.state === "waiting" && !c.archived),
+      progress = chatProgress(linked);
     return (
       <button
         key={id}
         type="button"
         data-task-card={id}
-        className={`plan-row ${panel !== "new-chat" && current?.id === id ? "selected" : ""} ${waiting.length ? "plan-attention" : ""} ${dragging === id ? "dragging" : ""} ${dropTarget?.beforeId === id ? "drop-before" : ""}`}
+        className={`plan-row ${panel !== "new-chat" && current?.id === id ? "selected" : ""} ${progress.action ? "plan-attention" : ""} ${dragging === id ? "dragging" : ""} ${dropTarget?.beforeId === id ? "drop-before" : ""}`}
         aria-label={`Select task ${nameOf(id)}`}
         aria-pressed={panel !== "new-chat" && current?.id === id}
         aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown Alt+ArrowLeft Alt+ArrowRight"
@@ -392,7 +402,7 @@ const Planning = forwardRef<
           )
             return;
           event.preventDefault();
-          const peers = allEntries.filter((row) => row.category === e.category),
+          const peers = ordered.filter((row) => row.category === e.category),
             index = peers.findIndex((row) => row.itemId === id);
           if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
             const offset = event.key === "ArrowLeft" ? -1 : 1,
@@ -434,6 +444,16 @@ const Planning = forwardRef<
             {item.tickets.map((t) => t.key).join(" · ") || "No ticket linked"}
             {item.chatIds.length ? ` · ${item.chatIds.length} chats` : ""}
           </small>
+          {(progress.action > 0 || progress.working > 0 || progress.finished > 0) && (
+            <small
+              className="plan-chat-progress"
+              aria-label={`${progress.action} need action, ${progress.working} working, ${progress.finished} finished`}
+            >
+              {progress.action > 0 && <span className="plan-needs-input">{progress.action} need action</span>}
+              {progress.working > 0 && <span>{progress.working} working</span>}
+              {progress.finished > 0 && <span>{progress.finished} finished</span>}
+            </small>
+          )}
           {waiting.length > 0 && (
             <small className="plan-needs-input">
               {waiting.map(requestLabel).join(" · ")}
@@ -542,7 +562,7 @@ const Planning = forwardRef<
       value.clientY >
         row.getBoundingClientRect().top + row.getBoundingClientRect().height / 2
     ) {
-      const peers = allEntries.filter((e) => e.category === category),
+      const peers = ordered.filter((e) => e.category === category),
         index = peers.findIndex((e) => e.itemId === beforeId);
       beforeId = peers[index + 1]?.itemId || null;
     }
