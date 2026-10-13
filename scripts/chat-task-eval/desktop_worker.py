@@ -95,10 +95,11 @@ def main():
                 emit({"id": request["id"], "raw": raw, "cold": cold, "inference_ms": (time.perf_counter()-started)*1000,
                       "cpu_ms": (after.user+after.system-before.user-before.system)*1000, "peak_rss_bytes": memory.peak})
                 cold = False
-            except Exception:
+            except Exception as error:
                 # Tracebacks aid local diagnosis and may include input; UI/export errors stay generic.
                 traceback.print_exc(file=sys.stderr)
-                emit({"id": request["id"], "error": "inference_failed"})
+                code = "input_too_large" if getattr(error, "type", None) == "too_long" else "inference_failed"
+                emit({"id": request["id"], "error": code})
 
 if __name__ == "__main__":
     try:

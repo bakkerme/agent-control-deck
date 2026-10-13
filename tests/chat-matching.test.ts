@@ -14,6 +14,7 @@ import { DEFAULT_MODEL, DEFAULT_PROVIDER, parseOutput, type MatchPayload, type r
 import { localPlanDay, nextPlanDay } from "../src/shared/planning";
 import { matchingConfigSchema, saveMatchingSchema } from "../src/shared/matching-settings";
 import { removeFixture } from "./fixture-cleanup";
+import { LocalMatchingError } from "../src/main/local-matching-error";
 
 // Test encryption is independent of OS credentials; the desktop test exercises safeStorage.
 function encryption(): SecretEncryption {
@@ -297,10 +298,86 @@ test("a local per-chat failure is remembered without pausing matching for other 
       return { output: reply(payload, null).output, contextScore: .5, inferenceMs: 1, cpuMs: 1, peakRssBytes: 1, cold: false }; } };
   const f = fixture(t, local), second = f.emit("Another PAY-142 request", "second");
   await f.matcher.save(localConfig); await f.matcher.tick(); f.advance(1000); await f.matcher.tick();
+  const failedChat=seen[0];
   assert.equal(f.matcher.status().error, null);
   f.advance(1000); await f.matcher.tick(); f.advance(1000); await f.matcher.tick();
   assert.equal(seen.length, 2); assert.deepEqual(new Set(seen), new Set([f.chatId, second]));
   assert.equal(new MatchingAnalytics(f.store).summary().outcomes.error, 1);
+  f.advance(13_000); await f.matcher.tick(); f.advance(1000); await f.matcher.tick();
+  assert.equal(seen.filter(id=>id===failedChat).length,2);
+  assert.equal(new MatchingAnalytics(f.store).summary().outcomes.error,1);
+});
+test("local retries keep their delay and three-attempt budget across restarts",async t=>{
+  const local=localFixtureClient(),f=fixture(t,local.client);
+  let attempts=0;
+  local.client.request=async()=>{attempts++;throw new LocalMatchingError("inference","transient");};
+  await f.matcher.save(localConfig);await f.matcher.tick();f.advance(1000);await f.matcher.tick();
+  assert.equal(attempts,1);f.reopen();f.advance(14_000);await f.matcher.tick();assert.equal(attempts,1);
+  f.advance(1000);await f.matcher.tick();f.advance(1000);await f.matcher.tick();assert.equal(attempts,2);
+  f.reopen();f.advance(59_000);await f.matcher.tick();assert.equal(attempts,2);
+  f.advance(1000);await f.matcher.tick();f.advance(1000);await f.matcher.tick();assert.equal(attempts,3);
+  f.reopen();f.advance(120_000);await f.matcher.tick();assert.equal(attempts,3);
+  assert.equal(f.matcher.status().error,null);
+  assert.equal(new MatchingAnalytics(f.store).summary().outcomes.error,3);
+});
+test("permanent local errors and valid abstentions are not retried",async t=>{
+  const local=localFixtureClient(),f=fixture(t,local.client);
+  let attempts=0;
+  local.client.request=async()=>{attempts++;throw new LocalMatchingError("invalid-output","bad distribution");};
+  await f.matcher.save(localConfig);await f.matcher.tick();f.advance(1000);await f.matcher.tick();
+  f.advance(120_000);await f.matcher.tick();assert.equal(attempts,1);
+  local.client.request=async payload=>{attempts++;return {output:reply(payload,null).output,contextScore:.5,inferenceMs:1,cpuMs:1,peakRssBytes:1,cold:false};};
+  f.emit("Another area", "second");await f.matcher.tick();f.advance(1000);await f.matcher.tick();
+  f.advance(120_000);await f.matcher.tick();assert.equal(attempts,2);
+});
+test("shared worker failure budget stops reload loops and persists across restart",async t=>{
+  const local=localFixtureClient(),f=fixture(t,local.client);
+  let attempts=0;
+  local.client.request=async()=>{attempts++;throw new LocalMatchingError("worker","worker failed");};
+  for(let i=0;i<4;i++)f.emit("PAY-142 retries",`extra-${i}`);
+  await f.matcher.save(localConfig);await f.matcher.tick();f.advance(1000);await f.matcher.tick();
+  f.advance(14_000);await f.matcher.tick();assert.equal(attempts,1);
+  f.advance(1000);await f.matcher.tick();f.advance(1000);await f.matcher.tick();assert.equal(attempts,2);
+  f.advance(60_000);await f.matcher.tick();f.advance(1000);await f.matcher.tick();assert.equal(attempts,3);
+  f.reopen();f.advance(120_000);await f.matcher.tick();assert.equal(attempts,3);assert.equal(f.matcher.status().error,null);
+  await assert.rejects(f.matcher.testConnection(),/worker failed/);await f.matcher.tick();assert.equal(attempts,4);
+  local.client.request=async payload=>{attempts++;return {output:reply(payload,null).output,contextScore:.5,inferenceMs:1,cpuMs:1,peakRssBytes:1,cold:false};};
+  await f.matcher.testConnection();await f.matcher.tick();f.advance(1000);await f.matcher.tick();assert.ok(attempts>=6);
+});
+for (const kind of ["inference", "input", "invalid-output", "cancelled", "unavailable"] as const) {
+  test(`interleaved ${kind} errors do not reset the shared worker failure budget`, async t => {
+    const local = localFixtureClient(), f = fixture(t, local.client);
+    const failures = ["worker", kind, "timeout", kind, "worker"] as const;
+    let attempts = 0;
+    local.client.request = async () => {
+      const failure = failures[attempts++] ?? "worker";
+      throw new LocalMatchingError(failure, "synthetic local failure");
+    };
+    for (let i = 0; i < 6; i++) f.emit("PAY-142 retries", `interleaved-${i}`);
+    await f.matcher.save(localConfig);
+    for (let i = 0; i < failures.length; i++) {
+      await f.matcher.tick(); f.advance(1000); await f.matcher.tick(); f.advance(61_000);
+    }
+    assert.equal(attempts, 5);
+    f.reopen();
+    await f.matcher.tick(); f.advance(120_000); await f.matcher.tick();
+    assert.equal(attempts, 5, "the third worker failure stops further requests across restart");
+    assert.equal(f.matcher.status().error, null);
+  });
+}
+test("matching compacts the full opening and task notes before field limits without editing stored text",async t=>{
+  const f=fixture(t),url="https://team.atlassian.net/browse/PAY-142?tracking="+"x".repeat(1800);
+  const prompt=`Investigate ${url} with ${url} and the refund topic after those links.`;
+  const chat=f.emit(prompt,"long-opening");
+  f.store.command({type:"updatePlanItem",id:f.itemId,patch:{name:"Payments",notes:"See https://docs.example/wiki/spaces/PAY/pages/123/Refund+Retry+Plan",tickets:[]}});
+  f.useClient(async payload=>{f.calls.push(payload);return reply(payload,null);});
+  await f.enable();await f.matcher.tick();f.advance();await f.matcher.tick();
+  const submitted=f.calls.find(p=>p.chat.id===chat)!;
+  assert.equal(submitted.chat.latest_round.prompt,"Investigate PAY-142 with PAY-142 and the refund topic after those links.");
+  assert.equal(submitted.chat.latest_round.truncated,false);
+  assert.equal(submitted.tasks.find(task=>task.id===f.itemId)!.notes,"See Refund Retry Plan");
+  assert.equal(f.store.chat(chat).latestRound!.firstPrompt,prompt);
+  assert.match(f.plans.items().find(item=>item.id===f.itemId)!.notes,/https:\/\//);
 });
 test("parallel ticks serialize and enforce the twelve-second request interval", async t => {
   const f = fixture(t);

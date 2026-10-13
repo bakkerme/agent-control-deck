@@ -98,8 +98,10 @@ the matching checkbox off; save the selection, test it and explicitly re-enable.
 
 When enabled, the app considers unarchived provider chats observed today that have
 an observed prompt or response, against today's plan items. It sends bounded chat
-titles, repository names, latest exchange text and task titles, notes, daily
-annotations and ticket keys. It does not scrape transcripts, include filesystem
+titles, repository names, the first observed user prompt and task titles, notes, daily
+annotations and ticket keys. URLs and whitespace are compacted in a matching-only
+copy before limits are applied; assistant responses and later turns are omitted.
+It does not scrape transcripts, include filesystem
 paths, control agents, or infer task completion. At most 50 tasks are considered;
 larger cards pause matching rather than silently omit candidates.
 
@@ -110,9 +112,11 @@ the dismissal. Undo restores the link and its provenance. Background matching
 preserves the last user Undo instead of replacing it.
 
 Cloud requests run one at a time, at most once every 12 seconds. An unchanged assessment
-is cached across restart, including an abstention. New conversation evidence or
+is cached across restart, including an abstention. Changed opening evidence, titles or
 changed task context can trigger another assessment. Responses are discarded if
-their context changed while waiting. Errors pause matching; save AI settings or
+their context changed while waiting. Local transient failures receive two delayed
+background retries with persistent limits and a shared worker failure budget; exhausted
+or invalid requests quietly give up. Cloud errors pause matching; save AI settings or
 successfully test the connection to retry. Matching failures never stop hook
 ingestion. Automatic matching is paused in demo, and demo settings and credentials
 remain separate.

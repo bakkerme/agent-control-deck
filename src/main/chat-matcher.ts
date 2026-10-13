@@ -10,6 +10,9 @@ import { localPlanDay } from "../shared/planning";
 import type { Store } from "./store";
 import { PlanningStore } from "./planning-store";
 import type { SecretStore } from "./secret-store";
+import { compactMatchingText, MATCHING_INPUT_VERSION } from "../shared/matching-input";
+import { LocalMatchingError } from "./local-matching-error";
+import { MatchingRetries } from "./matching-retries";
 
 const OPENING_LIMIT = 3000;
 const defaults = matchingConfigSchema.parse({ enabled: false, model: DEFAULT_MODEL, provider: DEFAULT_PROVIDER });
@@ -24,6 +27,7 @@ export class ChatMatcher {
   private controller: AbortController | null = null;
   private lastCheckedAt: string | null;
   private queue = new Map<string, { payload: MatchPayload; fingerprint: string; queuedAt: number; readyAt: number }>();
+  private retries: MatchingRetries;
   constructor(private store: Store, private secrets: Record<"openrouter" | "bedrock", SecretStore>, private changed: () => void,
     private demo = false, private request: typeof requestMatch = requestMatch,
     private clock: () => number = Date.now,
@@ -38,6 +42,7 @@ export class ChatMatcher {
     const cooldown = store.db.prepare("SELECT value FROM settings WHERE key='chatMatchingNextRequestAt'").get() as { value: string } | undefined;
     const nextAt = Number(cooldown?.value ?? 0);
     this.nextRequestAt = Number.isFinite(nextAt) ? Math.min(nextAt, this.clock() + 12_000) : 0;
+    this.retries = new MatchingRetries(store,clock);
   }
   private secret(config = this.config): SecretStore { return this.secrets[config.backend === "bedrock" ? "bedrock" : "openrouter"]; }
   private requestOptions() {
@@ -77,7 +82,13 @@ export class ChatMatcher {
   }
   private context() {
     const plans = new PlanningStore(this.store), day = localPlanDay(new Date(this.clock()));
-    return { day, chats: this.store.chats(), items: plans.items(), entries: plans.entries().filter(entry => entry.day === day),
+    const items = plans.items(), entries = plans.entries().filter(entry => entry.day === day);
+    const tasks = entries.length <= 50 ? entries.map(entry => {
+      const item = items.find(item => item.id === entry.itemId)!;
+      return { id:item.id, title:compactMatchingText(entry.name || item.name).slice(0,200), notes:compactMatchingText(item.notes).slice(0,2000),
+        day_note:compactMatchingText(entry.note).slice(0,2000), ticket_keys:item.tickets.slice(0,30).map(ticket=>ticket.key.slice(0,100)) };
+    }) : [];
+    return { day, chats: this.store.chats(), items, entries, tasks,
       sources: this.store.sources(), projects: this.store.projects(),
       dismissals: this.store.db.prepare("SELECT itemId,chatId FROM ai_link_dismissals").all() as { itemId: string; chatId: string }[] };
   }
@@ -93,20 +104,17 @@ export class ChatMatcher {
     if (entries.length > 50) throw new Error("Automatic matching supports up to 50 tasks on today's card. No request was sent.");
     const dismissed = context.dismissals.filter(row => row.chatId === chatId);
     const repo = context.projects.find(project => project.id === chat.repoProjectId);
-    const opening = chat.latestRound.firstPrompt.trim() || (chat.name || chat.providerTitle).trim();
+    const opening = compactMatchingText(chat.latestRound.firstPrompt.trim() || (chat.name || chat.providerTitle).trim());
     const prepared = prepareInput({
       schema_version: PROMPT_VERSION, plan_day: day,
-      tasks: entries.map(entry => {
-        const item = items.find(item => item.id === entry.itemId)!;
-        return { id: item.id, title: entry.name || item.name, notes: item.notes.slice(0, 2000), day_note: entry.note.slice(0, 2000), ticket_keys: item.tickets.slice(0, 30).map(ticket => ticket.key.slice(0, 100)) };
-      }),
-      chat: { id: chat.id, title: (chat.name || chat.providerTitle).slice(0, 500), repository: repo?.name.slice(0, 500) ?? null,
+      tasks: context.tasks,
+      chat: { id: chat.id, title: compactMatchingText(chat.name || chat.providerTitle).slice(0, 500), repository: repo?.name.slice(0, 500) ?? null,
         // The opening prompt carries the most task context; chats first seen mid-way fall back to the title.
         // The payload keeps its latest_round shape so remote backends are unaffected; the response is not sent.
         latest_round: { prompt: opening.slice(0, OPENING_LIMIT), response: "", truncated: opening.length > OPENING_LIMIT } },
     }, { existing_links: linked.map(item => ({ task_id: item.id, origin: item.automaticChatIds?.includes(chatId) ? "ai" : "manual" })), dismissed_task_ids: dismissed.map(row => row.itemId) });
     if (prepared.skip) return null;
-    return { payload: prepared.payload, fingerprint: createHash("sha256").update(JSON.stringify({ payload: prepared.payload, connection: this.config.backend === "local" ? { model: LOCAL_MODELS[this.config.localModel], adapter: LOCAL_ADAPTER, threads: this.config.localThreads } : this.requestOptions(), thresholds: this.config.backend === "local" ? LOCAL_MODELS[this.config.localModel].thresholds : THRESHOLDS })).digest("hex") };
+    return { payload: prepared.payload, fingerprint: createHash("sha256").update(JSON.stringify({ inputVersion:MATCHING_INPUT_VERSION,payload: prepared.payload, connection: this.config.backend === "local" ? { model: LOCAL_MODELS[this.config.localModel], adapter: LOCAL_ADAPTER, threads: this.config.localThreads } : this.requestOptions(), thresholds: this.config.backend === "local" ? LOCAL_MODELS[this.config.localModel].thresholds : THRESHOLDS })).digest("hex") };
   }
   async installLocal(): Promise<void> {
     if (this.demo || this.busy || this.updating || this.config.enabled || this.config.backend !== "local") throw new Error("Turn automatic linking off before local setup");
@@ -119,19 +127,26 @@ export class ChatMatcher {
         (!isLocal && (!this.secret().hasKey() || !this.secret().available() || this.clock() < this.nextRequestAt))) return;
     let candidate: { payload: MatchPayload; fingerprint: string; queuedAt: number; readyAt: number } | null = null;
     try {
-      const context = this.context(), eligible = new Set<string>();
+      if (isLocal) {
+        this.retries.configure(createHash("sha256").update(JSON.stringify([LOCAL_MODELS[this.config.localModel],this.config.localThreads,LOCAL_ADAPTER,MATCHING_INPUT_VERSION])).digest("hex"));
+        if (!this.retries.workerReady()) return;
+      }
+      const context = this.context(), eligible = new Set<string>(), retryable = new Set<string>();
       for (const chat of context.chats) {
         const job = this.job(chat.id, context);
         if (!job) continue;
         const previous = this.store.db.prepare("SELECT fingerprint FROM ai_match_attempts WHERE chatId=?").get(chat.id) as { fingerprint: string } | undefined;
         if (previous?.fingerprint === job.fingerprint) continue;
         if (!isLocal) { candidate = { ...job, queuedAt: this.clock(), readyAt: this.clock() }; break; }
+        retryable.add(chat.id);
+        if (!this.retries.allows(chat.id,job.fingerprint)) continue;
         eligible.add(chat.id);
         const pending = this.queue.get(chat.id);
         if (pending?.fingerprint !== job.fingerprint && (pending || this.queue.size < 64))
           this.queue.set(chat.id, { ...job, queuedAt: this.clock(), readyAt: this.clock()+1000 });
       }
       if (isLocal) {
+        this.retries.prune(retryable);
         for (const id of this.queue.keys()) if (!eligible.has(id)) this.queue.delete(id);
         candidate = [...this.queue.values()].find(job=>job.readyAt <= this.clock()) ?? null;
       }
@@ -147,7 +162,7 @@ export class ChatMatcher {
     const wait = Math.max(0, this.clock()-job.queuedAt);
     const measurement: MatchingMeasurement = {
       backend: config.backend, model: isLocal ? config.localModel : this.requestOptions().model,
-      revision: isLocal ? profile.revision : this.requestOptions().model, adapter: isLocal ? LOCAL_ADAPTER : PROMPT_VERSION,
+      revision: isLocal ? profile.revision : this.requestOptions().model, adapter: `${isLocal ? LOCAL_ADAPTER : PROMPT_VERSION}.${MATCHING_INPUT_VERSION}`,
       policy: isLocal ? profile.thresholds : { ...THRESHOLDS, context: null }, threads: isLocal ? config.localThreads : null,
       outcome:"error", inferenceMs:null, cold:false, endToEndMs:0, waitMs:wait, cpuMs:null, peakRssBytes:null,
       candidateCount:job.payload.tasks.length, inputChars:JSON.stringify(job.payload).length,
@@ -168,6 +183,7 @@ export class ChatMatcher {
         output = result.output; measurement.inferenceMs=result.metadata.latency_ms;
       }
       if (this.disposed || generation !== this.generation || !this.config.enabled) { measurement.outcome="cancelled"; return; }
+      if (isLocal) this.retries.succeeded(job.payload.chat.id);
       const decision = decide(output, isLocal ? profile.thresholds : THRESHOLDS);
       measurement.topScore=decision.likelihood ?? null; measurement.margin=decision.margin ?? null;
       if (this.job(job.payload.chat.id)?.fingerprint !== job.fingerprint) { measurement.outcome="stale"; return; }
@@ -180,12 +196,13 @@ export class ChatMatcher {
       this.lastCheckedAt=checkedAt;
     } catch (error) {
       if (generation !== this.generation || this.disposed) measurement.outcome="cancelled";
-      else if (isLocal && this.local.status(config.localModel).state !== "error") {
-        // A timeout or inference failure belongs to this chat, not the worker: remember the attempt so it is not
-        // retried until its content changes, and keep matching the rest of the queue.
-        try { this.store.db.prepare("INSERT INTO ai_match_attempts (chatId,fingerprint,checkedAt) VALUES (?,?,?) ON CONFLICT(chatId) DO UPDATE SET fingerprint=excluded.fingerprint,checkedAt=excluded.checkedAt").run(job.payload.chat.id,job.fingerprint,new Date(this.clock()).toISOString()); } catch { /* retried on the next change */ }
+      else if (isLocal) {
+        const kind = error instanceof LocalMatchingError ? error.kind : this.local.status(config.localModel).state === "error" ? "worker" : "inference";
+        if (this.retries.failed(job.payload.chat.id,job.fingerprint,kind)) {
+          try { this.store.db.prepare("INSERT INTO ai_match_attempts (chatId,fingerprint,checkedAt) VALUES (?,?,?) ON CONFLICT(chatId) DO UPDATE SET fingerprint=excluded.fingerprint,checkedAt=excluded.checkedAt").run(job.payload.chat.id,job.fingerprint,new Date(this.clock()).toISOString()); } catch { analyticsIncomplete(this.store); }
+        }
       }
-      else this.error=isLocal ? `Local matching failed: ${error instanceof Error ? error.message : "unknown error"}. See worker.log, then test the model or save AI settings to retry.` : error instanceof Error ? error.message : "Chat matching failed. Save AI settings to retry.";
+      else this.error=error instanceof Error ? error.message : "Chat matching failed. Save AI settings to retry.";
     } finally {
       measurement.endToEndMs=wait+performance.now()-started;
       if (!this.disposed) { try { new MatchingAnalytics(this.store).record(job.payload.chat.id,measurement); } catch { analyticsIncomplete(this.store); } }
@@ -207,6 +224,7 @@ export class ChatMatcher {
       if (this.config.backend === "local") await this.local.request(payload, this.config.localModel, this.config.localThreads, this.controller!.signal);
       else await this.request(payload, { apiKey, ...this.requestOptions(), backend: this.config.backend, signal: this.controller!.signal, syntheticDiagnostics: true });
       if (this.disposed || generation !== this.generation) throw new Error("Connection settings changed during the test.");
+      if (this.config.backend === "local") this.retries.succeeded();
       this.error = null;
     } finally { this.busy = false; this.controller = null; if (!this.disposed) this.changed(); }
   }

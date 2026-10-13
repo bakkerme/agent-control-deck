@@ -57,9 +57,22 @@ rejected rather than overwritten.
 
 Local matching coalesces updates for one second and processes one request at a time,
 with at most 64 pending chats. Additional chats remain in storage for another pass.
-Unchanged assessments, including abstentions, are cached across restart. New evidence
-or configuration changes trigger another assessment. Stale responses never apply to
+Unchanged assessments, including abstentions, are cached across restart. Changes to
+the opening evidence, title, task context or configuration trigger another assessment. Stale responses never apply to
 edited task/chat context. Cloud backends retain the existing 12-second cooldown.
+
+Matching uses the first observed user prompt (a saved title is the fallback for older
+chats), capped at 3,000 characters after compaction. Assistant responses and later
+turns are omitted. The matching copy shortens Jira `/browse/KEY-123` URLs through the
+existing ticket parser, decodes Confluence page titles from
+[readable URL formats](https://support.atlassian.com/confluence/kb/the-differences-between-various-url-formats-for-a-confluence-page/),
+keeps readable Markdown labels, shortens GitHub issue/PR links to repository and
+number, and collapses excess whitespace. Unknown bare URLs and opaque Confluence
+links without labels stay intact; pages are never fetched to look up titles.
+Task titles, notes and daily annotations use the same compaction before their limits.
+Stored text and clickable links are unchanged. Exported adapter identities include
+`opening.compact.v1` to distinguish this input policy from previous measurements.
+Task descriptions can still make a request exceed the native token limit.
 
 The adapter is **Concise v3**, with synthetic starting thresholds:
 
@@ -70,9 +83,26 @@ The adapter is **Concise v3**, with synthetic starting thresholds:
 
 These are not guarantees of work accuracy. Revisions/policies are shared with the
 harness through `src/shared/local-models.json`. Excessive token length is rejected;
-the app does not drop candidates to make a request fit. Errors pause matching;
-test the model or save settings to retry. Protocol inputs/outputs and timeouts are
-bounded. Raw inference errors that might echo chat content are discarded.
+the app does not drop candidates to make a request fit. Transient local failures
+receive at most two background retries, after 15 and 60 seconds plus ordinary
+coalescing. Other chats continue while a chat waits. Known invalid input/output and
+unavailable checkpoints are skipped without identical retries; valid abstentions
+are completed assessments. After three failed attempts, the fingerprint is cached
+without adding a link. Retry schedules and budgets survive restart, contain only
+IDs/hashes/counts/times and retain at most 64 pending chats. New matching evidence
+gets a fresh per-chat budget.
+
+Worker crashes/load failures and timeouts also share a three-failure circuit breaker
+per model/runtime configuration, preventing a reload loop across many chats. A valid
+local result or successful existing connection test resets worker failures; changing
+model, revision, thread budget or input policy starts a new worker budget. Once
+exhausted, matching quietly gives up for that configuration. No per-chat error badge
+or retry control is added; errors remain measurable in analytics. Cloud error handling
+retains its existing pause behavior.
+
+Protocol inputs/outputs and timeouts are bounded. The bounded local `worker.log`
+retains diagnostic tracebacks, which can include request excerpts. Protocol/UI errors
+are generic, and aggregate exports never include these logs or excerpts.
 
 ## Local performance and feedback
 

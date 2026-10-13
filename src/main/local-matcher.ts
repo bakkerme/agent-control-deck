@@ -5,6 +5,7 @@ import { z } from "zod";
 import { StringDecoder } from "node:string_decoder";
 import { LOCAL_MODELS, localRequest, localOutput, type LocalModel, type LocalRuntimeStatus } from "../shared/local-matching";
 import type { MatchPayload } from "../shared/chat-matching";
+import { LocalMatchingError } from "./local-matching-error";
 
 export function localPython(root: string, model: LocalModel, platform = process.platform) {
   return join(root, ".venvs", model, platform === "win32" ? "Scripts/python.exe" : "bin/python");
@@ -57,7 +58,7 @@ export class LocalMatcher implements LocalClient {
     const worker = this.child, setup = this.setup;
     this.child = null; this.setup = null; this.active = "";
     this.kill(worker); this.kill(setup); this.closeLog(); this.closeLog = () => {};
-    this.pending?.reject(new Error("Local matching cancelled")); this.pending = null;
+    this.pending?.reject(new LocalMatchingError("cancelled","Local matching cancelled")); this.pending = null;
     this.startup = null;
   }
   async install(model: LocalModel): Promise<void> {
@@ -92,7 +93,7 @@ export class LocalMatcher implements LocalClient {
     const identity = `${model}:${threads}`;
     if (this.active === identity && this.state.state === "ready") return;
     if (this.active === identity && this.startup) return this.startup;
-    if (!this.installed(model)) throw new Error("Download the local model first");
+    if (!this.installed(model)) throw new LocalMatchingError("unavailable","Download the local model first");
     this.stop(); this.active = identity;
     this.update({ state: "loading", progress: "Loading CPU model", error: null, startupMs: null });
     const profile = LOCAL_MODELS[model];
@@ -123,9 +124,9 @@ export class LocalMatcher implements LocalClient {
     const decoder = new StringDecoder("utf8");
     const loading = new Promise<void>((done, reject) => {
       const failed = () => {
-        reject(new Error(`Local CPU worker failed; see ${join(this.root, "worker.log")}, then test the model to retry`));
+        reject(new LocalMatchingError("worker",`Local CPU worker failed; see ${join(this.root, "worker.log")}, then test the model to retry`));
         if (this.child === child) {
-          this.pending?.reject(new Error("Local CPU worker failed")); this.pending = null;
+          this.pending?.reject(new LocalMatchingError("worker","Local CPU worker failed")); this.pending = null;
           this.child = null; this.update({ state: "error", error: `Local CPU worker failed; see ${join(this.root, "worker.log")}, then test the model to retry` });
         }
       };
@@ -147,7 +148,7 @@ export class LocalMatcher implements LocalClient {
               const pending = this.pending; this.pending = null;
               if (row.error) {
                 log.write(`[${new Date().toISOString()}] inference failed\n`);
-                pending.reject(new Error(`Local inference failed; see ${join(this.root, "worker.log")} for details`));
+                pending.reject(new LocalMatchingError(row.error === "input_too_large" ? "input" : "inference",`Local inference failed; see ${join(this.root, "worker.log")} for details`));
               } else pending.resolve(row);
             } else if (row.error) { this.kill(child); failed(); }
             else { throw new Error("Unexpected worker message"); }
@@ -171,14 +172,16 @@ export class LocalMatcher implements LocalClient {
       if (signal?.aborted) throw new Error("Local matching cancelled");
       if (this.pending) throw new Error("A local request is already running");
       const id = ++this.sequence, line = JSON.stringify({ id, request: localRequest(payload) }) + "\n";
-      if (Buffer.byteLength(line) > 512 * 1024) throw new Error("Local matching input exceeds the protocol limit");
+      if (Buffer.byteLength(line) > 512 * 1024) throw new LocalMatchingError("input","Local matching input exceeds the protocol limit");
       const row = await new Promise<any>((done, reject) => {
         this.pending = { id, resolve: done, reject };
-        timer = setTimeout(() => { reject(new Error("Local inference timed out")); this.stop(); }, 60_000);
-        this.child!.stdin!.write(line, error => { if (error) { reject(new Error("Local worker input failed")); this.stop(); } });
+        timer = setTimeout(() => { reject(new LocalMatchingError("timeout","Local inference timed out")); this.stop(); }, 60_000);
+        this.child!.stdin!.write(line, error => { if (error) { reject(new LocalMatchingError("worker","Local worker input failed")); this.stop(); } });
       });
-      const resource = metrics.parse(row), parsed = localOutput(row.raw, payload, model);
-      return { ...parsed, inferenceMs: resource.inference_ms, cpuMs: resource.cpu_ms, peakRssBytes: resource.peak_rss_bytes, cold: resource.cold };
+      try {
+        const resource = metrics.parse(row), parsed = localOutput(row.raw, payload, model);
+        return { ...parsed, inferenceMs: resource.inference_ms, cpuMs: resource.cpu_ms, peakRssBytes: resource.peak_rss_bytes, cold: resource.cold };
+      } catch { throw new LocalMatchingError("invalid-output","Invalid local model response"); }
     } finally { clearTimeout(timer); signal?.removeEventListener("abort", abort); }
   }
 }
