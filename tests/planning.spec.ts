@@ -429,3 +429,37 @@ test("Today supports the complete physical-card workflow and preserves context a
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("task rows expose linked chat progress as an accessible description", async ({ launchRenderer }) => {
+  const dir = mkdtempSync(join(tmpdir(), "acd-task-progress-"));
+  const app = await launchRenderer({ dataDirectory: dir });
+  try {
+    const page = await app.firstWindow();
+    const chatIds = await page.evaluate(async (day) => {
+      const ids: string[] = [];
+      for (const state of ["waiting", "running", "idle"] as const) {
+        const snapshot = await window.deck.command({ type: "createChat", name: `${state} chat`, projectId: null });
+        const chat = snapshot.chats.find((entry) => entry.name === `${state} chat`)!;
+        await window.deck.command({ type: "updateChat", id: chat.id, patch: {
+          state, lifecycle: state === "idle" ? "ended" : "open",
+        } });
+        ids.push(chat.id);
+      }
+      await window.deck.command({ type: "createPlanItem", day, category: "Coding", name: "Progress task", chatIds: ids });
+      return ids;
+    }, localPlanDay());
+    const row = page.getByRole("button", { name: "Select task Progress task", exact: true });
+    await expect(row).toHaveAccessibleDescription("1 need action, 1 working, 1 finished");
+    await expect(row.locator(".plan-chat-progress")).toContainText("1 need action");
+    await expect(row.locator(".plan-chat-progress")).toContainText("1 working");
+    await expect(row.locator(".plan-chat-progress")).toContainText("1 finished");
+    await page.evaluate(async (ids) => {
+      for (const id of ids) await window.deck.command({ type: "updateChat", id, patch: { archived: true } });
+    }, chatIds);
+    await expect(row.locator(".plan-chat-progress")).toHaveCount(0);
+    await expect(row).not.toHaveAttribute("aria-description");
+  } finally {
+    await app.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

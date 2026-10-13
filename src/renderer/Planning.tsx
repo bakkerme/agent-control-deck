@@ -317,10 +317,12 @@ const Planning = forwardRef<
     setExpanded(null);
   };
   const createFromChat = (name: string, category: PlanCategory, chatId: string) => {
+    const today = localPlanDay();
     createdBefore.current = new Set(planning.items.map((item) => item.id));
-    void run({ type: "createPlanItem", day, name, category, chatIds: [chatId] }, "Task created with chat linked; removed from New")
+    void run({ type: "createPlanItem", day: today, name, category, chatIds: [chatId] }, "Task created with chat linked; removed from New")
       .then((ok) => {
         if (ok) {
+          setDay(today);
           setPanel("task");
           setView("day");
           setSearch("");
@@ -381,6 +383,9 @@ const Planning = forwardRef<
         data-task-card={id}
         className={`plan-row ${panel !== "new-chat" && current?.id === id ? "selected" : ""} ${progress.action ? "plan-attention" : ""} ${dragging === id ? "dragging" : ""} ${dropTarget?.beforeId === id ? "drop-before" : ""}`}
         aria-label={`Select task ${nameOf(id)}`}
+        aria-description={(progress.action > 0 || progress.working > 0 || progress.finished > 0)
+          ? `${progress.action} need action, ${progress.working} working, ${progress.finished} finished`
+          : undefined}
         aria-pressed={panel !== "new-chat" && current?.id === id}
         aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown Alt+ArrowLeft Alt+ArrowRight"
         title={
@@ -447,7 +452,6 @@ const Planning = forwardRef<
           {(progress.action > 0 || progress.working > 0 || progress.finished > 0) && (
             <small
               className="plan-chat-progress"
-              aria-label={`${progress.action} need action, ${progress.working} working, ${progress.finished} finished`}
             >
               {progress.action > 0 && <span className="plan-needs-input">{progress.action} need action</span>}
               {progress.working > 0 && <span>{progress.working} working</span>}
@@ -1233,7 +1237,7 @@ const Planning = forwardRef<
     );
   } else if (panel === "new-chat") {
     detail = newChat ? <NewChatContext key={newChat.id} chat={newChat} snapshot={snapshot}
-      day={day} busy={busy} save={run} selectTask={selectLinkedTask} create={createFromChat} openChat={openChat}
+      busy={busy} save={run} selectTask={selectLinkedTask} create={createFromChat} openChat={openChat}
       editorRef={newChatEditor} mutate={mutate} report={setError} configureJira={configureJira} active={active} /> : (
       <div className="empty"><h2>Chat no longer available</h2><p>Select another chat or task.</p></div>
     );

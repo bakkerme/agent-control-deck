@@ -49,10 +49,9 @@ export function NewChatList({ chats, snapshot, selected, select }: {
   );
 }
 
-export function NewChatContext({ chat, snapshot, day, busy, save, selectTask, create, openChat, editorRef, mutate, report, configureJira, active }: {
+export function NewChatContext({ chat, snapshot, busy, save, selectTask, create, openChat, editorRef, mutate, report, configureJira, active }: {
   chat: Chat;
   snapshot: Snapshot;
-  day: string;
   busy: boolean;
   save: (command: Command, notice?: string) => Promise<boolean>;
   selectTask: (id: string) => void;
@@ -104,41 +103,41 @@ export function NewChatContext({ chat, snapshot, day, busy, save, selectTask, cr
         historyPreview={<LatestRound chat={chat} fullHistory={() => openChat(chat.id)} />}>
       <section className="plan-detail-section">
         <h3>{linked.length ? "Linked tasks" : "Task links (optional)"}</h3>
-        {linked.length ? linked.map((item) => <button key={item.id} onClick={() => selectTask(item.id)}>{item.name}</button>) : <>
-          <small>This chat can stay here without a task.</small>
-          <div className="plan-actions">
-            <button className="primary" disabled={busy || !snapshot.planning.items.length} onClick={() => setForm("link")}>Link to existing task</button>
-            <button disabled={busy} onClick={() => setForm("create")}>Create task from chat</button>
-          </div>
-          {form === "link" && <form className="new-chat-form" aria-label="Link new chat" onSubmit={(event) => {
-            event.preventDefault();
-            if (!task) return;
-            void save({ type: "setPlanChats", id: task.id, chatIds: [...new Set([...task.chatIds, chat.id])] }, "Chat linked; removed from New")
-              .then((ok) => { if (ok) selectTask(task.id); });
-          }}>
-            <label>Task<select aria-label="Task" required value={target} disabled={busy} onChange={(event) => setTarget(event.target.value)}>
-              <option value="">Choose a task</option>
-              {todayTasks.map(taskOption)}
-              {todayTasks.length > 0 && otherTasks.length > 0 && <option disabled>──────────</option>}
-              {otherTasks.map(taskOption)}
-            </select></label>
-            <small>Tasks from all cards are available, with their latest card date and category. Earlier cards keep their dates.</small>
-            <div className="plan-actions"><button className="primary" disabled={busy || !task}>Link chat</button>
-              <button type="button" disabled={busy} onClick={() => setForm(null)}>Cancel</button></div>
-          </form>}
-          {form === "create" && <form className="new-chat-form" aria-label="Create task from chat" onSubmit={(event) => {
-            event.preventDefault();
-            if (name.trim()) create(name.trim(), category, chat.id);
-          }}>
-            <label>Task name<input required maxLength={200} value={name} disabled={busy} onChange={(event) => setName(event.target.value)} /></label>
-            <label>Category<select aria-label="Category" value={category} disabled={busy} onChange={(event) => setCategory(event.target.value as PlanCategory)}>
-              {planCategories.map((value) => <option key={value}>{value}</option>)}
-            </select></label>
-            <small>Added to {day} with this chat linked.</small>
-            <div className="plan-actions"><button className="primary" disabled={busy || !name.trim()}>Create task</button>
-              <button type="button" disabled={busy} onClick={() => setForm(null)}>Cancel</button></div>
-          </form>}
-        </>}
+        {linked.map((item) => <button key={item.id} onClick={() => selectTask(item.id)}>{item.name}</button>)}
+        <small>{linked.length ? "This chat stays in New until linked to a task on today's card." : "This chat can stay here without a task."}</small>
+        <div className="plan-actions">
+          <button className="primary" disabled={busy || !snapshot.planning.items.length} onClick={() => setForm("link")}>Link to existing task</button>
+          <button disabled={busy} onClick={() => setForm("create")}>Create task from chat</button>
+        </div>
+        {form === "link" && <form className="new-chat-form" aria-label="Link new chat" onSubmit={(event) => {
+          event.preventDefault();
+          if (!task) return;
+          void save({ type: "setPlanChats", id: task.id, chatIds: [...new Set([...task.chatIds, chat.id])] }, onToday.has(task.id)
+            ? "Chat linked; removed from New"
+            : "Chat linked; stays in New until added to today's card")
+            .then((ok) => { if (ok) selectTask(task.id); });
+        }}>
+          <label>Task<select aria-label="Task" required value={target} disabled={busy} onChange={(event) => setTarget(event.target.value)}>
+            <option value="">Choose a task</option>
+            {todayTasks.length > 0 && <optgroup label="Today's card">{todayTasks.map(taskOption)}</optgroup>}
+            {otherTasks.length > 0 && <optgroup label="Other tasks">{otherTasks.map(taskOption)}</optgroup>}
+          </select></label>
+          <small>Tasks from all cards are available, with their latest card date and category. Earlier cards keep their dates. Linking to another card keeps this chat in New.</small>
+          <div className="plan-actions"><button className="primary" disabled={busy || !task}>Link chat</button>
+            <button type="button" disabled={busy} onClick={() => setForm(null)}>Cancel</button></div>
+        </form>}
+        {form === "create" && <form className="new-chat-form" aria-label="Create task from chat" onSubmit={(event) => {
+          event.preventDefault();
+          if (name.trim()) create(name.trim(), category, chat.id);
+        }}>
+          <label>Task name<input required maxLength={200} value={name} disabled={busy} onChange={(event) => setName(event.target.value)} /></label>
+          <label>Category<select aria-label="Category" value={category} disabled={busy} onChange={(event) => setCategory(event.target.value as PlanCategory)}>
+            {planCategories.map((value) => <option key={value}>{value}</option>)}
+          </select></label>
+          <small>Added to today's card ({today}) with this chat linked.</small>
+          <div className="plan-actions"><button className="primary" disabled={busy || !name.trim()}>Create task</button>
+            <button type="button" disabled={busy} onClick={() => setForm(null)}>Cancel</button></div>
+        </form>}
       </section>
       </ChatEditor>
     </div>

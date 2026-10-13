@@ -551,3 +551,27 @@ test("a newer database is rejected without resetting it", (t) => {
   const preserved = new Database(filename, { readonly: true });
   try { assert.deepEqual(preserved.prepare("SELECT * FROM future_data").all(), [{ value: "keep" }]); } finally { preserved.close(); }
 });
+
+
+test("legacy routine rows do not hide or evict meaningful activity", t => {
+  const f = fixture(t);
+  f.store.ingest(f.source.id, event("first", "UserPromptSubmit", { prompt: "Keep this history" }));
+  const chat = f.store.chats()[0];
+  const first = f.store.activity(chat.id)[0];
+  const insert = f.store.db.prepare("INSERT INTO activities VALUES (?,?,?,?,?)");
+  for (let i = 0; i < 100; i++) {
+    insert.run(`legacy-${i}`, chat.id, "2026-01-02T00:00:00.000Z", "PostToolUse", "Tool completed — turn continuing");
+  }
+  // Apply the same behavior to existing v14 databases without deleting their rows.
+  f.reopen();
+  assert.deepEqual(f.store.activity(chat.id).map(row => row.id), [first.id]);
+  f.store.ingest(f.source.id, event("second", "UserPromptSubmit", { prompt: "Next task" }, "2026-01-03T00:00:00.000Z"));
+  assert.equal(f.store.activity(chat.id).length, 2);
+  assert.ok(f.store.activity(chat.id).some(row => row.id === first.id));
+  for (let i = 0; i < 100; i++) {
+    f.store.ingest(f.source.id, event(`new-${i}`, "UserPromptSubmit", { prompt: "Next task" }, "2026-01-03T00:00:00.000Z"));
+  }
+  assert.equal(f.store.activity(chat.id).length, 100);
+  assert.equal(f.store.activity(chat.id).some(row => row.id === first.id), false);
+  assert.equal((f.store.db.prepare("SELECT COUNT(*) AS count FROM activities WHERE kind='PostToolUse'").get() as { count: number }).count, 100);
+});
