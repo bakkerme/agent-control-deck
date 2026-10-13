@@ -49,7 +49,7 @@ export class MatchingRetries {
     if (kind === "worker" || kind === "timeout") {
       this.state.workerFailures = Math.min(3,this.state.workerFailures+1);
       this.state.workerReadyAt = this.clock() + (DELAYS[this.state.workerFailures-1] ?? 0);
-    } else if (kind !== "unavailable") { this.state.workerFailures=0; this.state.workerReadyAt=0; }
+    }
     const done = permanent || failures >= 3 || this.state.entries.length >= 64;
     if (!done) this.state.entries.push({chatId,fingerprint,failures,readyAt:this.clock()+DELAYS[failures-1]});
     this.save(); return done;

@@ -344,6 +344,27 @@ test("shared worker failure budget stops reload loops and persists across restar
   local.client.request=async payload=>{attempts++;return {output:reply(payload,null).output,contextScore:.5,inferenceMs:1,cpuMs:1,peakRssBytes:1,cold:false};};
   await f.matcher.testConnection();await f.matcher.tick();f.advance(1000);await f.matcher.tick();assert.ok(attempts>=6);
 });
+for (const kind of ["inference", "input", "invalid-output", "cancelled", "unavailable"] as const) {
+  test(`interleaved ${kind} errors do not reset the shared worker failure budget`, async t => {
+    const local = localFixtureClient(), f = fixture(t, local.client);
+    const failures = ["worker", kind, "timeout", kind, "worker"] as const;
+    let attempts = 0;
+    local.client.request = async () => {
+      const failure = failures[attempts++] ?? "worker";
+      throw new LocalMatchingError(failure, "synthetic local failure");
+    };
+    for (let i = 0; i < 6; i++) f.emit("PAY-142 retries", `interleaved-${i}`);
+    await f.matcher.save(localConfig);
+    for (let i = 0; i < failures.length; i++) {
+      await f.matcher.tick(); f.advance(1000); await f.matcher.tick(); f.advance(61_000);
+    }
+    assert.equal(attempts, 5);
+    f.reopen();
+    await f.matcher.tick(); f.advance(120_000); await f.matcher.tick();
+    assert.equal(attempts, 5, "the third worker failure stops further requests across restart");
+    assert.equal(f.matcher.status().error, null);
+  });
+}
 test("matching compacts the full opening and task notes before field limits without editing stored text",async t=>{
   const f=fixture(t),url="https://team.atlassian.net/browse/PAY-142?tracking="+"x".repeat(1800);
   const prompt=`Investigate ${url} with ${url} and the refund topic after those links.`;
