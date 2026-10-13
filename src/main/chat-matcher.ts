@@ -11,6 +11,7 @@ import type { Store } from "./store";
 import { PlanningStore } from "./planning-store";
 import type { SecretStore } from "./secret-store";
 
+const OPENING_LIMIT = 3000;
 const defaults = matchingConfigSchema.parse({ enabled: false, model: DEFAULT_MODEL, provider: DEFAULT_PROVIDER });
 export class ChatMatcher {
   private config: MatchingConfig;
@@ -92,7 +93,7 @@ export class ChatMatcher {
     if (entries.length > 50) throw new Error("Automatic matching supports up to 50 tasks on today's card. No request was sent.");
     const dismissed = context.dismissals.filter(row => row.chatId === chatId);
     const repo = context.projects.find(project => project.id === chat.repoProjectId);
-    const round = chat.latestRound;
+    const opening = chat.latestRound.firstPrompt.trim() || (chat.name || chat.providerTitle).trim();
     const prepared = prepareInput({
       schema_version: PROMPT_VERSION, plan_day: day,
       tasks: entries.map(entry => {
@@ -100,7 +101,9 @@ export class ChatMatcher {
         return { id: item.id, title: entry.name || item.name, notes: item.notes.slice(0, 2000), day_note: entry.note.slice(0, 2000), ticket_keys: item.tickets.slice(0, 30).map(ticket => ticket.key.slice(0, 100)) };
       }),
       chat: { id: chat.id, title: (chat.name || chat.providerTitle).slice(0, 500), repository: repo?.name.slice(0, 500) ?? null,
-        latest_round: { prompt: round.prompt.slice(0, 6000), response: round.response.slice(0, 6000), truncated: round.truncated || round.prompt.length > 6000 || round.response.length > 6000 } },
+        // The opening prompt carries the most task context; chats first seen mid-way fall back to the title.
+        // The payload keeps its latest_round shape so remote backends are unaffected; the response is not sent.
+        latest_round: { prompt: opening.slice(0, OPENING_LIMIT), response: "", truncated: opening.length > OPENING_LIMIT } },
     }, { existing_links: linked.map(item => ({ task_id: item.id, origin: item.automaticChatIds?.includes(chatId) ? "ai" : "manual" })), dismissed_task_ids: dismissed.map(row => row.itemId) });
     if (prepared.skip) return null;
     return { payload: prepared.payload, fingerprint: createHash("sha256").update(JSON.stringify({ payload: prepared.payload, connection: this.config.backend === "local" ? { model: LOCAL_MODELS[this.config.localModel], adapter: LOCAL_ADAPTER, threads: this.config.localThreads } : this.requestOptions(), thresholds: this.config.backend === "local" ? LOCAL_MODELS[this.config.localModel].thresholds : THRESHOLDS })).digest("hex") };
@@ -177,6 +180,11 @@ export class ChatMatcher {
       this.lastCheckedAt=checkedAt;
     } catch (error) {
       if (generation !== this.generation || this.disposed) measurement.outcome="cancelled";
+      else if (isLocal && this.local.status(config.localModel).state !== "error") {
+        // A timeout or inference failure belongs to this chat, not the worker: remember the attempt so it is not
+        // retried until its content changes, and keep matching the rest of the queue.
+        try { this.store.db.prepare("INSERT INTO ai_match_attempts (chatId,fingerprint,checkedAt) VALUES (?,?,?) ON CONFLICT(chatId) DO UPDATE SET fingerprint=excluded.fingerprint,checkedAt=excluded.checkedAt").run(job.payload.chat.id,job.fingerprint,new Date(this.clock()).toISOString()); } catch { /* retried on the next change */ }
+      }
       else this.error=isLocal ? `Local matching failed: ${error instanceof Error ? error.message : "unknown error"}. See worker.log, then test the model or save AI settings to retry.` : error instanceof Error ? error.message : "Chat matching failed. Save AI settings to retry.";
     } finally {
       measurement.endToEndMs=wait+performance.now()-started;
