@@ -424,6 +424,8 @@ const Planning = forwardRef<
     return [...ids].map((id) => planning.items.find((i) => i.id === id)).filter((i): i is NonNullable<typeof i> => !!i);
   })();
   const otherTasks = planning.items.filter((i) => !recentTasks.some((r) => r.id === i.id));
+  const continuedCount = cardReview?.items.filter((_, index) => !!reviewDraft.itemIds[index]).length ?? 0;
+  const invalidReviewTitles = cardReview?.items.some((row, index) => !(reviewDraft.names[index] ?? row.name).trim()) ?? false;
   const reference = previousDays.includes(reviewDraft.reference)
     ? reviewDraft.reference
     : previousDays[0];
@@ -1050,23 +1052,27 @@ const Planning = forwardRef<
             Back to Today
           </button>
         </div>
-        <small>
-          {reviewDraft.sourceName} · {cardReview.items.length} entries
-        </small>
-        <p className="muted">
-          Keep the wording from this card. Choose existing context where the
-          work continues.
+        <p className="review-intro">
+          Choose which tasks this card continues. Continued tasks keep their chats,
+          notes, tickets and links; the title below becomes their current name.
         </p>
+        <div className="review-summary">
+          <strong>{continuedCount} continued · {cardReview.items.length - continuedCount} new</strong>
+          <small>{reviewDraft.sourceName} · {cardReview.items.length} entries</small>
+        </div>
         {suggesting && (
-          <small className="muted" role="status">
-            Looking for tasks these continue… {suggesting.done}/{suggesting.total}
-          </small>
+          <div className="review-progress" role="status">
+            Checking for continuations… {suggesting.done}/{suggesting.total}. You can review or import now.
+          </div>
         )}
         {cardReview.items.map((row, index) => {
           const suggestion = reviewDraft.suggestions[index] ?? null;
           return (
           <div className="plan-import-row" key={index}>
-            <small>{row.category}</small>
+            <div className="plan-import-heading">
+              <strong>{index + 1}. {row.category}</strong>
+              <span className="review-choice">{reviewDraft.itemIds[index] ? "Continue task" : "Create new task"}</span>
+            </div>
             <div className="plan-import-map">
               <label>
                 <span className="plan-import-caption">Earlier task</span>
@@ -1090,14 +1096,18 @@ const Planning = forwardRef<
                   {recentTasks.length > 0 && (
                     <optgroup label="Recent cards">
                       {recentTasks.map((i) => (
-                        <option key={i.id} value={i.id}>{i.name}</option>
+                        <option key={i.id} value={i.id} disabled={reviewDraft.itemIds.some((id, n) => n !== index && id === i.id)}>
+                          {i.name}{reviewDraft.itemIds.some((id, n) => n !== index && id === i.id) ? " · used on this card" : ""}
+                        </option>
                       ))}
                     </optgroup>
                   )}
                   {otherTasks.length > 0 && (
                     <optgroup label="Other tasks">
                       {otherTasks.map((i) => (
-                        <option key={i.id} value={i.id}>{i.name}</option>
+                        <option key={i.id} value={i.id} disabled={reviewDraft.itemIds.some((id, n) => n !== index && id === i.id)}>
+                          {i.name}{reviewDraft.itemIds.some((id, n) => n !== index && id === i.id) ? " · used on this card" : ""}
+                        </option>
                       ))}
                     </optgroup>
                   )}
@@ -1109,6 +1119,8 @@ const Planning = forwardRef<
                 <input
                   aria-label={`Title on card ${index + 1}`}
                   required
+                  aria-invalid={!(reviewDraft.names[index] ?? row.name).trim()}
+                  aria-describedby={!(reviewDraft.names[index] ?? row.name).trim() ? `review-title-error-${index}` : undefined}
                   maxLength={200}
                   value={reviewDraft.names[index] ?? row.name}
                   onChange={(e) =>
@@ -1122,25 +1134,28 @@ const Planning = forwardRef<
                   }
                 />
               </label>
-              {suggestion && suggestion.itemId === reviewDraft.itemIds[index] && suggestion.strength === "suggested" && (
-                <span className="task-ai-badge" role="img" aria-label="Suggested continuation" title={suggestion.reason}>
-                  <Icon name="sparkles" />
-                </span>
-              )}
             </div>
+            {!(reviewDraft.names[index] ?? row.name).trim() && (
+              <small className="error" id={`review-title-error-${index}`}>Enter a title for this card.</small>
+            )}
             {suggesting?.current === index && (
-              <small className="muted plan-import-reason" role="status">Asking the model…</small>
+              <small className="muted plan-import-reason" role="status">Checking this entry for a continuation…</small>
             )}
             {suggestion?.strength === "none" && suggestion.reason && !reviewDraft.itemIds[index] && suggesting?.current !== index && (
-              <small className="muted plan-import-reason">No suggestion: {suggestion.reason}</small>
-            )}
-            {suggestion?.itemId && suggestion.itemId === reviewDraft.itemIds[index] && suggestion.strength === "suggested" && (
               <small className="muted plan-import-reason">{suggestion.reason}</small>
             )}
-            {suggestion?.itemId && suggestion.strength === "maybe" && reviewDraft.itemIds[index] !== suggestion.itemId && (
+            {suggestion?.itemId && suggestion.itemId === reviewDraft.itemIds[index] && suggestion.strength === "suggested" && (
+              <div className="plan-import-reason">
+                <span className="review-match" role="img" aria-label="Suggested continuation">
+                  <Icon name="sparkles" /> {suggestion.source === "model" ? "AI suggestion" : suggestion.source === "ticket" ? "Ticket match" : "Title match"}
+                </span>
+                <small>{suggestion.reason}</small>
+              </div>
+            )}
+            {suggestion?.itemId && suggestion.strength === "maybe" && !reviewDraft.touched[index] && !reviewDraft.itemIds.includes(suggestion.itemId) && (
               <div className="plan-import-hint">
                 <small className="muted">
-                  Not sure, but this may continue “{planning.items.find((i) => i.id === suggestion.itemId)?.name ?? "an earlier task"}” ({suggestion.reason}).
+                  Possible continuation: “{planning.items.find((i) => i.id === suggestion.itemId)?.name ?? "an earlier task"}” ({suggestion.reason}).
                 </small>
                 <button
                   type="button"
@@ -1195,10 +1210,12 @@ const Planning = forwardRef<
           </div>
           );
         })}
-        <div className="plan-actions">
+        <div className="review-actions">
+          <small>{invalidReviewTitles ? "Give every entry a title to import." : "Import confirms the choices above."}</small>
+          <div className="plan-actions">
           <button
             className="primary"
-            disabled={busy}
+            disabled={busy || invalidReviewTitles}
             onClick={() =>
               void run(
                 {
@@ -1233,8 +1250,9 @@ const Planning = forwardRef<
             Edit transcription
           </button>
           <button disabled={busy} onClick={() => setDiscardReview(true)}>
-            Cancel
+            Discard…
           </button>
+          </div>
         </div>
         {discardReview && (
           <div className="discard-review" role="alert">

@@ -478,6 +478,7 @@ test("import review suggests which earlier task a reworded entry continues, and 
       .fill(`date: ${day}\ncoding:\n  - name: Ship Billing Export\n    tickets: [EXP-1]\n  - Review hooks\n`);
     await page.getByRole("button", { name: "Review card", exact: true }).click();
     await page.getByRole("button", { name: "Import card", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Select task Ship Billing Export", exact: true })).toBeVisible();
     const earlier = (await page.evaluate(() => window.deck.load())).planning.items.find(
       (i) => i.name === "Ship Billing Export",
     )!;
@@ -486,18 +487,66 @@ test("import review suggests which earlier task a reworded entry continues, and 
       .getByLabel("Card text", { exact: true })
       .fill(`date: ${next}\ncoding:\n  - name: Finalise Billing Export\n    tickets: [EXP-1]\n  - Review hooks\n  - Brand new work\n`);
     await page.getByRole("button", { name: "Review card", exact: true }).click();
-    // Same ticket: pre-selected with a sparkle and a reason. Same title: also picked. Unrelated work stays new.
+    // Same ticket: pre-selected with a visible match label and a reason. Same title: also picked. Unrelated work stays new.
     await expect(page.getByLabel("Task context 1", { exact: true })).toHaveValue(earlier.id);
     await expect(page.getByLabel("Task context 3", { exact: true })).toHaveValue("");
     await expect(page.getByLabel("Suggested continuation")).toHaveCount(2);
     await expect(page.getByText("Shares ticket EXP-1")).toBeVisible();
+    await expect(page.locator(".review-summary")).toContainText("2 continued · 1 new");
+    await expect(page.getByLabel("Task context 3", { exact: true }).locator(`option[value="${earlier.id}"]`)).toHaveJSProperty("disabled", true);
+    const title = page.getByLabel("Title on card 1", { exact: true });
+    await title.fill("   ");
+    await expect(title).toHaveAttribute("aria-invalid", "true");
+    await expect(title).toHaveAccessibleDescription("Enter a title for this card.");
+    await expect(page.getByRole("button", { name: "Import card", exact: true })).toBeDisabled();
+    await title.fill("Finalise Billing Export");
+    await expect(page.getByRole("button", { name: "Import card", exact: true })).toBeEnabled();
+    await page.screenshot({ path: "test-results/card-review-desktop.png" });
+    await app.resize(980, 650);
+    const importButton = page.getByRole("button", { name: "Import card", exact: true });
+    await expect(importButton).toBeInViewport();
+    expect(await page.locator(".plan-details").evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+    await page.screenshot({ path: "test-results/card-review-minimum.png" });
     // The user's choice wins and the new title is kept.
     await page.getByLabel("Task context 2", { exact: true }).selectOption("");
+    await expect(page.locator(".review-summary")).toContainText("1 continued · 2 new");
     await page.getByRole("button", { name: "Import card", exact: true }).click();
+    await expect(page.getByLabel("Daily card review", { exact: true })).toHaveCount(0);
     const loaded = (await page.evaluate(() => window.deck.load())).planning;
     const entry = loaded.entries.find((e) => e.day === next && e.itemId === earlier.id)!;
     expect(entry.name).toBe("Finalise Billing Export");
     expect(loaded.items.filter((i) => i.name === "Review hooks")).toHaveLength(2);
+  } finally {
+    await app.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("tentative continuation hints respect manual choices and tasks already used on the card", async ({ launchRenderer }) => {
+  const dir = mkdtempSync(join(tmpdir(), "acd-continuation-hints-"));
+  const app = await launchRenderer({ dataDirectory: dir });
+  try {
+    const page = await app.firstWindow();
+    await page.evaluate(async day => {
+      const snapshot = await window.deck.command({ type: "createPlanItem", day, category: "Coding", name: "Earlier work", chatIds: [] });
+      const itemId = snapshot.planning.items.find(item => item.name === "Earlier work")!.id;
+      // Exercise the hint interaction independently of model availability.
+      window.deck.suggestContinuation = async input => input.model
+        ? { itemId, strength: "maybe", source: "model", reason: "Similar goal" }
+        : { itemId: null, strength: "none", source: "none", reason: "" };
+    }, localPlanDay());
+    await page.getByRole("button", { name: "Import card", exact: true }).click();
+    await page.getByLabel("Card text", { exact: true }).fill(`date: ${nextPlanDay(localPlanDay())}\ncoding:\n  - First follow-up\n  - Second follow-up\n`);
+    await page.getByRole("button", { name: "Review card", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Continue that task", exact: true })).toHaveCount(2);
+    await page.getByLabel("Task context 1", { exact: true }).selectOption("");
+    await expect(page.locator(".plan-import-row").nth(0).getByRole("button", { name: "Continue that task" })).toHaveCount(0);
+    await page.getByRole("button", { name: "Continue that task", exact: true }).click();
+    await expect(page.locator(".review-summary")).toContainText("1 continued · 1 new");
+    await expect(page.getByRole("button", { name: "Continue that task", exact: true })).toHaveCount(0);
+    await page.getByRole("button", { name: "Discard…", exact: true }).click();
+    await page.getByRole("button", { name: "Keep reviewing", exact: true }).click();
+    await expect(page.getByLabel("Task context 2", { exact: true })).not.toHaveValue("");
   } finally {
     await app.close();
     rmSync(dir, { recursive: true, force: true });
