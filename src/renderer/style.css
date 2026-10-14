@@ -907,7 +907,6 @@ summary {
 .card-import-review .plan-import-row { border: 1px solid var(--border); border-radius: 6px; padding: 14px; margin-bottom: 12px; overflow-wrap: anywhere; }
 .plan-import-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 12px; }
 .plan-import-heading strong { color: var(--muted); }
-.review-choice { color: var(--muted); font-size: 12px; }
 .card-import-review .plan-import-row input, .card-import-review .plan-import-row select { width: 100%; font-weight: 400; }
 .plan-import-map { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 10px; align-items: end; }
 .plan-import-map label { display: grid; gap: 6px; min-width: 0; margin: 12px 0 8px; }

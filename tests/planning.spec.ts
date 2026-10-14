@@ -544,9 +544,26 @@ test("tentative continuation hints respect manual choices and tasks already used
     await page.getByRole("button", { name: "Continue that task", exact: true }).click();
     await expect(page.locator(".review-summary")).toContainText("1 continued · 1 new");
     await expect(page.getByRole("button", { name: "Continue that task", exact: true })).toHaveCount(0);
-    await page.getByRole("button", { name: "Discard…", exact: true }).click();
-    await page.getByRole("button", { name: "Keep reviewing", exact: true }).click();
+    await expect(page.getByText("Create new task", { exact: true })).toHaveCount(0);
+    const discard = page.getByRole("button", { name: "Discard…", exact: true });
+    await discard.click();
+    const dialog = page.getByRole("dialog", { name: "Discard this card review?" });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Keep reviewing" })).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+    await expect(discard).toBeFocused();
     await expect(page.getByLabel("Task context 2", { exact: true })).not.toHaveValue("");
+    await discard.click();
+    await dialog.getByRole("button", { name: "Keep reviewing" }).click();
+    await expect(page.getByLabel("Task context 2", { exact: true })).not.toHaveValue("");
+    await discard.click();
+    await page.screenshot({ path: "test-results/card-review-discard-modal.png" });
+    await dialog.getByRole("button", { name: "Discard review", exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Import card", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Import card", exact: true }).click();
+    await expect(page.getByLabel("Card text", { exact: true })).toHaveValue("");
   } finally {
     await app.close();
     rmSync(dir, { recursive: true, force: true });

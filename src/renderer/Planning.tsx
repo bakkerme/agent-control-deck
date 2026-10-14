@@ -1071,7 +1071,6 @@ const Planning = forwardRef<
           <div className="plan-import-row" key={index}>
             <div className="plan-import-heading">
               <strong>{index + 1}. {row.category}</strong>
-              <span className="review-choice">{reviewDraft.itemIds[index] ? "Continue task" : "Create new task"}</span>
             </div>
             <div className="plan-import-map">
               <label>
@@ -1254,26 +1253,6 @@ const Planning = forwardRef<
           </button>
           </div>
         </div>
-        {discardReview && (
-          <div className="discard-review" role="alert">
-            <strong>Discard this card review?</strong>
-            <div className="plan-actions">
-              <button onClick={() => setDiscardReview(false)}>
-                Keep reviewing
-              </button>
-              <button
-                onClick={() => {
-                  setReviewDraft(newReview());
-                  draft("card-review", null);
-                  setDiscardReview(false);
-                  void showPanel("task");
-                }}
-              >
-                Discard review
-              </button>
-            </div>
-          </div>
-        )}
       </div>
     );
   } else if (panel === "card") {
@@ -2074,6 +2053,27 @@ const Planning = forwardRef<
           </button>
         )}
       </footer>
+      {discardReview && (
+        <Modal title="Discard this card review?" close={() => setDiscardReview(false)}>
+          <p>Your transcription and review choices will be cleared.</p>
+          <div className="plan-actions">
+            <button data-initial-focus autoFocus onClick={() => setDiscardReview(false)}>
+              Keep reviewing
+            </button>
+            <button
+              className="danger"
+              onClick={() => {
+                setReviewDraft(newReview());
+                draft("card-review", null);
+                setDiscardReview(false);
+                void showPanel("task");
+              }}
+            >
+              Discard review
+            </button>
+          </div>
+        </Modal>
+      )}
       {modal === "move" && current && (
         <Modal
           title="Move to another day"
