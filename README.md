@@ -81,6 +81,12 @@ The app backs up an existing database before schema migrations. For a manual bac
 
 ## Checks and packaging
 
+On machines used for work, install the agent-based commit confidentiality guard
+with `npm run guard:install` (Claude Desktop review by default, with no standalone
+Claude CLI; choose Codex with `npm run guard:install -- --reviewer codex`). It blocks commits containing suspected work data
+or enterprise configuration, and blocks when review is uncertain or unavailable.
+See [commit confidentiality review](docs/commit-confidentiality.md) for setup and limits.
+
 For the standalone, synthetic chat-to-task AI experiment, run `npm run test:matching`
 and `npm run eval:matching`. See [matching evaluation](docs/chat-task-matching-eval.md)
 for adding an OpenRouter key and explicitly enabling live requests.

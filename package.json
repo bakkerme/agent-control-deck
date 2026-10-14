@@ -6,6 +6,9 @@
   "author": "Agent Control Deck contributors",
   "main": "out/main/index.js",
   "scripts": {
+    "guard:install": "node scripts/install-commit-guard.mjs",
+    "guard:review": "node scripts/commit-guard.mjs",
+    "test:commit-guard": "node --test scripts/commit-guard.test.mjs",
     "dev": "node scripts/build-local-matching.mjs && electron-vite dev",
     "start": "electron-vite preview",
     "demo": "electron-vite preview -- --demo",
@@ -19,7 +22,7 @@
     "eval:matching:local": "node scripts/chat-task-eval/run-local.mjs",
     "eval:matching": "node --env-file-if-exists=.env.local scripts/chat-task-eval/run.mjs",
     "test:ui": "npm run build && node scripts/build-renderer-tests.cjs && playwright test",
-    "check": "npm run typecheck && npm test && npm run test:ui",
+    "check": "npm run test:commit-guard && npm run typecheck && npm test && npm run test:ui",
     "package": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder",
     "test:packaged": "node scripts/test-packaged.cjs",

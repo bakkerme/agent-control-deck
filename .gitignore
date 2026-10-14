@@ -6,6 +6,12 @@
 openrouter-key.enc*
 bedrock-key.enc*
 
+# Runtime logs and captured event/transcript streams
+*.log
+*.log.*
+*.jsonl
+.claude/settings.local.json
+
 # Python
 .venv/
 .venv-local-matching*/

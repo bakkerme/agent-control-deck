@@ -1,0 +1,3 @@
+#!/bin/sh
+# Review the index and proposed message together, before Git creates the commit.
+exec node scripts/commit-guard.mjs "$1"
