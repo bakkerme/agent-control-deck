@@ -10,10 +10,13 @@ const inputSchema = z.object({
   tool_name: z.string().min(1).max(200), tool_input: z.record(z.string(), z.unknown()),
   tool_use_id: z.string().min(1).max(200).optional(),
 }).passthrough();
+const TURN_EVENTS = new Set(["UserPromptSubmit", "Stop", "StopFailure", "SessionEnd", "Interrupt"]);
+const TOOL_EVENTS = new Set(["PostToolUse", "PostToolUseFailure"]);
 interface Pending {
   request: AgentRequest;
   input: Record<string, unknown>;
   correlation?: string;
+  toolUseId?: string;
   send(output: string): Promise<void>;
   expire(): void;
   timer: NodeJS.Timeout;
@@ -48,7 +51,7 @@ export class InteractionQueue {
     };
     const timer = setTimeout(() => this.cancel(id), this.timeout);
     timer.unref();
-    this.pending.set(id, { request, input: payload.tool_input, correlation, send, expire, timer, responding: false });
+    this.pending.set(id, { request, input: payload.tool_input, correlation, toolUseId: payload.tool_use_id, send, expire, timer, responding: false });
     this.changed();
     return id;
   }
@@ -61,6 +64,15 @@ export class InteractionQueue {
   cancelSource(sourceId: string): void { for (const p of this.pending.values()) if (p.request.sourceId === sourceId) this.cancel(p.request.id); }
   cancelSession(sourceId: string, sessionId: unknown): void {
     for (const p of this.pending.values()) if (p.request.sourceId === sourceId && p.request.sessionId === sessionId) this.cancel(p.request.id);
+  }
+  // A request answered in the agent's own interface may never close its hook
+  // connection. Later activity proves it is stale: a tool result for that call,
+  // or the turn/session moving on.
+  settleElsewhere(sourceId: string, event: string, payload: Record<string, unknown>): void {
+    if (TURN_EVENTS.has(event)) return this.cancelSession(sourceId, payload.session_id);
+    if (!TOOL_EVENTS.has(event) || typeof payload.tool_use_id !== "string") return;
+    for (const p of this.pending.values())
+      if (p.request.sourceId === sourceId && p.request.sessionId === payload.session_id && p.toolUseId === payload.tool_use_id) this.cancel(p.request.id);
   }
   clear(): void { for (const id of this.pending.keys()) this.cancel(id); this.delivered.clear(); }
   async answer(raw: unknown): Promise<void> {
