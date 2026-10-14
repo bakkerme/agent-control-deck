@@ -24,6 +24,7 @@ Use Node 24+ and npm; commit `package-lock.json`. `npm ci` installs Electron and
 - Scope external IDs and workspace paths to a source. Support Windows/WSL aliases without merging by folder basename.
 - Keep demo storage isolated. Never reset a failed/newer database; preserve migration backups.
 - Keep `node_modules/`, output, release artifacts, databases, virtual environments, secrets, and credentials out of Git.
+- Review changes for employer/customer information before staging: replace real examples, transcripts, internal identifiers and organization-specific configuration with synthetic equivalents. Keep the local commit confidentiality hook enabled (`npm run guard:install`); fix blocked findings rather than bypassing the hook.
 
 ## Verification
 
