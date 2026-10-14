@@ -558,6 +558,13 @@ test("tentative continuation hints respect manual choices and tasks already used
     await dialog.getByRole("button", { name: "Keep reviewing" }).click();
     await expect(page.getByLabel("Task context 2", { exact: true })).not.toHaveValue("");
     await discard.click();
+    await page.emulateMedia({ colorScheme: "dark" });
+    await expect(dialog).toHaveCSS("background-color", "rgb(36, 43, 54)");
+    await expect(dialog).toHaveCSS("color", "rgb(230, 235, 243)");
+    await page.screenshot({ path: "test-results/card-review-discard-modal-dark.png" });
+    await page.emulateMedia({ colorScheme: "light" });
+    await expect(dialog).toHaveCSS("background-color", "rgb(255, 255, 255)");
+    await expect(dialog).toHaveCSS("color", "rgb(38, 48, 67)");
     await page.screenshot({ path: "test-results/card-review-discard-modal.png" });
     await dialog.getByRole("button", { name: "Discard review", exact: true }).click();
     await expect(dialog).toHaveCount(0);
