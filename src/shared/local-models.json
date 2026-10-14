@@ -3,13 +3,15 @@
     "repo": "vllm-sr/Decision-2.0-Kai-0.6B",
     "revision": "cc7f30cda9e7c7b28c5f71ef33f01e09385f1c4b",
     "requirements": ["torch==2.14.1", "transformers==5.19.0", "safetensors==0.8.0", "huggingface-hub==1.33.0", "psutil==7.2.2"],
-    "thresholds": {"likelihood": 0.5, "margin": 0.1, "context": 0.25}
+    "thresholds": {"likelihood": 0.5, "margin": 0.1, "context": 0.25},
+    "continuation": {"likelihood": 0.35, "margin": 0.15}
   },
   "vela": {
     "repo": "vllm-sr/Vela-2.0-0.3B",
     "revision": "d6f03aa9baca4f9017fa8f8e9c2764d3bed3f409",
     "requirements": ["torch==2.14.1", "transformers==5.19.0", "safetensors==0.8.0", "huggingface-hub==1.33.0", "psutil==7.2.2"],
     "exclude": ["onnx/*"],
-    "thresholds": {"likelihood": 0.75, "margin": 0.5, "context": 0}
+    "thresholds": {"likelihood": 0.75, "margin": 0.5, "context": 0},
+    "continuation": {"likelihood": 0.75, "margin": 0.5}
   }
 }

@@ -77,6 +77,26 @@ test("delivery failure retains the request; deadlines, disconnects and source/se
   assert.equal(expired, 3);
 });
 
+test("a request answered in the agent's own interface clears on later activity for that call, turn or session", () => {
+  const queue = new InteractionQueue(() => {});
+  let expired = 0;
+  const add = () => queue.add(source, permission, async () => assert.fail(), () => expired++);
+  add();
+  queue.settleElsewhere(source.id, "PostToolUse", { session_id: "session", tool_use_id: "other-tool" });
+  queue.settleElsewhere(source.id, "PostToolUse", { session_id: "other-session", tool_use_id: "tool" });
+  queue.settleElsewhere("other-source", "Stop", { session_id: "session" });
+  queue.settleElsewhere(source.id, "Notification", { session_id: "session", tool_use_id: "tool" });
+  assert.equal(expired, 0);
+  queue.settleElsewhere(source.id, "PostToolUse", { session_id: "session", tool_use_id: "tool" });
+  assert.equal(expired, 1);
+  for (const event of ["PostToolUseFailure", "UserPromptSubmit", "Stop", "StopFailure", "Interrupt"]) {
+    add();
+    queue.settleElsewhere(source.id, event, { session_id: "session", tool_use_id: event === "PostToolUseFailure" ? "tool" : undefined });
+  }
+  assert.equal(expired, 6);
+  assert.equal(queue.snapshot().length, 0);
+});
+
 test("request capacity is bounded and clearing the queue returns every hook without a decision", () => {
   const queue = new InteractionQueue(() => {});
   let expired = 0;

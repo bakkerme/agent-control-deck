@@ -38,6 +38,9 @@ process.on(
         case "testMatchingConnection":
           value = await runtime.testMatchingConnection(input);
           break;
+        case "suggestContinuation":
+          value = await runtime.suggestContinuation(input);
+          break;
         case "load":
           value = runtime.snapshot();
           break;

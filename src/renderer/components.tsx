@@ -66,12 +66,18 @@ export function Modal({
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
-    ref.current?.showModal();
+    const dialog = ref.current;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    dialog?.showModal();
     ref.current
       ?.querySelector<HTMLElement>(
         "[data-initial-focus], input:not([disabled]), textarea:not([disabled]), select:not([disabled])",
       )
       ?.focus();
+    return () => {
+      dialog?.close();
+      if (previousFocus?.isConnected) previousFocus.focus();
+    };
   }, []);
   return (
     <dialog ref={ref} onCancel={close} aria-label={title}>

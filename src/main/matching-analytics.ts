@@ -12,6 +12,7 @@ const measurementSchema = z.object({
   inferenceMs: number.nullable(), cold: z.boolean(), endToEndMs: number, waitMs: number, cpuMs: number.nullable(), peakRssBytes: number.nullable(),
   candidateCount: z.number().int().min(0).max(50), inputChars: z.number().int().min(0).max(512*1024), truncated: z.boolean(),
   contextScore: score.nullable(), topScore: score.nullable(), margin: score.nullable(),
+  purpose: z.literal("continuation").optional(),
 }).strict();
 type Cached = { days: number; until: number; value: MatchingAnalyticsSummary };
 const caches = new WeakMap<Store, Cached>();
@@ -68,7 +69,7 @@ export class MatchingAnalytics {
     for (const row of rows) outcomes[row.data.outcome] = (outcomes[row.data.outcome] ?? 0)+1;
     const feedback = this.store.db.prepare("SELECT kind,COUNT(*) AS n FROM matching_feedback WHERE at >= ? GROUP BY kind").all(cutoff) as {kind:string;n:number}[];
     const count = (kind: string) => feedback.find(f=>f.kind===kind)?.n ?? 0;
-    const value: MatchingAnalyticsSummary = { days, assessments: rows.length, collectionIncomplete:incomplete.has(this.store), chats: new Set(rows.map(r=>r.chatId)).size, outcomes,
+    const value: MatchingAnalyticsSummary = { days, assessments: rows.length, collectionIncomplete:incomplete.has(this.store), chats: new Set(rows.filter(r=>!r.data.purpose).map(r=>r.chatId)).size, outcomes,
       feedback: { removed: count("removed"), manuallyLinked: count("manually-linked"), undoRestored: count("undo-restored") },
       configurations: [...grouped.entries()].map(([key,group]) => {
         const d=group[0].data, success=group.filter(r=>!["error","cancelled"].includes(r.data.outcome)), warm=success.filter(r=>!r.data.cold);
@@ -79,7 +80,8 @@ export class MatchingAnalytics {
           peakRssBytes:percentile(group.map(r=>r.data.peakRssBytes),1),
           cpuMs:group.some(r=>r.data.cpuMs!==null)?group.reduce((sum,r)=>sum+(r.data.cpuMs??0),0):null };
       }), quality: { reviewed:0, precision:null, recall:null },
-      recent:rows.slice(-20).reverse().map(r=>({ id:r.id,at:r.at,model:r.data.model,outcome:r.data.outcome,inferenceMs:r.data.inferenceMs,endToEndMs:r.data.endToEndMs })) };
+      recent:rows.slice(-20).reverse().map(r=>({ id:r.id,at:r.at,model:r.data.model,outcome:r.data.outcome,inferenceMs:r.data.inferenceMs,endToEndMs:r.data.endToEndMs,
+        ...(r.data.purpose ? { purpose:r.data.purpose } : {}) })) };
     caches.set(this.store,{days,until:Date.now()+60_000,value});
     return value;
   }

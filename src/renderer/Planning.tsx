@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import type { Command, Snapshot, Chat } from "../shared/types";
+import { noContinuation, type ContinuationSuggestion } from "../shared/continuation";
 import {
   categoryDescription,
   localPlanDay,
@@ -62,6 +63,10 @@ interface ReviewDraft {
   names: string[];
   itemIds: (string | null)[];
   reference: string;
+  // Suggested continuations. `touched` entries were chosen by the user and are never overwritten.
+  suggestions: (ContinuationSuggestion | null)[];
+  touched: boolean[];
+  suggested: boolean;
 }
 const newReview = (): ReviewDraft => ({
   card: "",
@@ -70,6 +75,9 @@ const newReview = (): ReviewDraft => ({
   names: [],
   itemIds: [],
   reference: "",
+  suggestions: [],
+  touched: [],
+  suggested: false,
 });
 function readDraft<T>(value: string | undefined, fallback: T): T {
   try {
@@ -334,8 +342,12 @@ const Planning = forwardRef<
     setCreator(next);
     draft("task-create", JSON.stringify(next));
   };
+  // Suggestions arrive asynchronously, so patches compose onto the latest draft rather than a stale render's.
+  const reviewRef = useRef(reviewDraft);
+  reviewRef.current = reviewDraft;
   const updateReview = (patch: Partial<ReviewDraft>) => {
-    const next = { ...reviewDraft, ...patch };
+    const next = { ...reviewRef.current, ...patch };
+    reviewRef.current = next;
     setReviewDraft(next);
     draft("card-review", JSON.stringify(next));
   };
@@ -346,6 +358,49 @@ const Planning = forwardRef<
       return null;
     }
   })();
+  const [suggesting, setSuggesting] = useState<{ done: number; total: number; current: number } | null>(null);
+  const suggestRun = useRef<object | null>(null);
+  const reviewing = !!cardReview, reviewCard = reviewDraft.card, reviewSuggested = reviewDraft.suggested;
+  useEffect(() => {
+    if (!reviewing || reviewSuggested) return;
+    const run = {};
+    suggestRun.current = run;
+    const stale = () => suggestRun.current !== run || !reviewRef.current.reviewing;
+    const count = reviewRef.current.names.length;
+    setSuggesting({ done: 0, total: count, current: -1 });
+    void (async () => {
+      const ask = async (index: number, model: boolean) => {
+        const taken = reviewRef.current.itemIds.filter((id, n): id is string => !!id && n !== index);
+        try {
+          return await window.deck.suggestContinuation({ card: reviewCard, index, taken, model });
+        } catch {
+          return noContinuation("Suggestion failed"); // Suggestions are optional; the review works without them.
+        }
+      };
+      const open = (index: number) => !reviewRef.current.itemIds[index] && !reviewRef.current.touched[index];
+      const apply = (index: number, suggestion: ContinuationSuggestion | null) => {
+        const current = reviewRef.current;
+        if (stale() || !suggestion || !open(index) || (suggestion.strength === "none" && !suggestion.reason)) return;
+        const patch: Partial<ReviewDraft> = {
+          suggestions: Array.from({ length: count }, (_, n) => (n === index ? suggestion : current.suggestions[n] ?? null)),
+        };
+        if (suggestion.strength === "suggested" && suggestion.itemId && !current.itemIds.includes(suggestion.itemId))
+          patch.itemIds = Array.from({ length: count }, (_, n) => (n === index ? suggestion.itemId : current.itemIds[n] ?? null));
+        updateReview(patch);
+      };
+      // Instant checks for every entry first, so confident title/ticket matches claim their task before the slower model pass.
+      for (let pass = 0; pass < 2; pass++)
+        for (let index = 0; index < count && !stale(); index++) {
+          if (!open(index)) continue;
+          if (pass === 1) setSuggesting({ done: index, total: count, current: index });
+          apply(index, await ask(index, pass === 1));
+          if (pass === 1) setSuggesting({ done: index + 1, total: count, current: -1 });
+        }
+      if (!stale()) { updateReview({ suggested: true }); setSuggesting(null); }
+    })();
+    return () => { if (suggestRun.current === run) suggestRun.current = null; setSuggesting(null); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reviewing, reviewCard, reviewSuggested]);
   const previousDays = [
     ...new Set(
       planning.entries
@@ -359,6 +414,18 @@ const Planning = forwardRef<
     .filter((d) => d < (cardReview?.day || day))
     .sort()
     .reverse();
+  // Tasks on the last five planned days before the card, newest first, lead the "earlier task" choices.
+  const recentTasks = (() => {
+    const recentDays = [...new Set(planning.entries.filter((e) => e.day < (cardReview?.day || day)).map((e) => e.day))]
+      .sort().reverse().slice(0, 5);
+    const ids = new Set<string>();
+    for (const d of recentDays)
+      for (const e of planning.entries.filter((e) => e.day === d).sort((a, b) => a.position - b.position)) ids.add(e.itemId);
+    return [...ids].map((id) => planning.items.find((i) => i.id === id)).filter((i): i is NonNullable<typeof i> => !!i);
+  })();
+  const otherTasks = planning.items.filter((i) => !recentTasks.some((r) => r.id === i.id));
+  const continuedCount = cardReview?.items.filter((_, index) => !!reviewDraft.itemIds[index]).length ?? 0;
+  const invalidReviewTitles = cardReview?.items.some((row, index) => !(reviewDraft.names[index] ?? row.name).trim()) ?? false;
   const reference = previousDays.includes(reviewDraft.reference)
     ? reviewDraft.reference
     : previousDays[0];
@@ -962,7 +1029,11 @@ const Planning = forwardRef<
                 reviewing: true,
                 names: parsed.items.map((i) => i.name),
                 itemIds: parsed.items.map(() => null),
-                reference: previousDays[0] || "",
+                reference: [...new Set(planning.entries.map((e) => e.day).concat(Object.keys(planning.wrapups), planning.imports.map((i) => i.day)))]
+                  .filter((d) => d < parsed.day).sort().reverse()[0] || "",
+                suggestions: parsed.items.map(() => null),
+                touched: parsed.items.map(() => false),
+                suggested: false,
               });
               setError("");
             } catch (e) {
@@ -981,34 +1052,127 @@ const Planning = forwardRef<
             Back to Today
           </button>
         </div>
-        <small>
-          {reviewDraft.sourceName} · {cardReview.items.length} entries
-        </small>
-        <p className="muted">
-          Keep the wording from this card. Choose existing context where the
-          work continues.
+        <p className="review-intro">
+          Choose which tasks this card continues. Continued tasks keep their chats,
+          notes, tickets and links; the title below becomes their current name.
         </p>
-        {cardReview.items.map((row, index) => (
+        <div className="review-summary">
+          <strong>{continuedCount} continued · {cardReview.items.length - continuedCount} new</strong>
+          <small>{reviewDraft.sourceName} · {cardReview.items.length} entries</small>
+        </div>
+        {suggesting && (
+          <div className="review-progress" role="status">
+            Checking for continuations… {suggesting.done}/{suggesting.total}. You can review or import now.
+          </div>
+        )}
+        {cardReview.items.map((row, index) => {
+          const suggestion = reviewDraft.suggestions[index] ?? null;
+          return (
           <div className="plan-import-row" key={index}>
-            <small>{row.category}</small>
-            <label>
-              Title on this card
-              <input
-                aria-label={`Title on card ${index + 1}`}
-                required
-                maxLength={200}
-                value={reviewDraft.names[index] ?? row.name}
-                onChange={(e) =>
-                  updateReview({
-                    names: cardReview.items.map((r, n) =>
-                      n === index
-                        ? e.target.value
-                        : (reviewDraft.names[n] ?? r.name),
-                    ),
-                  })
-                }
-              />
-            </label>
+            <div className="plan-import-heading">
+              <strong>{index + 1}. {row.category}</strong>
+            </div>
+            <div className="plan-import-map">
+              <label>
+                <span className="plan-import-caption">Earlier task</span>
+                <select
+                  aria-label={`Task context ${index + 1}`}
+                  value={reviewDraft.itemIds[index] || ""}
+                  onChange={(e) =>
+                    updateReview({
+                      itemIds: cardReview.items.map((_, n) =>
+                        n === index
+                          ? e.target.value || null
+                          : reviewDraft.itemIds[n] || null,
+                      ),
+                      touched: cardReview.items.map(
+                        (_, n) => n === index || !!reviewDraft.touched[n],
+                      ),
+                    })
+                  }
+                >
+                  <option value="">New task</option>
+                  {recentTasks.length > 0 && (
+                    <optgroup label="Recent cards">
+                      {recentTasks.map((i) => (
+                        <option key={i.id} value={i.id} disabled={reviewDraft.itemIds.some((id, n) => n !== index && id === i.id)}>
+                          {i.name}{reviewDraft.itemIds.some((id, n) => n !== index && id === i.id) ? " · used on this card" : ""}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {otherTasks.length > 0 && (
+                    <optgroup label="Other tasks">
+                      {otherTasks.map((i) => (
+                        <option key={i.id} value={i.id} disabled={reviewDraft.itemIds.some((id, n) => n !== index && id === i.id)}>
+                          {i.name}{reviewDraft.itemIds.some((id, n) => n !== index && id === i.id) ? " · used on this card" : ""}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
+              </label>
+              <span className="plan-import-arrow" aria-hidden="true">→</span>
+              <label>
+                <span className="plan-import-caption">Title on this card</span>
+                <input
+                  aria-label={`Title on card ${index + 1}`}
+                  required
+                  aria-invalid={!(reviewDraft.names[index] ?? row.name).trim()}
+                  aria-describedby={!(reviewDraft.names[index] ?? row.name).trim() ? `review-title-error-${index}` : undefined}
+                  maxLength={200}
+                  value={reviewDraft.names[index] ?? row.name}
+                  onChange={(e) =>
+                    updateReview({
+                      names: cardReview.items.map((r, n) =>
+                        n === index
+                          ? e.target.value
+                          : (reviewDraft.names[n] ?? r.name),
+                      ),
+                    })
+                  }
+                />
+              </label>
+            </div>
+            {!(reviewDraft.names[index] ?? row.name).trim() && (
+              <small className="error" id={`review-title-error-${index}`}>Enter a title for this card.</small>
+            )}
+            {suggesting?.current === index && (
+              <small className="muted plan-import-reason" role="status">Checking this entry for a continuation…</small>
+            )}
+            {suggestion?.strength === "none" && suggestion.reason && !reviewDraft.itemIds[index] && suggesting?.current !== index && (
+              <small className="muted plan-import-reason">{suggestion.reason}</small>
+            )}
+            {suggestion?.itemId && suggestion.itemId === reviewDraft.itemIds[index] && suggestion.strength === "suggested" && (
+              <div className="plan-import-reason">
+                <span className="review-match" role="img" aria-label="Suggested continuation">
+                  <Icon name="sparkles" /> {suggestion.source === "model" ? "AI suggestion" : suggestion.source === "ticket" ? "Ticket match" : "Title match"}
+                </span>
+                <small>{suggestion.reason}</small>
+              </div>
+            )}
+            {suggestion?.itemId && suggestion.strength === "maybe" && !reviewDraft.touched[index] && !reviewDraft.itemIds.includes(suggestion.itemId) && (
+              <div className="plan-import-hint">
+                <small className="muted">
+                  Possible continuation: “{planning.items.find((i) => i.id === suggestion.itemId)?.name ?? "an earlier task"}” ({suggestion.reason}).
+                </small>
+                <button
+                  type="button"
+                  onClick={() =>
+                    updateReview({
+                      itemIds: cardReview.items.map((_, n) =>
+                        n === index ? suggestion.itemId : reviewDraft.itemIds[n] || null,
+                      ),
+                      touched: cardReview.items.map(
+                        (_, n) => n === index || !!reviewDraft.touched[n],
+                      ),
+                    })
+                  }
+                >
+                  Continue that task
+                </button>
+              </div>
+            )}
             {[...row.tickets, ...row.related].map((ticket, n) => (
               <small className="import-ticket" key={n}>
                 {[ticket.key, ticket.status, ticket.note]
@@ -1017,29 +1181,6 @@ const Planning = forwardRef<
               </small>
             ))}
             {row.note && <MarkdownPreview text={row.note} />}
-            <label>
-              Task context
-              <select
-                aria-label={`Task context ${index + 1}`}
-                value={reviewDraft.itemIds[index] || ""}
-                onChange={(e) =>
-                  updateReview({
-                    itemIds: cardReview.items.map((_, n) =>
-                      n === index
-                        ? e.target.value || null
-                        : reviewDraft.itemIds[n] || null,
-                    ),
-                  })
-                }
-              >
-                <option value="">New task</option>
-                {planning.items.map((i) => (
-                  <option key={i.id} value={i.id}>
-                    Continue: {i.name}
-                  </option>
-                ))}
-              </select>
-            </label>
             {reviewDraft.itemIds[index] && (
               <details>
                 <summary>Existing task context</summary>
@@ -1066,11 +1207,14 @@ const Planning = forwardRef<
               </details>
             )}
           </div>
-        ))}
-        <div className="plan-actions">
+          );
+        })}
+        <div className="review-actions">
+          <small>{invalidReviewTitles ? "Give every entry a title to import." : "Import confirms the choices above."}</small>
+          <div className="plan-actions">
           <button
             className="primary"
-            disabled={busy}
+            disabled={busy || invalidReviewTitles}
             onClick={() =>
               void run(
                 {
@@ -1105,29 +1249,10 @@ const Planning = forwardRef<
             Edit transcription
           </button>
           <button disabled={busy} onClick={() => setDiscardReview(true)}>
-            Cancel
+            Discard…
           </button>
-        </div>
-        {discardReview && (
-          <div className="discard-review" role="alert">
-            <strong>Discard this card review?</strong>
-            <div className="plan-actions">
-              <button onClick={() => setDiscardReview(false)}>
-                Keep reviewing
-              </button>
-              <button
-                onClick={() => {
-                  setReviewDraft(newReview());
-                  draft("card-review", null);
-                  setDiscardReview(false);
-                  void showPanel("task");
-                }}
-              >
-                Discard review
-              </button>
-            </div>
           </div>
-        )}
+        </div>
       </div>
     );
   } else if (panel === "card") {
@@ -1928,6 +2053,27 @@ const Planning = forwardRef<
           </button>
         )}
       </footer>
+      {discardReview && (
+        <Modal title="Discard this card review?" close={() => setDiscardReview(false)}>
+          <p>Your transcription and review choices will be cleared.</p>
+          <div className="plan-actions">
+            <button data-initial-focus autoFocus onClick={() => setDiscardReview(false)}>
+              Keep reviewing
+            </button>
+            <button
+              className="danger"
+              onClick={() => {
+                setReviewDraft(newReview());
+                draft("card-review", null);
+                setDiscardReview(false);
+                void showPanel("task");
+              }}
+            >
+              Discard review
+            </button>
+          </div>
+        </Modal>
+      )}
       {modal === "move" && current && (
         <Modal
           title="Move to another day"

@@ -149,6 +149,7 @@ function registerIpc(): void {
   handle("deck:matching-analytics", input => workspace.matchingAnalytics(input));
   handle("deck:export-matching-analytics", input => workspace.exportMatchingAnalytics(input));
   handle("deck:clear-matching-analytics", input => workspace.clearMatchingAnalytics(input));
+  handle("deck:suggest-continuation", input => workspace.suggestContinuation(input));
   handle("deck:load", () => workspace.snapshot());
   handle("deck:activity", (input) =>
     workspace.store.activity(idSchema.parse(input)),

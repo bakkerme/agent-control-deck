@@ -140,9 +140,10 @@ export class HookReceiver {
         envelope = { version: 1, eventId, observedAt: new Date().toISOString(), payload };
         if (Buffer.byteLength(JSON.stringify(envelope)) > 262144) return reply(413);
       } catch { return reply(400); }
-      // A terminal hook invalidates live decisions even if observation storage
-      // is unavailable. Cancellation must not depend on inbox persistence.
-      if (event === "SessionEnd" || event === "Interrupt") ctx.interactions?.cancelSession(sourceId,payload.session_id);
+      // Later activity invalidates live decisions (answered in the agent's own
+      // interface) even if observation storage is unavailable. Cancellation
+      // must not depend on inbox persistence.
+      ctx.interactions?.settleElsewhere(sourceId,event,payload);
       try {
         // Acknowledge only after the atomic queue write. Database failure leaves
         // the file available for retry; pause retains it as well.
