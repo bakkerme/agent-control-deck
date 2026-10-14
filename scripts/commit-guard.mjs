@@ -211,7 +211,8 @@ function cliCommand(name) {
     const script = join(dirname(path), 'node_modules', ...relative);
     if (existsSync(script)) return [process.execPath, script];
   }
-  throw new Error(`${name} CLI not found; install it and sign in before committing.`);
+  const displayName = name === 'codex' ? 'Codex' : 'Claude';
+  throw new Error(`${displayName} CLI not found; install it and sign in before committing.`);
 }
 
 export function runGuard(cwd, message, reviewer) {
