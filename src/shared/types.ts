@@ -5,6 +5,7 @@ import type {
   PlanTicket,
 } from "./planning";
 import type { MatchingStatus, SaveMatchingInput } from "./matching-settings";
+import type { ContinuationInput, ContinuationSuggestion } from "./continuation";
 import type { AgentRequest, AgentResponse } from "./interactions";
 import type { MatchingAnalyticsSummary } from "./matching-analytics";
 export const states = [
@@ -255,6 +256,7 @@ export interface DeckApi {
   saveMatching(input: SaveMatchingInput): Promise<void>;
   removeMatchingKey(): Promise<void>;
   testMatchingConnection(): Promise<void>;
+  suggestContinuation(input: ContinuationInput): Promise<ContinuationSuggestion>;
   load(): Promise<Snapshot>;
   command(command: Command): Promise<Snapshot>;
   respond(response: AgentResponse): Promise<Snapshot>;

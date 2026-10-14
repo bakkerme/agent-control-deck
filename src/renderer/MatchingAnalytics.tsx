@@ -31,7 +31,7 @@ export default function MatchingAnalytics({ initial }: { initial: MatchingAnalyt
       <td>{c.model}{c.threads!==null?` / ${c.threads}`:""}<small>Policy {c.policy.likelihood} / {c.policy.margin} / {c.policy.context??"native"}</small></td>
       <td>{c.warmSamples} / {c.samples}</td><td>{ms(c.inferenceP50Ms)} / {ms(c.inferenceP95Ms)}</td><td>{ms(c.waitP95Ms)}</td><td>{ms(c.endToEndP95Ms)}</td><td>{c.peakRssBytes===null?"Unavailable":`${(c.peakRssBytes/2**30).toFixed(2)} GiB`}</td>
     </tr>)}</tbody></table></div>:<p className="muted">No matching measurements yet.</p>}
-    <details><summary>Recent decisions</summary><ul>{data.recent.map(r=><li key={r.id}>{r.model} · {r.outcome} · {ms(r.inferenceMs)} model time · {new Date(r.at).toLocaleString()}</li>)}</ul></details>
+    <details><summary>Recent decisions</summary><ul>{data.recent.map(r=><li key={r.id}>{r.model} · {r.purpose ? "card entry · " : ""}{r.outcome} · {ms(r.inferenceMs)} model time{r.purpose ? ` · ${ms(r.endToEndMs)} total` : ""} ·{new Date(r.at).toLocaleString()}</li>)}</ul></details>
     <div className="matching-actions"><button onClick={()=>void download("json")}>Export summary JSON</button><button onClick={()=>void download("html")}>Export summary report</button><button onClick={()=>void window.deck.clearMatchingAnalytics().then(()=>{setNotice("Analytics cleared; links and dismissals are preserved");}).catch(e=>setNotice(message(e)))}>Clear analytics</button></div>
     <p className="muted">Model percentiles exclude the first request after loading. Since queued includes startup when needed. Retained for 30 days, up to 10,000 assessments and feedback events. Exports contain aggregate timings, configuration and counts only.</p>
     <p aria-live="polite">{notice}</p>

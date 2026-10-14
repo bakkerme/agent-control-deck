@@ -161,6 +161,7 @@ async function launch(
         saveMatching: (input) => invoke("saveMatching", input),
         removeMatchingKey: () => invoke("removeMatchingKey"),
         testMatchingConnection: () => invoke("testMatchingConnection"),
+        suggestContinuation: (input) => invoke("suggestContinuation", input),
         load: () => invoke("load"),
         respond: input => invoke("respond", input),
         command: (input) => invoke("command", input),

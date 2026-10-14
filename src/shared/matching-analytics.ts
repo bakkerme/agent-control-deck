@@ -18,6 +18,8 @@ export interface MatchingMeasurement {
   contextScore: number | null;
   topScore: number | null;
   margin: number | null;
+  // Absent for chat matches. "continuation" marks a card-entry suggestion in the import review.
+  purpose?: "continuation";
 }
 export interface MatchingAnalyticsSummary {
   days: number;
@@ -31,5 +33,5 @@ export interface MatchingAnalyticsSummary {
     inferenceP50Ms: number | null; inferenceP95Ms: number | null; endToEndP95Ms: number | null;
     waitP95Ms: number | null; peakRssBytes: number | null; cpuMs: number | null }[];
   quality: { reviewed: 0; precision: null; recall: null };
-  recent: { id: string; at: string; model: string; outcome: string; inferenceMs: number | null; endToEndMs: number }[];
+  recent: { id: string; at: string; model: string; outcome: string; inferenceMs: number | null; endToEndMs: number; purpose?: "continuation" }[];
 }

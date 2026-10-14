@@ -463,3 +463,43 @@ test("task rows expose linked chat progress as an accessible description", async
     rmSync(dir, { recursive: true, force: true });
   }
 });
+test("import review suggests which earlier task a reworded entry continues, and the user stays in control", async ({
+  launchRenderer,
+}) => {
+  const dir = mkdtempSync(join(tmpdir(), "acd-continuation-ui-"));
+  const app = await launchRenderer({ dataDirectory: dir });
+  try {
+    const page = await app.firstWindow(),
+      day = localPlanDay(),
+      next = nextPlanDay(day);
+    await page.getByRole("button", { name: "Import card", exact: true }).click();
+    await page
+      .getByLabel("Card text", { exact: true })
+      .fill(`date: ${day}\ncoding:\n  - name: Ship Billing Export\n    tickets: [EXP-1]\n  - Review hooks\n`);
+    await page.getByRole("button", { name: "Review card", exact: true }).click();
+    await page.getByRole("button", { name: "Import card", exact: true }).click();
+    const earlier = (await page.evaluate(() => window.deck.load())).planning.items.find(
+      (i) => i.name === "Ship Billing Export",
+    )!;
+    await page.getByRole("button", { name: "Import card", exact: true }).click();
+    await page
+      .getByLabel("Card text", { exact: true })
+      .fill(`date: ${next}\ncoding:\n  - name: Finalise Billing Export\n    tickets: [EXP-1]\n  - Review hooks\n  - Brand new work\n`);
+    await page.getByRole("button", { name: "Review card", exact: true }).click();
+    // Same ticket: pre-selected with a sparkle and a reason. Same title: also picked. Unrelated work stays new.
+    await expect(page.getByLabel("Task context 1", { exact: true })).toHaveValue(earlier.id);
+    await expect(page.getByLabel("Task context 3", { exact: true })).toHaveValue("");
+    await expect(page.getByLabel("Suggested continuation")).toHaveCount(2);
+    await expect(page.getByText("Shares ticket EXP-1")).toBeVisible();
+    // The user's choice wins and the new title is kept.
+    await page.getByLabel("Task context 2", { exact: true }).selectOption("");
+    await page.getByRole("button", { name: "Import card", exact: true }).click();
+    const loaded = (await page.evaluate(() => window.deck.load())).planning;
+    const entry = loaded.entries.find((e) => e.day === next && e.itemId === earlier.id)!;
+    expect(entry.name).toBe("Finalise Billing Export");
+    expect(loaded.items.filter((i) => i.name === "Review hooks")).toHaveLength(2);
+  } finally {
+    await app.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

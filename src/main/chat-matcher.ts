@@ -1,5 +1,6 @@
 import { dirname, join } from "node:path";
 import { MatchingAnalytics, analyticsIncomplete } from "./matching-analytics";
+import { noContinuation, type ContinuationSuggestion } from "../shared/continuation";
 import { LocalMatcher, type LocalClient } from "./local-matcher";
 import { LOCAL_MODELS, LOCAL_ADAPTER } from "../shared/local-matching";
 import type { MatchingMeasurement } from "../shared/matching-analytics";
@@ -23,6 +24,8 @@ export class ChatMatcher {
   private updating = false;
   private disposed = false;
   private generation = 0;
+  private continuationChain: Promise<void> = Promise.resolve();
+  private continuationsPending = 0;
   private nextRequestAt = 0;
   private controller: AbortController | null = null;
   private lastCheckedAt: string | null;
@@ -123,7 +126,7 @@ export class ChatMatcher {
   }
   async tick(): Promise<void> {
     const isLocal = this.config.backend === "local";
-    if (this.disposed || this.demo || this.updating || this.error || !this.config.enabled ||
+    if (this.disposed || this.demo || this.updating || this.error || !this.config.enabled || this.continuationsPending ||
         (!isLocal && (!this.secret().hasKey() || !this.secret().available() || this.clock() < this.nextRequestAt))) return;
     let candidate: { payload: MatchPayload; fingerprint: string; queuedAt: number; readyAt: number } | null = null;
     try {
@@ -209,6 +212,77 @@ export class ChatMatcher {
       this.busy=false; this.controller=null;
       if (!this.disposed) this.changed();
     }
+  }
+  // Asks the model whether a card entry continues one of the candidate tasks. Runs one request at a
+  // time, after any background chat match. Returns null when matching is unavailable or superseded;
+  // it never records a matcher error, so a failed suggestion cannot pause chat linking.
+  async suggestContinuation(day: string, entry: { name: string; text: string }, candidates: MatchPayload["tasks"]): Promise<ContinuationSuggestion> {
+    const isLocal = this.config.backend === "local";
+    const ready = () => !this.disposed && !this.demo && !this.updating && !this.error && this.config.enabled &&
+      (isLocal || (this.secret().hasKey() && this.secret().available()));
+    if (!ready()) return noContinuation("AI chat matching is off, so only same-title and same-ticket suggestions are made");
+    if (!candidates.length) return noContinuation();
+    const payload: MatchPayload = { schema_version: PROMPT_VERSION, purpose: "continuation", plan_day: day, tasks: candidates,
+      chat: { id: "card-entry", title: entry.name.slice(0, 500), repository: null,
+        latest_round: { prompt: entry.text.slice(0, OPENING_LIMIT), response: "", truncated: entry.text.length > OPENING_LIMIT } } };
+    prepareInput(payload);
+    // Review suggestions outrank the background chat queue; otherwise that queue can keep the matcher busy indefinitely.
+    this.continuationsPending++;
+    const queuedAt = this.clock(), previous = this.continuationChain;
+    let release!: () => void;
+    this.continuationChain = new Promise<void>(done => { release = done; });
+    try {
+      await previous;
+      for (let waited = 0; this.busy && waited < 900; waited++) await new Promise(done => setTimeout(done, 100));
+      if (this.busy) return noContinuation("The matcher stayed busy; no suggestion was made");
+      if (!ready()) return noContinuation("Matching settings changed; no suggestion was made");
+      const generation = this.generation, config = { ...this.config };
+      this.busy = true; this.controller = new AbortController(); this.changed();
+      const profile = LOCAL_MODELS[config.localModel], started = performance.now(), wait = Math.max(0, this.clock() - queuedAt);
+      const thresholds = isLocal ? profile.continuation : THRESHOLDS;
+      const measurement: MatchingMeasurement = {
+        backend: config.backend, model: isLocal ? config.localModel : this.requestOptions().model,
+        revision: isLocal ? profile.revision : this.requestOptions().model, adapter: `continuation.v1.${MATCHING_INPUT_VERSION}`,
+        policy: isLocal ? { ...profile.continuation, context: null } : { ...THRESHOLDS, context: null }, threads: isLocal ? config.localThreads : null,
+        outcome: "error", inferenceMs: null, cold: false, endToEndMs: 0, waitMs: wait, cpuMs: null, peakRssBytes: null,
+        candidateCount: payload.tasks.length, inputChars: JSON.stringify(payload).length, truncated: payload.chat.latest_round.truncated,
+        contextScore: null, topScore: null, margin: null, purpose: "continuation",
+      };
+      try {
+        let output;
+        if (isLocal) {
+          const result = await this.local.request(payload, config.localModel, config.localThreads, this.controller.signal);
+          output = result.output;
+          Object.assign(measurement, { inferenceMs: result.inferenceMs, cold: result.cold, cpuMs: result.cpuMs, peakRssBytes: result.peakRssBytes, contextScore: result.contextScore });
+        } else {
+          const apiKey = await this.secret().read();
+          if (generation !== this.generation) { measurement.outcome = "cancelled"; return noContinuation("Matching settings changed; no suggestion was made"); }
+          const result = await this.request(payload, { apiKey, ...this.requestOptions(), backend: config.backend as "openrouter" | "bedrock", signal: this.controller.signal });
+          output = result.output; measurement.inferenceMs = result.metadata.latency_ms;
+        }
+        if (this.disposed || generation !== this.generation) { measurement.outcome = "cancelled"; return noContinuation("Matching settings changed; no suggestion was made"); }
+        const decision = decide(output, thresholds);
+        Object.assign(measurement, { topScore: decision.likelihood ?? null, margin: decision.margin ?? null });
+        const percent = Math.round((decision.likelihood ?? 0) * 100);
+        const reason = isLocal ? `Local model, ${percent}% confident` : output.reason;
+        if (decision.action === "link") {
+          measurement.outcome = "linked";
+          return { itemId: decision.task_id, strength: "suggested", source: "model", reason };
+        }
+        measurement.outcome = decision.reason as MatchingMeasurement["outcome"];
+        // A hint only (the user decides), so the local model may speak up at a lower likelihood than it needs to link.
+        if (decision.reason === "uncertain" && decision.top_task_id && (decision.likelihood ?? 0) >= (isLocal ? 0.25 : 0.5))
+          return { itemId: decision.top_task_id, strength: "maybe", source: "model", reason };
+        return noContinuation(decision.reason === "no_match" ? "The model thinks this is new work" : decision.reason === "insufficient_context" ? "Too little detail to judge" : `No confident match (best guess ${percent}%)`);
+      } catch (error) {
+        measurement.outcome = generation !== this.generation || this.disposed ? "cancelled" : "error";
+        return noContinuation(error instanceof LocalMatchingError && error.kind === "timeout" ? "The model timed out" : "The model request failed");
+      } finally {
+        measurement.endToEndMs = wait + performance.now() - started;
+        if (!this.disposed) { try { new MatchingAnalytics(this.store).record("card-entry", measurement); } catch { analyticsIncomplete(this.store); } }
+        this.busy = false; this.controller = null; if (!this.disposed) this.changed();
+      }
+    } finally { this.continuationsPending--; release(); }
   }
   async testConnection(): Promise<void> {
     if (this.busy || this.updating) throw new Error("Wait for the current request or settings save to finish.");

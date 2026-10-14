@@ -901,6 +901,14 @@ summary {
 .card-front section h3 { color: var(--muted); }
 .card-back { margin-bottom: 18px; }
 .card-import-review .plan-import-row input, .card-import-review .plan-import-row select { width: 100%; }
+.plan-import-map { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto; gap: 8px; align-items: end; }
+.plan-import-map label { display: grid; gap: 2px; min-width: 0; }
+.plan-import-caption { color: var(--muted); font-size: 11px; }
+.plan-import-arrow { padding-bottom: 6px; color: var(--muted); }
+.plan-import-map .task-ai-badge { padding-bottom: 6px; }
+.plan-import-reason { display: block; margin-top: 4px; }
+.plan-import-hint { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; }
+.plan-import-hint button { font-size: 12px; padding: 3px 10px; }
 .plan-card-source { max-height: none; }
 .planning-footer { flex-shrink: 0; border-top: 1px solid var(--border); padding: 9px 20px; background: var(--panel); color: var(--muted); font-size: 12px; display: flex; justify-content: space-between; gap: 10px; align-items: center; }
 .repository-detail { min-width: 0; min-height: 0; overflow: auto; background: var(--panel); border-left: 1px solid var(--border); }

@@ -15,6 +15,9 @@ import { saveMatchingSchema } from "../shared/matching-settings";
 import { InteractionQueue } from "./interactions";
 import { promptTitle } from "../shared/presentation";
 import { MatchingAnalytics } from "./matching-analytics";
+import { continuationInputSchema, noContinuation, quickContinuation, type ContinuationSuggestion } from "../shared/continuation";
+import { parseDailyPlan } from "../shared/planning";
+import { compactMatchingText } from "../shared/matching-input";
 
 const unavailableEncryption: SecretEncryption = {
   available: () => false,
@@ -162,6 +165,24 @@ export class WorkspaceRuntime {
   async testMatchingConnection(input: unknown): Promise<void> {
     z.undefined().parse(input);
     await this.matcher.testConnection();
+  }
+
+  // Suggests, never applies: the import review shows the result and the user confirms it.
+  async suggestContinuation(input: unknown): Promise<ContinuationSuggestion> {
+    const { card, index, taken, model } = continuationInputSchema.parse(input);
+    const parsed = parseDailyPlan(card), row = parsed.items[index];
+    if (!row) throw new Error("This entry is not on the card");
+    const blocked = new Set(taken);
+    const candidates = new PlanningStore(this.store).continuationCandidates(parsed.day).filter(c => !c.memberIds.some(id => blocked.has(id)));
+    if (!candidates.length) return noContinuation();
+    const tickets = [...row.tickets, ...row.related].map(ticket => ticket.key);
+    const quick = quickContinuation({ name: row.name, ticketKeys: tickets }, candidates);
+    if (quick || !model) return quick ?? noContinuation();
+    const text = compactMatchingText([row.name, row.note, tickets.length ? `Tickets: ${tickets.join(", ")}` : ""].filter(Boolean).join("\n"));
+    try {
+      return await this.matcher.suggestContinuation(parsed.day, { name: compactMatchingText(row.name), text },
+        candidates.map(c => ({ id: c.id, title: c.title, notes: c.aliases.length ? `Also called: ${c.aliases.join("; ")}` : "", day_note: "", ticket_keys: c.ticket_keys })));
+    } catch { return noContinuation("Suggestion failed"); }
   }
 
   async installLocalMatching(input: unknown): Promise<void> {

@@ -1,5 +1,6 @@
 import { MatchingAnalytics, analyticsIncomplete } from "./matching-analytics";
 import { createHash, randomUUID } from "node:crypto";
+import { compactMatchingText } from "../shared/matching-input";
 import type { Store } from "./store";
 import type { Command } from "../shared/types";
 import {
@@ -92,6 +93,50 @@ export class PlanningStore {
         }[]
       ).map((row) => [row.key, row.value]),
     );
+  }
+  // Tasks a card for `day` could continue: the latest earlier card, plus unfinished tasks from
+  // the four planned days before it. People rename work as it moves along, so tasks sharing a ticket
+  // are one candidate (the most recent task, listing the other names), keeping the model's choice from
+  // being split across near-duplicates.
+  continuationCandidates(day: string, limit = 50) {
+    const entries = this.entries().filter((e) => e.day < day);
+    const days = [...new Set(entries.map((e) => e.day))].sort().reverse().slice(0, 5);
+    const items = new Map(this.items().map((i) => [i.id, i]));
+    const seen = new Set<string>();
+    const picked: { id: string; title: string; names: string[]; keys: string[] }[] = [];
+    days.forEach((d, n) => {
+      const planned = entries.filter((e) => e.day === d).sort((a, b) => a.position - b.position);
+      for (const entry of planned) {
+        const item = items.get(entry.itemId);
+        if (!item || seen.has(item.id) || (n > 0 && entry.workedOn)) continue;
+        seen.add(item.id);
+        // A task continued across days keeps one identity with a name per card: those earlier names are aliases.
+        const names = entries.filter((e) => e.itemId === item.id).sort((a, b) => b.day.localeCompare(a.day)).map((e) => compactMatchingText(e.name || item.name).slice(0, 200)).filter(Boolean);
+        picked.push({
+          id: item.id,
+          title: compactMatchingText(entry.name || item.name).slice(0, 200) || "Untitled",
+          names,
+          keys: item.tickets.slice(0, 30).map((t) => t.key.slice(0, 100)),
+        });
+      }
+    });
+    const parent = picked.map((_, i) => i);
+    const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+    const owner = new Map<string, number>();
+    picked.forEach((task, i) => task.keys.forEach((key) => {
+      const other = owner.get(key.toUpperCase());
+      if (other === undefined) owner.set(key.toUpperCase(), i);
+      else parent[find(i)] = find(other);
+    }));
+    const groups = new Map<number, typeof picked>();
+    picked.forEach((task, i) => groups.set(find(i), [...(groups.get(find(i)) ?? []), task]));
+    return [...groups.values()].slice(0, limit).map((group) => ({
+      id: group[0].id,
+      title: group[0].title,
+      aliases: [...new Set(group.flatMap((t, i) => (i ? [t.title] : []).concat(t.names)).filter((t) => t !== group[0].title))].slice(0, 5),
+      ticket_keys: [...new Set(group.flatMap((t) => t.keys))].slice(0, 30),
+      memberIds: group.map((t) => t.id),
+    }));
   }
   undoId(): string | null {
     return (
