@@ -1,12 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Options, SDKMessage, PermissionResult } from "@anthropic-ai/claude-agent-sdk";
 import { Store } from "../src/main/store";
 import { PlanningStore } from "../src/main/planning-store";
+import { embeddedConfig } from "../src/main/embedded-config";
 import { EmbeddedChats } from "../src/main/embedded-chat";
 import type { AgentRunner } from "../src/main/embedded-sdk";
 const sessionId = "11111111-1111-4111-8111-111111111111";
@@ -16,14 +17,14 @@ async function until(predicate: () => boolean | Promise<boolean>) { for (let i =
 function fixture(t: { after(fn: () => void): void }, runner: AgentRunner, key: string | undefined = "synthetic-test-key") {
   const dir = mkdtempSync(join(tmpdir(), "acd-embedded-"));
   let store = new Store(join(dir, "workspace.sqlite"));
-  let service = new EmbeddedChats(store, dir, () => {}, true, runner, key, "api-key");
+  let service = new EmbeddedChats(store, dir, () => {}, true, runner, embeddedConfig({ ACD_EMBEDDED_AUTH: "api-key", ANTHROPIC_API_KEY: key }));
   store.command({ type: "createPlanItem", day: "2026-10-18", category: "Other", name: "Synthetic research" });
   const taskId = new PlanningStore(store).items()[0].id;
   t.after(() => { service.close(); store.close(); rmSync(dir, { recursive: true, force: true }); });
   return { dir, taskId, get store() { return store; }, get service() { return service; },
     async create() { return (await service.command({ type: "create", taskId, cwd: dir, name: "Synthetic agent" })).chat!; },
     async read(chatId: string) { return (await service.command({ type: "read", chatId })).chat!; },
-    reopen() { service.close(); store.close(); store = new Store(join(dir, "workspace.sqlite")); service = new EmbeddedChats(store, dir, () => {}, true, runner, key, "api-key"); },
+    reopen() { service.close(); store.close(); store = new Store(join(dir, "workspace.sqlite")); service = new EmbeddedChats(store, dir, () => {}, true, runner, embeddedConfig({ ACD_EMBEDDED_AUTH: "api-key", ANTHROPIC_API_KEY: key })); },
   };
 }
 test("task links, streamed block reconciliation, resume and normal workflow survive restart", async t => {
@@ -110,7 +111,7 @@ test("errors remain resumable, missing auth is explicit, invalid input and disab
   assert.ok(!(await f.read(chat.chatId)).events.some(e => e.text.includes("synthetic secret error")));
   await assert.rejects(f.service.command({ type: "create", taskId: f.taskId, cwd: "relative", name: "Bad" }), /absolute/);
   await assert.rejects(f.service.command({ type: "read", chatId: "not-embedded" }), /embedded chat/);
-  const noAuth = new EmbeddedChats(f.store, f.dir, () => {}, true, async () => { throw new Error("must not run"); }, "", "api-key");
+  const noAuth = new EmbeddedChats(f.store, f.dir, () => {}, true, async () => { throw new Error("must not run"); }, embeddedConfig({ ACD_EMBEDDED_AUTH: "api-key" }));
   await assert.rejects(noAuth.command({ type: "send", sendId: randomUUID(), chatId: chat.chatId, text: "Hi" }), /ANTHROPIC_API_KEY/);
   noAuth.close();
   const disabled = new EmbeddedChats(f.store, f.dir, () => {}, false);
@@ -200,4 +201,85 @@ test("retried app send IDs never resubmit a turn, including after restart", asyn
   assert.equal(calls, 1);
   assert.equal((await f.read(chat.chatId)).events.filter(e => e.kind === "user").length, 1);
   await assert.rejects(f.service.command({ ...send, text: "Different" }), /different message/);
+});
+
+test("OpenRouter propagates backend-only options, proxy and role models without persisting credentials", async t => {
+  let options: Options | undefined;
+  const f = fixture(t, async () => { throw new Error("unused"); });
+  f.service.close();
+  const credential = "synthetic-openrouter-credential";
+  const config = embeddedConfig({ ACD_EMBEDDED_PROVIDER: "openrouter", ANTHROPIC_AUTH_TOKEN: credential, ANTHROPIC_API_KEY: "wrong-provider-key", HTTPS_PROXY: "http://proxy.invalid:8080", NODE_USE_ENV_PROXY: "1", CLAUDE_CODE_OAUTH_TOKEN: "unrelated", ANTHROPIC_DEFAULT_HAIKU_MODEL: "claude-unwanted" });
+  const service = new EmbeddedChats(f.store, f.dir, () => {}, true, async (_text, opts) => {
+    options = opts;
+    return { close() {}, async *[Symbol.asyncIterator]() {
+      const decision = await opts.canUseTool!("AskUserQuestion", { questions: [{ question: credential, header: "Synthetic", options: [{ label: "A" }] }] }, { signal: opts.abortController!.signal, toolUseID: "synthetic", requestId: "synthetic" });
+      assert.equal(decision?.behavior, "deny");
+      yield sdk({ type: "assistant", uuid: "synthetic", message: { id: "synthetic", content: [{ type: "text", text: credential }] } });
+      yield sdk({ type: "result", session_id: sessionId, is_error: false, subtype: "success" });
+    } };
+  }, config);
+  t.after(() => service.close());
+  const chat = (await service.command({ type: "create", taskId: f.taskId, cwd: f.dir, name: "Router fixture" })).chat!;
+  await service.command({ type: "send", chatId: chat.chatId, sendId: randomUUID(), text: "Synthetic" });
+  await until(async () => !(await service.command({ type: "read", chatId: chat.chatId })).chat!.active);
+  assert.equal(options?.model, "deepseek/deepseek-v4.1-flash-1017");
+  assert.equal(options?.env?.ANTHROPIC_API_KEY, "");
+  assert.equal(options?.env?.ANTHROPIC_AUTH_TOKEN, credential);
+  assert.equal(options?.env?.ANTHROPIC_BASE_URL, "https://openrouter.ai/api");
+  assert.equal(options?.env?.HTTPS_PROXY, "http://proxy.invalid:8080");
+  assert.equal(options?.env?.NODE_USE_ENV_PROXY, "1");
+  assert.equal(options?.env?.CLAUDE_CODE_OAUTH_TOKEN, undefined);
+  for (const key of ["ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_SMALL_FAST_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL"]) assert.equal(options?.env?.[key], options?.model);
+  const reply = await service.command({ type: "read", chatId: chat.chatId });
+  assert.equal(reply.provider, "openrouter");
+  assert.ok(!JSON.stringify(reply).includes(credential));
+  assert.ok(!JSON.stringify(f.store.db.prepare("SELECT * FROM embedded_sessions").all()).includes(credential));
+  assert.ok(!JSON.stringify(f.store.db.prepare("SELECT * FROM embedded_events").all()).includes(credential));
+});
+
+test("provider/model switches and legacy sessions require a fresh chat and retain history", async t => {
+  let calls = 0;
+  const f = fixture(t, async () => { calls++; return { close() {}, async *[Symbol.asyncIterator]() { yield sdk({ type: "result", session_id: sessionId, is_error: false, subtype: "success" }); } }; });
+  const chat = await f.create();
+  await f.service.command({ type: "send", chatId: chat.chatId, sendId: randomUUID(), text: "Keep this history" });
+  await until(async () => !(await f.read(chat.chatId)).active);
+  f.service.close();
+  for (const config of [embeddedConfig({ ACD_EMBEDDED_PROVIDER: "openrouter", ANTHROPIC_AUTH_TOKEN: "synthetic" }), embeddedConfig({ ACD_EMBEDDED_AUTH: "api-key", ANTHROPIC_API_KEY: "synthetic", ACD_EMBEDDED_MODEL: "other-model" }), embeddedConfig({ ACD_EMBEDDED_AUTH: "api-key", ANTHROPIC_API_KEY: "synthetic", ACD_EMBEDDED_HELPER_MODEL: "other-helper" })]) {
+    const service = new EmbeddedChats(f.store, f.dir, () => {}, true, async () => { calls++; throw new Error("must not run"); }, config);
+    await assert.rejects(service.command({ type: "send", chatId: chat.chatId, sendId: randomUUID(), text: "Continue" }), /new embedded chat/);
+    assert.equal((await service.command({ type: "read", chatId: chat.chatId })).chat!.sessionId, sessionId);
+    service.close();
+  }
+  f.store.db.prepare("UPDATE embedded_sessions SET configIdentity=NULL WHERE chatId=?").run(chat.chatId);
+  f.reopen();
+  await assert.rejects(f.service.command({ type: "send", chatId: chat.chatId, sendId: randomUUID(), text: "Legacy" }), /legacy session/);
+  assert.equal((await f.read(chat.chatId)).events[0].text, "Keep this history");
+  assert.equal(calls, 1);
+});
+
+test("v15 migration backs up sessions and preserves task history without guessing model identity", async t => {
+  const f = fixture(t, async () => { throw new Error("must not run"); });
+  const chat = await f.create();
+  f.store.db.prepare("UPDATE embedded_sessions SET sessionId=? WHERE chatId=?").run(sessionId, chat.chatId);
+  f.store.db.exec("ALTER TABLE embedded_sessions DROP COLUMN configIdentity; ALTER TABLE embedded_sessions DROP COLUMN model; ALTER TABLE embedded_sessions DROP COLUMN provider; PRAGMA user_version=15;");
+  f.reopen();
+  assert.equal(f.store.db.pragma("user_version", { simple: true }), 16);
+  assert.ok(readdirSync(f.dir).some(name => /^workspace\.sqlite\.bak-/.test(name)));
+  assert.equal((await f.read(chat.chatId)).sessionId, sessionId);
+  assert.ok(new PlanningStore(f.store).items()[0].chatIds.includes(chat.chatId));
+  await assert.rejects(f.service.command({ type: "send", chatId: chat.chatId, sendId: randomUUID(), text: "Legacy" }), /new embedded chat/);
+});
+
+test("SDK result and assistant auth failures show safe diagnostics rather than provider payloads", async t => {
+  const f = fixture(t, async () => ({ close() {}, async *[Symbol.asyncIterator]() {
+    yield sdk({ type: "assistant", error: "authentication_failed", uuid: "auth", message: { id: "auth", content: [{ type: "text", text: "sensitive provider payload" }] } });
+    yield sdk({ type: "result", is_error: true, subtype: "error_during_execution", errors: ["401 sensitive provider payload"] });
+  } }));
+  const chat = await f.create();
+  await f.service.command({ type: "send", chatId: chat.chatId, sendId: randomUUID(), text: "Synthetic" });
+  await until(async () => !(await f.read(chat.chatId)).active);
+  const result = await f.read(chat.chatId);
+  assert.equal(result.state, "error");
+  assert.equal(result.events.filter(e => e.kind === "error" && /authentication rejected/.test(e.text)).length, 2);
+  assert.ok(!JSON.stringify(result).includes("sensitive provider payload"));
 });

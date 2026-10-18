@@ -377,7 +377,7 @@ test("v9 planning migration backs up once, retains existing chats, and isolates 
     "DROP TABLE embedded_sends; DROP TABLE embedded_events; DROP TABLE embedded_sessions; DROP TABLE matching_measurements; DROP TABLE matching_feedback; DROP TABLE ai_link_dismissals; DROP TABLE ai_match_attempts; DROP TABLE plan_wrapups; DROP TABLE plan_drafts; DROP TABLE plan_undo; DROP TABLE chat_rounds; DROP TABLE plan_chats; DROP TABLE plan_entries; DROP TABLE plan_imports; DROP TABLE plan_items; PRAGMA user_version=9;",
   );
   f.reopen();
-  assert.equal(f.store.db.pragma("user_version", { simple: true }), 15);
+  assert.equal(f.store.db.pragma("user_version", { simple: true }), 16);
   assert.deepEqual(f.store.chats(), before);
   const backups = readdirSync(f.dir).filter((n) => /\.bak-\d+$/.test(n));
   assert.equal(backups.length, 1);

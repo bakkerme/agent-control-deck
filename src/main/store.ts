@@ -72,11 +72,11 @@ export class Store {
       const version = this.db.pragma("user_version", {
         simple: true,
       }) as number;
-      if (version > 15)
+      if (version > 16)
         throw new Error(
           "This database was created by a newer version of Agent Control Deck",
         );
-      if (version < 15 && existed) {
+      if (version < 16 && existed) {
         this.db.pragma("wal_checkpoint(TRUNCATE)");
         copyFileSync(filename, `${filename}.bak-${Date.now()}`);
       }
@@ -346,6 +346,16 @@ export class Store {
             CREATE TABLE embedded_sends (chatId TEXT NOT NULL REFERENCES embedded_sessions(chatId) ON DELETE CASCADE, sendId TEXT NOT NULL, promptHash TEXT NOT NULL, PRIMARY KEY(chatId,sendId));
             CREATE INDEX embedded_events_chat ON embedded_events(chatId,sequence);
             PRAGMA user_version = 15;
+          `);
+        })();
+      }
+      if (version < 16) {
+        this.db.transaction(() => {
+          this.db.exec(`
+            ALTER TABLE embedded_sessions ADD COLUMN configIdentity TEXT;
+            ALTER TABLE embedded_sessions ADD COLUMN model TEXT;
+            ALTER TABLE embedded_sessions ADD COLUMN provider TEXT;
+            PRAGMA user_version = 16;
           `);
         })();
       }

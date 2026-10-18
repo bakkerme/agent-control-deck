@@ -59,8 +59,8 @@ export default function EmbeddedConversation({ taskId, chatId }: { taskId?: stri
   const chat = chats.find(c => c.chatId === selected);
   return <section className="plan-detail-section embedded-conversation" aria-label="Embedded conversation">
     <div className="section-heading"><h3>Conversation <small>Experimental · Claude Agent</small></h3>{taskId && <button disabled={busy} onClick={() => setCreating(!creating)}>New embedded chat</button>}</div>
-    {!status.configured && <p className="muted">Set ANTHROPIC_API_KEY in the desktop backend environment and restart to send messages. Your existing terminal chats remain available.</p>}
-    <small>{status.authMode === "api-key" ? "Authentication: API key from desktop launch environment · API billing" : "Authentication: existing Claude Code sign-in · inherited API keys are excluded"}. Project settings and skills are disabled for this slice.</small>
+    {!status.configured && <p className="muted">{status.diagnostic ?? "Configure authentication in the desktop backend environment and restart."}</p>}
+    <small>{status.authMode === "openrouter" ? `Authentication: OpenRouter · ${status.model} · DeepSeek integration unverified` : status.authMode === "api-key" ? "Authentication: API key from desktop launch environment · API billing" : "Authentication: existing Claude Code sign-in · inherited API keys are excluded"}. Project settings and skills are disabled for this slice.</small>
     {creating && taskId && <form aria-label="New embedded chat" onSubmit={e => { e.preventDefault(); void call({ type: "create", taskId, name, cwd }).then(ok => { if (ok) setCreating(false); }); }}>
       <label>Chat name<input required maxLength={200} value={name} onChange={e => setName(e.target.value)} /></label>
       <label>Working directory<input required placeholder="Absolute local folder path" maxLength={4000} value={cwd} onChange={e => setCwd(e.target.value)} /></label>
@@ -69,7 +69,7 @@ export default function EmbeddedConversation({ taskId, chatId }: { taskId?: stri
     </form>}
     {!!chats.length && <label>Embedded chat<select aria-label="Embedded chat" value={selected} onChange={e => { setSelected(e.target.value); setError(""); setText(""); }}>{chats.map(c => <option value={c.chatId} key={c.chatId}>{c.name} · {c.state}</option>)}</select></label>}
     {chat && <>
-      <small>{chat.cwd} · {chat.state}{chat.sessionId ? " · Session saved for resume" : " · New session"}</small>
+      <small>{chat.cwd} · {chat.state}{chat.provider ? ` · ${chat.provider}${chat.model ? ` / ${chat.model}` : ""}` : ""}{chat.sessionId ? " · Session saved for resume" : " · New session"}</small>
       <div className="embedded-transcript" role="log" aria-label="Conversation messages" aria-live="polite">
         {!chat.events.length && <p className="muted">Start a conversation for this task.</p>}
         {chat.events.map(event => <article key={event.id} className={`embedded-event embedded-${event.kind}`}><small>{event.kind} · {new Date(event.at).toLocaleTimeString()}</small>{event.kind === "tool" ? <details><summary>{event.text.split("\n")[0]}</summary><pre>{event.text}</pre></details> : <p>{event.text}</p>}</article>)}

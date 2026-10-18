@@ -14,5 +14,5 @@ export interface EmbeddedEvent { id: string; kind: "user" | "assistant" | "tool"
 export interface EmbeddedQuestion { question: string; header: string; options: { label: string; description?: string }[]; multiSelect?: boolean }
 export const questionsSchema = z.array(z.object({ question: z.string().max(4000), header: z.string().max(300), options: z.array(z.object({ label: z.string().max(300), description: z.string().max(1000).optional() })).max(20), multiSelect: z.boolean().optional() })).min(1).max(10);
 export interface EmbeddedRequest { id: string; tool: string; input: string; questions?: EmbeddedQuestion[] }
-export interface EmbeddedChat { chatId: string; name: string; cwd: string; sessionId: string | null; state: string; events: EmbeddedEvent[]; requests: EmbeddedRequest[]; active: boolean }
-export interface EmbeddedReply { enabled: boolean; configured: boolean; authMode: "claude-code" | "api-key"; chats?: EmbeddedChat[]; chat?: EmbeddedChat }
+export interface EmbeddedChat { chatId: string; name: string; cwd: string; sessionId: string | null; provider?: string | null; model?: string | null; state: string; events: EmbeddedEvent[]; requests: EmbeddedRequest[]; active: boolean }
+export interface EmbeddedReply { enabled: boolean; configured: boolean; authMode: "claude-code" | "api-key" | "openrouter"; provider?: "anthropic" | "openrouter"; model?: string; helperModel?: string; diagnostic?: string; chats?: EmbeddedChat[]; chat?: EmbeddedChat }

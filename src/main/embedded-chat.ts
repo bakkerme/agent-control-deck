@@ -4,6 +4,7 @@ import { mkdirSync, realpathSync, statSync } from "node:fs";
 import type { Options, PermissionResult, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { Store } from "./store";
 import { embeddedCommandSchema, questionsSchema, type EmbeddedChat, type EmbeddedEvent, type EmbeddedReply, type EmbeddedRequest } from "../shared/embedded-chat";
+import { embeddedConfig, connectionDiagnostic, type EmbeddedConfig } from "./embedded-config";
 import { runClaude, type AgentQuery, type AgentRunner } from "./embedded-sdk";
 
 type Pending = { request: EmbeddedRequest; input: Record<string, unknown>; resolve: (value: PermissionResult) => void };
@@ -23,8 +24,7 @@ export class EmbeddedChats {
   private disposed = false;
   constructor(private store: Store, private root: string, private changed: () => void,
     private enabled = process.env.ACD_EMBEDDED_CHAT === "1", private runner: AgentRunner = runClaude,
-    private apiKey = process.env.ANTHROPIC_API_KEY,
-    private authMode: "claude-code" | "api-key" = process.env.ACD_EMBEDDED_AUTH === "api-key" ? "api-key" : "claude-code") {
+    private config: EmbeddedConfig = embeddedConfig()) {
     // A restarted process cannot continue pending approvals or claim work is running.
     const interrupted = store.db.prepare("SELECT c.id FROM chats c JOIN embedded_sessions s ON s.chatId=c.id WHERE c.state IN ('running','waiting')").all() as { id: string }[];
     for (const { id } of interrupted) {
@@ -32,9 +32,9 @@ export class EmbeddedChats {
       this.state(id, "idle");
     }
   }
-  private status(): EmbeddedReply { return { enabled: this.enabled, configured: this.authMode === "claude-code" || !!this.apiKey, authMode: this.authMode }; }
-  private require(id: string): { cwd: string; sessionId: string | null } {
-    const row = this.store.db.prepare("SELECT cwd,sessionId FROM embedded_sessions WHERE chatId=?").get(id) as { cwd: string; sessionId: string | null } | undefined;
+  private status(): EmbeddedReply { return { enabled: this.enabled, configured: !this.config.diagnostic, authMode: this.config.authMode, provider: this.config.provider, model: this.config.model, helperModel: this.config.helperModel, diagnostic: this.config.diagnostic }; }
+  private require(id: string): { cwd: string; sessionId: string | null; configIdentity: string | null; model: string | null; provider: string | null } {
+    const row = this.store.db.prepare("SELECT cwd,sessionId,configIdentity,model,provider FROM embedded_sessions WHERE chatId=?").get(id) as { cwd: string; sessionId: string | null; configIdentity: string | null; model: string | null; provider: string | null } | undefined;
     if (!row) throw new Error("Choose an embedded chat");
     return row;
   }
@@ -45,14 +45,21 @@ export class EmbeddedChats {
   private event(id: string, eventId: string, kind: EmbeddedEvent["kind"], text: string): void {
     if (this.disposed) return;
     this.store.db.transaction(() => {
-      this.store.db.prepare("INSERT INTO embedded_events(id,chatId,kind,text,at) VALUES(?,?,?,?,?) ON CONFLICT(chatId,id) DO UPDATE SET text=excluded.text").run(eventId, id, kind, cap(text), stamp());
+      this.store.db.prepare("INSERT INTO embedded_events(id,chatId,kind,text,at) VALUES(?,?,?,?,?) ON CONFLICT(chatId,id) DO UPDATE SET text=excluded.text").run(eventId, id, kind, cap(this.redact(text)), stamp());
       this.store.db.prepare("DELETE FROM embedded_events WHERE chatId=? AND sequence NOT IN (SELECT sequence FROM embedded_events WHERE chatId=? ORDER BY sequence DESC LIMIT 500)").run(id, id);
-      this.store.db.prepare("UPDATE chats SET preview=?,lastEventAt=?,updatedAt=? WHERE id=?").run(cap(text).slice(0, 500), stamp(), stamp(), id);
+      this.store.db.prepare("UPDATE chats SET preview=?,lastEventAt=?,updatedAt=? WHERE id=?").run(cap(this.redact(text)).slice(0, 500), stamp(), stamp(), id);
     })();
     this.changed();
   }
+  private redact(text: string): string {
+    for (const key of ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"]) {
+      const secret = this.config.env[key];
+      if (secret) text = text.split(secret).join("[redacted]");
+    }
+    return text;
+  }
   private read(id: string): EmbeddedChat {
-    const session = this.require(id), chat = this.store.chat(id), run = this.runs.get(id);
+    const { configIdentity: _identity, ...session } = this.require(id), chat = this.store.chat(id), run = this.runs.get(id);
     const events = this.store.db.prepare("SELECT id,kind,text,at FROM embedded_events WHERE chatId=? ORDER BY sequence").all(id) as EmbeddedEvent[];
     return { chatId: id, name: chat.name, ...session, state: chat.state, events, requests: [...(run?.pending.values() ?? [])].map(p => p.request), active: !!run };
   }
@@ -73,7 +80,7 @@ export class EmbeddedChats {
       const id = randomUUID();
       this.store.db.transaction(() => {
         this.store.db.prepare("INSERT INTO chats(id,projectId,provider,name,state,createdAt,updatedAt) VALUES(?,?,'claude',?,'idle',?,?)").run(id, task.projectId, c.name, stamp(), stamp());
-        this.store.db.prepare("INSERT INTO embedded_sessions(chatId,cwd) VALUES(?,?)").run(id, cwd);
+        this.store.db.prepare("INSERT INTO embedded_sessions(chatId,cwd,configIdentity,model,provider) VALUES(?,?,?,?,?)").run(id, cwd, this.config.identity, this.config.model ?? null, this.config.provider);
         this.store.db.prepare("INSERT INTO plan_chats(itemId,chatId,origin) VALUES(?,?,'manual')").run(c.taskId, id);
       })();
       this.changed();
@@ -87,7 +94,9 @@ export class EmbeddedChats {
         if (prior.promptHash !== hash) throw new Error("This send identifier was already used for a different message");
         return { ...this.status(), chat: this.read(c.chatId) };
       }
-      if (this.authMode === "api-key" && !this.apiKey) throw new Error("API-key mode requires ANTHROPIC_API_KEY in the desktop backend environment, then restart.");
+      if (this.config.diagnostic) throw new Error(this.config.diagnostic);
+      const session = this.require(c.chatId);
+      if (session.configIdentity !== this.config.identity) throw new Error("Provider/model configuration changed or this is a legacy session. Create a new embedded chat for the task; previous history is retained.");
       if (this.runs.has(c.chatId)) throw new Error("Wait for the current turn or cancel it");
       if (this.runs.size >= 3) throw new Error("Three embedded turns are already running");
       const run: Running = { abort: new AbortController(), pending: new Map() };
@@ -123,7 +132,8 @@ export class EmbeddedChats {
     if (signal.aborted || run.abort.signal.aborted || this.disposed) return { behavior: "deny", message: "Turn cancelled" };
     const display = JSON.stringify(input);
     if (display.length > 30000) return { behavior: "deny", message: "Tool input exceeds the review limit; split it into smaller calls" };
-    const request: EmbeddedRequest = { id: randomUUID(), tool, input: display };
+    if (this.redact(display) !== display) return { behavior: "deny", message: "Tool input contains a runtime credential; remove it before retrying" };
+    const request: EmbeddedRequest = { id: randomUUID(), tool, input: this.redact(display) };
     if (tool === "AskUserQuestion") {
       const parsed = questionsSchema.safeParse(input.questions);
       if (!parsed.success) return { behavior: "deny", message: "Unsupported question format. Ask in the conversation instead." };
@@ -161,15 +171,10 @@ export class EmbeddedChats {
     try {
       const session = this.require(id), config = join(this.root, "embedded-sdk");
       mkdirSync(config, { recursive: true, mode: 0o700 });
-      const env: Record<string, string | undefined> = {};
-      // Do not inherit OAuth tokens, alternate providers, API endpoints or project hooks.
-      for (const key of ["PATH", "HOME", "USERPROFILE", "SYSTEMROOT", "TEMP", "TMP", "TMPDIR", "LANG"]) env[key] = process.env[key];
-      Object.assign(env, { CLAUDE_AGENT_SDK_CLIENT_APP: "agent-control-deck/embedded-experiment" });
-      if (this.authMode === "api-key") Object.assign(env, { ANTHROPIC_API_KEY: this.apiKey, CLAUDE_CONFIG_DIR: config });
-      // Local-login mode lets the official SDK resolve the user's existing sign-in.
-      // It deliberately excludes inherited API keys and OAuth token environment variables.
+      const env = { ...this.config.env };
+      if (this.config.authMode !== "claude-code") env.CLAUDE_CONFIG_DIR = config;
       const options: Options = {
-        cwd: session.cwd, env, settingSources: [], strictMcpConfig: true, mcpServers: {}, permissionMode: "default", persistSession: true,
+        cwd: session.cwd, env, model: this.config.model, settingSources: [], strictMcpConfig: true, mcpServers: {}, permissionMode: "default", persistSession: true,
         includePartialMessages: true, resume: session.sessionId ?? undefined, abortController: run.abort,
         tools: ["Read", "Glob", "Grep", "Bash", "Write", "Edit", "AskUserQuestion"],
         hooks: { PreToolUse: [{ hooks: [async () => ({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: "Embedded experiment requires approval for every tool call" } })] }] },
@@ -197,6 +202,10 @@ export class EmbeddedChats {
             this.event(id, key, "assistant", content);
           }
         }
+        if (message.type === "assistant" && message.error) {
+          this.event(id, randomUUID(), "error", connectionDiagnostic(message.error));
+          continue;
+        }
         if (message.type === "assistant" && !message.parent_tool_use_id && !completedFrames.has(message.uuid)) {
           completedFrames.add(message.uuid);
           for (const [index, block] of message.message.content.entries()) {
@@ -216,7 +225,7 @@ export class EmbeddedChats {
         if (message.type === "result") {
           finished = true;
           success = !message.is_error;
-          this.event(id, randomUUID(), success ? "notice" : "error", success ? "Turn complete" : `Agent error: ${message.subtype}. Check API access or send a follow-up to retry.`);
+          this.event(id, randomUUID(), success ? "notice" : "error", success ? "Turn complete" : connectionDiagnostic("errors" in message ? message.errors.join(" ") : ""));
           break;
         }
       }
@@ -224,7 +233,7 @@ export class EmbeddedChats {
     } catch (error) {
       if (!run.abort.signal.aborted && !this.disposed) {
         // Subprocess error strings can contain credentials or environment values.
-        this.event(id, randomUUID(), "error", "Agent connection failed. Check the selected authentication mode (Claude Code sign-in or API key), network and working directory, then send a follow-up to retry.");
+        this.event(id, randomUUID(), "error", connectionDiagnostic(error));
       }
     } finally {
       for (const pending of [...run.pending.values()]) pending.resolve({ behavior: "deny", message: "Turn ended" });

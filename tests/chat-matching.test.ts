@@ -184,7 +184,7 @@ test("v12 analytics migration preserves links, dismissals and cache and makes a 
   const f=fixture(t);await f.enable();await f.matcher.tick();
   f.store.db.exec("DROP TABLE embedded_sends; DROP TABLE embedded_events; DROP TABLE embedded_sessions; DROP TABLE matching_measurements; DROP TABLE matching_feedback; ALTER TABLE chat_rounds DROP COLUMN firstPrompt; PRAGMA user_version=12;");
   f.reopen();
-  assert.equal(f.store.db.pragma("user_version",{simple:true}),15);
+  assert.equal(f.store.db.pragma("user_version",{simple:true}),16);
   assert.deepEqual(f.plans.items().find(i=>i.id===f.itemId)!.automaticChatIds,[f.chatId]);
   assert.ok(f.store.db.prepare("SELECT * FROM ai_match_attempts WHERE chatId=?").get(f.chatId));
   assert.ok(readdirSync(f.dir).some(name=>name.startsWith("workspace.sqlite.bak-")));
