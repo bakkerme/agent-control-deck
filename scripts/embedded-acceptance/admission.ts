@@ -18,6 +18,7 @@ export function pricingBound(model: any) {
     assert.ok(row && typeof row === 'object', 'Missing pricing');
     for (const [key, value] of Object.entries(row)) {
       if (['overrides','utc_days','utc_start','utc_end'].includes(key)) continue;
+      if (['min_prompt_tokens','max_prompt_tokens'].includes(key)) { assert.ok(Number.isInteger(value) && Number(value) >= 0, 'Invalid token condition'); continue; }
       if (key === 'discount') { assert.ok(typeof value === 'number' && value >= 0 && value <= 1, 'Invalid discount'); continue; } // Never subtract discounts.
       assert.ok(typeof value === 'string' && value.trim() !== '' && Number.isFinite(Number(value)) && Number(value) >= 0, 'Invalid price');
       const price = Number(value);

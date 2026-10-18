@@ -12,6 +12,8 @@ test('pricing includes additive cache/reasoning, fixed fees and all time overrid
   for (const extra of [{ image: '1' }, { web_search: '1' }, { new_fee: '0.1' }, { request: '-1' }, { completion: 'NaN' }, { prompt: '' }]) assert.throws(() => pricingBound({ ...model, pricing: { ...model.pricing, ...extra } }));
   assert.throws(() => pricingBound({ ...model, context_length: undefined }));
   assert.throws(() => pricingBound({ ...model, pricing: { prompt: '1', completion: '1' } }));
+  assert.equal(pricingBound({ ...model, pricing: { ...model.pricing, overrides: [{ min_prompt_tokens: 500, prompt: '0.0002', completion: '0.0003' }] } }).bound, 0.5);
+  assert.throws(() => pricingBound({ ...model, pricing: { ...model.pricing, min_prompt_tokens: -1 } }));
 });
 test('fresh preflight fails closed on accounting, unsupported fees and expensive fallback endpoints', async () => {
   const original = globalThis.fetch;
