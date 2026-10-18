@@ -11,7 +11,8 @@ export function pricingBound(model: any) {
   assert.equal(model?.id, ACCEPTANCE_MODEL, 'Pinned model absent');
   const context = model.context_length, output = model.top_provider?.max_completion_tokens;
   assert.ok(Number.isInteger(context) && context > 0 && Number.isInteger(output) && output > 0, 'Missing context/output bound');
-  const rows = [model.pricing, ...(model.pricing?.overrides ?? [])];
+  const { overrides = [], ...basePricing } = model.pricing ?? {};
+  const rows = [basePricing, ...overrides.map((row: any) => ({ ...basePricing, ...row }))];
   let inputRate = 0, outputRate = 0, fixed = 0;
   for (const row of rows) {
     let inputSum = 0, outputSum = 0;
