@@ -87,5 +87,48 @@
     "limit": 20
   },
   "questionObservedChargeUsd": 0.000731298,
-  "finding": "Provider key snapshot regressed after higher matched accounting; monotonic watermark required. Product Write denial and AskUserQuestion oracles passed."
+  "finding": "Provider key snapshot regressed after higher matched accounting; monotonic watermark required. Product Write denial and AskUserQuestion oracles passed.",
+  "writeGate": {
+    "forwarded": 2,
+    "rejected": 0,
+    "denialReasons": {},
+    "queries": 1,
+    "reservedUsd": 1.6,
+    "inFlight": 0,
+    "inputTokens": 3713,
+    "outputTokens": 130,
+    "incompleteResponses": 0,
+    "receipts": [
+      {
+        "complete": false,
+        "inputTokens": 3176,
+        "outputTokens": 126,
+        "cacheTokens": 0,
+        "usageEvidence": {
+          "inputObserved": true,
+          "outputObserved": true,
+          "messageStopped": true,
+          "usageIssues": [
+            "counter-cache_read_input_tokens",
+            "counter-cache_creation_input_tokens"
+          ]
+        }
+      },
+      {
+        "complete": false,
+        "inputTokens": 537,
+        "outputTokens": 4,
+        "cacheTokens": 2816,
+        "usageEvidence": {
+          "inputObserved": true,
+          "outputObserved": true,
+          "messageStopped": true,
+          "usageIssues": [
+            "counter-cache_read_input_tokens",
+            "counter-cache_creation_input_tokens"
+          ]
+        }
+      }
+    ]
+  }
 }
