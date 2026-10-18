@@ -51,7 +51,13 @@ export default function EmbeddedConversation({ taskId, chatId }: { taskId?: stri
     setError(""); setBusy(true);
     try {
       const result = await window.deck.embedded(command);
-      if (result.chat) { const chat = result.chat; setChats(old => [...old.filter(c => c.chatId !== chat.chatId), chat]); setSelected(chat.chatId); }
+      if (result.chat) {
+        const chat = result.chat;
+        setChats(old => [...old.filter(c => c.chatId !== chat.chatId), chat]);
+        // A delayed send/decision acknowledgement belongs to its original chat;
+        // it must not undo a selection made while that request was in flight.
+        if (command.type === "create") setSelected(chat.chatId);
+      }
       return true;
     } catch (e) { setError(message(e)); return false; } finally { setBusy(false); }
   };

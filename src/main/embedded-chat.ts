@@ -8,6 +8,20 @@ import { embeddedConfig, connectionDiagnostic, type EmbeddedConfig } from "./emb
 import { runClaude, type AgentQuery, type AgentRunner } from "./embedded-sdk";
 
 type Pending = { request: EmbeddedRequest; input: Record<string, unknown>; resolve: (value: PermissionResult) => void };
+async function startedQuery(start: Promise<AgentQuery>, signal: AbortSignal): Promise<AgentQuery> {
+  return new Promise((resolve, reject) => {
+    const aborted = () => { signal.removeEventListener("abort", aborted); reject(new Error("Cancelled")); };
+    signal.addEventListener("abort", aborted, { once: true });
+    if (signal.aborted) aborted();
+    // Startup can settle after cancellation has released the Deck turn. Always
+    // observe rejection and close a late query, without handing it to a new run.
+    void start.then(query => {
+      signal.removeEventListener("abort", aborted);
+      if (signal.aborted) { try { query.close(); } catch { /* Already cancelled. */ } return; }
+      resolve(query);
+    }, error => { signal.removeEventListener("abort", aborted); reject(error); });
+  });
+}
 async function nextMessage(iterator: AsyncIterator<SDKMessage>, signal: AbortSignal): Promise<IteratorResult<SDKMessage>> {
   if (signal.aborted) throw new Error("Cancelled");
   return new Promise((resolve, reject) => {
@@ -121,7 +135,8 @@ export class EmbeddedChats {
         if (Object.keys(c.answers).some(key => !questions.some(q => q.question === key))) throw new Error("Unknown question");
         input = { ...input, answers: c.answers };
       } else if (c.answers) throw new Error("This request does not accept answers");
-      run.pending.delete(c.requestId);
+      // Persist before consuming the waiter: a failed write must leave the
+      // request available for retry/denial, without authorizing an effect.
       this.event(c.chatId, randomUUID(), "notice", `${c.allow ? "Allowed once" : "Denied"}: ${pending.request.tool}`);
       pending.resolve(c.allow ? { behavior: "allow", updatedInput: input } : { behavior: "deny", message: "User denied this request" });
       this.state(c.chatId, run.pending.size ? "waiting" : "running");
@@ -181,7 +196,7 @@ export class EmbeddedChats {
         canUseTool: (tool, input, context) => this.permission(id, run, tool, input, context.signal),
         onElicitation: async () => { this.event(id, randomUUID(), "notice", "MCP input is unsupported in this experiment; request declined."); return { action: "decline" }; },
       };
-      run.query = await this.runner(text, options);
+      run.query = await startedQuery(this.runner(text, options), run.abort.signal);
       if (run.abort.signal.aborted) return;
       const iterator = run.query[Symbol.asyncIterator]();
       while (true) {
