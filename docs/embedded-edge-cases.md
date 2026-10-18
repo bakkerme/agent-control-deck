@@ -21,7 +21,7 @@ ACD_TEST_CHROMIUM_PATH=/usr/bin/chromium npm run test:ui -- tests/embedded-races
 npm run test:ui -- --grep 'embedded task conversations'
 ```
 
-`npm test` discovers all `tests/*.test.ts`, bundles them and runs through Electron in Node mode for the SQLite ABI. It makes no model calls. `npm run test:ui` drives Chromium; this is not native Electron verification. Native checks use `npm run test:electron` on a host with a display and appropriate OS support. This cloud environment has no available display/Xvfb; mark native tests blocked here. Any synthetic GUI sandbox exception is limited to a clean, isolated test environment; production sandbox settings remain enabled.
+`npm test` discovers all `tests/*.test.ts`, bundles them and runs through Electron in Node mode for the SQLite ABI. It makes no model calls. `npm run test:ui` drives Chromium; this is not native Electron verification. Native checks use `npm run test:electron` on a host with a display and appropriate OS support. At inventory creation this cloud environment had no available display/Xvfb. Later explicitly authorized isolated runs used the private Xorg helper; [native decision acceptance](embedded-live-decisions.md) records six live scenarios and their exact limits. Other native cases remain pending unless individually evidenced. Any synthetic GUI sandbox exception is limited to a clean, isolated test environment; production sandbox settings remain enabled.
 
 Source evidence shorthand:
 

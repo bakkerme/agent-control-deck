@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { pricingBound, reserveBatch, financialPreflight, HISTORICAL_RESERVE_USD, LIVE_REQUESTS, RESERVE_USD, HEADROOM_USD } from '../scripts/embedded-acceptance/admission';
+import { pricingBound, reserveBatch, financialPreflight, completedLiability, accountedLiability, HISTORICAL_RESERVE_USD, LIVE_REQUESTS, RESERVE_USD, HEADROOM_USD } from '../scripts/embedded-acceptance/admission';
 import { ACCEPTANCE_MODEL } from '../scripts/embedded-acceptance/gateway';
 const model = { id: ACCEPTANCE_MODEL, context_length: 1000, top_provider: { max_completion_tokens: 1000 }, pricing: { prompt: '0.0001', completion: '0.0002' } };
 test('pricing includes additive cache/reasoning, fixed fees and all time overrides', () => {
@@ -31,6 +31,9 @@ test('fresh preflight fails closed on accounting, unsupported fees and expensive
       if (scenario === 'pass') {
         const admission = await financialPreflight('synthetic-test-only');
         assert.ok(Math.abs(admission.committedUsd - 19.851) < 1e-10); assert.ok(admission.allEndpointClampedMaximumUsd < 0.8);
+        const monotonic=await financialPreflight('synthetic-test-only',0,0.1);
+        assert.equal(monotonic.usage,0.1);assert.equal(monotonic.observedUsage,0.001);assert.equal(monotonic.remaining,19.9);
+        await assert.rejects(financialPreflight('synthetic-test-only',0,0.2));
       } else await assert.rejects(financialPreflight('synthetic-test-only'));
     }
     assert.ok(forwards > 0);
@@ -47,4 +50,16 @@ test('durable whole-batch reservation refuses a second coordinator and survives 
     assert.equal(stored.status, 'reserved-retain-after-all-outcomes');
     assert.ok(stored.usage + stored.historicalReserveUsd + stored.batchUsd + stored.headroomUsd < 20);
   } finally { rmSync(root,{recursive:true,force:true}); }
+});
+test('completed HTTP receipts retain a price-bounded liability; incomplete or missing attempts retain full reserve',()=>{
+  const pricing={maximumInputRate:0.000000503,maximumOutputRate:0.000002,maximumFixedFee:0};
+  const receipt={complete:true,inputTokens:1000,outputTokens:100,cacheTokens:500};
+  assert.equal(completedLiability([receipt,receipt],2,pricing),0.01);
+  assert.throws(()=>completedLiability([receipt],2,pricing));
+  assert.throws(()=>completedLiability([{...receipt,complete:false}],1,pricing));
+  assert.throws(()=>completedLiability([{...receipt,cacheTokens:NaN}],1,pricing));
+  const ambiguous=[{...receipt,complete:false}];
+  assert.throws(()=>accountedLiability(ambiguous,1,pricing,{usageBefore:0,usageAfter:0,matchedChargeUsd:0}));
+  assert.throws(()=>accountedLiability(ambiguous,1,pricing,{usageBefore:0,usageAfter:0.001,matchedChargeUsd:0.002}));
+  assert.equal(accountedLiability(ambiguous,1,pricing,{usageBefore:0,usageAfter:0.001,matchedChargeUsd:0.001}),0.01);
 });

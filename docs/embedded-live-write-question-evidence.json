@@ -1,0 +1,91 @@
+{
+  "mode": "live-sdk-openrouter-native-app",
+  "model": "deepseek/deepseek-v4.1-flash-1017",
+  "outcome": "failed",
+  "failure": "Unmatched provider charges; retain full batch",
+  "cases": [
+    {
+      "duplicateSuppressed": false,
+      "tool": "Write",
+      "effect": null,
+      "termination": null,
+      "result": "passed",
+      "actualSdkProcessesExited": true
+    },
+    {
+      "duplicateSuppressed": false,
+      "tool": "AskUserQuestion",
+      "effect": null,
+      "termination": null,
+      "result": "passed",
+      "actualSdkProcessesExited": true
+    }
+  ],
+  "gate": {
+    "forwarded": 2,
+    "rejected": 0,
+    "denialReasons": {},
+    "queries": 1,
+    "reservedUsd": 1.6,
+    "inFlight": 0,
+    "inputTokens": 3795,
+    "outputTokens": 256,
+    "incompleteResponses": 0,
+    "receipts": [
+      {
+        "complete": false,
+        "inputTokens": 3141,
+        "outputTokens": 240,
+        "cacheTokens": 0,
+        "usageEvidence": {
+          "inputObserved": true,
+          "outputObserved": true,
+          "messageStopped": true,
+          "usageIssues": [
+            "counter-cache_read_input_tokens",
+            "counter-cache_creation_input_tokens"
+          ]
+        }
+      },
+      {
+        "complete": false,
+        "inputTokens": 654,
+        "outputTokens": 16,
+        "cacheTokens": 2816,
+        "usageEvidence": {
+          "inputObserved": true,
+          "outputObserved": true,
+          "messageStopped": true,
+          "usageIssues": [
+            "counter-cache_read_input_tokens",
+            "counter-cache_creation_input_tokens"
+          ]
+        }
+      }
+    ]
+  },
+  "cleanup": "All tracked processes exited or zombie awaiting PID1 reaping; no tracked live processes",
+  "accountingAfter": {
+    "usage": 0.003295428,
+    "remaining": 19.996704572,
+    "limit": 20
+  },
+  "writeProof": {
+    "usageBefore": 0.00265203,
+    "usageAfter": 0.003295428,
+    "matchedChargeUsd": 0.0006433979999999999
+  },
+  "questionAdmission": {
+    "checkedAt": "2026-10-18T23:42:38.235Z",
+    "usage": 0.00265203,
+    "remaining": 19.99734797
+  },
+  "laterAccounting": {
+    "checkedAt": "2026-10-18T23:44:52.043Z",
+    "usage": 0.004026726,
+    "remaining": 19.995973274,
+    "limit": 20
+  },
+  "questionObservedChargeUsd": 0.000731298,
+  "finding": "Provider key snapshot regressed after higher matched accounting; monotonic watermark required. Product Write denial and AskUserQuestion oracles passed."
+}
