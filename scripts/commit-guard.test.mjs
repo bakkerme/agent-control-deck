@@ -3,10 +3,44 @@ import { spawnSync } from 'node:child_process';
 import { chmodSync, mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync, copyFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
+import { after, test } from 'node:test';
 import { snapshot, runGuard, reviewWithCodex, reviewWithClaude, selectedReviewer, recordDesktopApproval, consumeDesktopApproval } from './commit-guard.mjs';
 
+// Tests run in their own Node process. Never inherit the invoking task's
+// reviewer choice, Git repository pointers or global/system configuration.
+// Individual fixtures below explicitly select the mode they exercise.
+const ambient = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
+  key.startsWith('GIT_') || ['COMMIT_GUARD_REVIEWER', 'COMMIT_GUARD_MODEL', 'CODEX_COMMIT_GUARD_MODEL'].includes(key)));
+for (const key of Object.keys(ambient)) delete process.env[key];
+// A real empty file also works with Git for Windows, which rejects Node's
+// Windows device spelling (\\\\.\\nul) when used as a configuration path.
+const configDirectory = mkdtempSync(join(tmpdir(), 'acd-guard-config-'));
+const emptyConfig = join(configDirectory, 'empty.gitconfig');
+writeFileSync(emptyConfig, '');
+process.env.GIT_CONFIG_GLOBAL = emptyConfig;
+process.env.GIT_CONFIG_SYSTEM = emptyConfig;
+after(() => {
+  for (const key of Object.keys(process.env))
+    if (key.startsWith('GIT_') || ['COMMIT_GUARD_REVIEWER', 'COMMIT_GUARD_MODEL', 'CODEX_COMMIT_GUARD_MODEL'].includes(key)) delete process.env[key];
+  Object.assign(process.env, ambient);
+  rmSync(configDirectory, { recursive: true, force: true });
+});
+
 const safe = () => ({ verdict: 'safe', findings: [] });
+
+test('ambient task reviewer and Git overrides cannot change fixture policy', () => {
+  // Run representative tests in a fresh process; the name filter excludes this
+  // test to avoid recursion and excludes every CLI invocation test.
+  const result = spawnSync(process.execPath, ['--test',
+    '--test-name-pattern=^(uncertain, blocked, malformed, contradictory and failed verdicts cannot pass|reviewer selection defaults to Desktop, is local, and never silently falls back)$',
+    fileURLToPath(import.meta.url)], { encoding: 'utf8', timeout: 30000,
+    env: { ...process.env, COMMIT_GUARD_REVIEWER: 'off',
+      GIT_DIR: join(tmpdir(), 'acd-nonexistent-fixture-git'), GIT_WORK_TREE: tmpdir(),
+      GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'commitGuard.reviewer', GIT_CONFIG_VALUE_0: 'invalid' } });
+  assert.equal(result.status, 0, result.error?.message ?? `${result.stdout}\n${result.stderr}`);
+});
+
 function repository(t) {
   const cwd = mkdtempSync(join(tmpdir(), 'acd-guard-test-'));
   t.after(() => rmSync(cwd, { recursive: true, force: true }));
@@ -18,6 +52,7 @@ function repository(t) {
   git('init', '-q');
   git('config', 'user.email', 'developer@example.com');
   git('config', 'user.name', 'Synthetic Developer');
+  git('config', '--local', 'commitGuard.reviewer', 'desktop');
   function stage(name, content) { writeFileSync(join(cwd, name), content); git('add', '--', name); }
   return { cwd, git, stage };
 }
@@ -170,6 +205,7 @@ test('reviewer selection defaults to Desktop, is local, and never silently falls
   const previous = process.env.COMMIT_GUARD_REVIEWER;
   delete process.env.COMMIT_GUARD_REVIEWER;
   try {
+    git('config', '--local', '--unset', 'commitGuard.reviewer');
     assert.equal(selectedReviewer(cwd), 'desktop');
     const ci = spawnSync(process.execPath, ['--input-type=module', '-e',
       `import { selectedReviewer } from ${JSON.stringify(new URL('./commit-guard.mjs', import.meta.url).href)}; console.log(selectedReviewer(process.cwd()));`],
