@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { chmodSync, mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync, copyFileSync } from 'node:fs';
-import { devNull, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { after, test } from 'node:test';
@@ -13,12 +13,18 @@ import { snapshot, runGuard, reviewWithCodex, reviewWithClaude, selectedReviewer
 const ambient = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
   key.startsWith('GIT_') || ['COMMIT_GUARD_REVIEWER', 'COMMIT_GUARD_MODEL', 'CODEX_COMMIT_GUARD_MODEL'].includes(key)));
 for (const key of Object.keys(ambient)) delete process.env[key];
-process.env.GIT_CONFIG_GLOBAL = devNull;
-process.env.GIT_CONFIG_SYSTEM = devNull;
+// A real empty file also works with Git for Windows, which rejects Node's
+// Windows device spelling (\\\\.\\nul) when used as a configuration path.
+const configDirectory = mkdtempSync(join(tmpdir(), 'acd-guard-config-'));
+const emptyConfig = join(configDirectory, 'empty.gitconfig');
+writeFileSync(emptyConfig, '');
+process.env.GIT_CONFIG_GLOBAL = emptyConfig;
+process.env.GIT_CONFIG_SYSTEM = emptyConfig;
 after(() => {
   for (const key of Object.keys(process.env))
     if (key.startsWith('GIT_') || ['COMMIT_GUARD_REVIEWER', 'COMMIT_GUARD_MODEL', 'CODEX_COMMIT_GUARD_MODEL'].includes(key)) delete process.env[key];
   Object.assign(process.env, ambient);
+  rmSync(configDirectory, { recursive: true, force: true });
 });
 
 const safe = () => ({ verdict: 'safe', findings: [] });
