@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, execSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readdirSync, realpathSync, renameSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readdirSync, realpathSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { removeFixture } from "./fixture-cleanup";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -164,13 +164,23 @@ test("explicit aliases spanning clones keep their shared default for new linked 
 
 test("repository repair retries when Git markers become available and backs up current data", t => {
   const f = fixture(t);
+  // Exercise this inside an ancestor repository too. Removing every checkout
+  // marker would legitimately discover that ancestor, rather than an unavailable
+  // identity for this checkout (some managed temp directories already have .git).
+  execFileSync("git", ["init", "--initial-branch=main", f.dir], { stdio: "pipe" });
   const main = f.store.createProject("Main repository", "repo"), branch = f.store.createProject("Worktree", "repo");
   f.store.db.prepare("INSERT INTO workspaces VALUES (?,?,?,?)").run("main", f.source.id, main, canonicalPath(f.root));
   f.store.db.prepare("INSERT INTO workspaces VALUES (?,?,?,?)").run("branch", f.source.id, branch, canonicalPath(f.worktree));
   renameSync(join(f.root, ".git"), join(f.root, ".git-unavailable"));
+  writeFileSync(join(f.root, ".git"), "gitdir: .git-unavailable-missing\n");
+  assert.deepEqual(repositoryLocation(f.root, f.source), {
+    root: canonicalPath(f.root), identity: null, name: "repo",
+  });
+  assert.equal(repositoryLocation(f.worktree, f.source)?.identity, null);
   f.reopen();
   assert.equal(f.store.projects().length, 2);
   assert.equal(readdirSync(f.dir).filter(n => /^workspace\.sqlite\.bak-\d+$/.test(n)).length, 0);
+  unlinkSync(join(f.root, ".git"));
   renameSync(join(f.root, ".git-unavailable"), join(f.root, ".git"));
   f.reopen();
   assert.deepEqual(f.store.projects().map(p => p.id), [main]);
