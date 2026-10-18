@@ -1,12 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { fork } from "node:child_process";
+import { fork, spawn } from "node:child_process";
 import { once } from "node:events";
 import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { Options, PermissionResult } from "@anthropic-ai/claude-agent-sdk";
+import { observeAgentExit } from "../src/main/embedded-sdk";
 import type { AgentQuery, AgentRunner } from "../src/main/embedded-sdk";
 import { ControlledQuery, deferred, faultFixture, sdk, success } from "./embedded-fault-harness";
 import { Store } from "../src/main/store";
@@ -30,6 +31,26 @@ test("cancel retains exact-session ownership until tracked process exit", limits
     await assert.rejects(f.send(chat.chatId, "Unsafe overlap"), /current turn/);
   } finally { exited.resolve(); }
   await stopping.promise; await f.wait(chat.chatId, c => !c.active);
+});
+
+test("failed local spawn has no process to await and does not lock a healthy chat", limits, async t => {
+  const q=new ControlledQuery();
+  const child=spawn("/nonexistent-acd-synthetic-startup",[],{stdio:["pipe","pipe","pipe"]});
+  const exit=observeAgentExit(child); await exit; assert.equal(child.pid,undefined);
+  const f=faultFixture(t,async()=>({close:()=>q.close(),waitForExit:()=>exit,[Symbol.asyncIterator]:()=>q[Symbol.asyncIterator]()}));
+  const chat=await f.create();await f.send(chat.chatId);await q.parked();await f.service.command({type:"cancel",chatId:chat.chatId});
+  const stopped=await f.wait(chat.chatId,c=>!c.active);assert.equal(stopped.state,"idle");
+  await f.send(chat.chatId,"Explicit new attempt");
+});
+
+test("unconfirmed supervisor shutdown locks the session and reports uncertain tool outcomes", limits, async t => {
+  const q = new ControlledQuery();
+  const f = faultFixture(t, async () => ({ close: () => q.close(), waitForExit: async () => { throw new Error("synthetic supervisor SIGKILL"); }, [Symbol.asyncIterator]: () => q[Symbol.asyncIterator]() }));
+  const chat=await f.create();await f.send(chat.chatId);await q.parked();
+  await f.service.command({type:"cancel",chatId:chat.chatId});
+  const stopped=await f.wait(chat.chatId,c=>!c.active);
+  assert.equal(stopped.state,"error");assert.ok(stopped.events.some(e=>e.id==="process-cleanup"));
+  await assert.rejects(f.send(chat.chatId,"Unsafe retry"),/process shutdown/);
 });
 
 test("decision status failure cannot authorize an effect before durable acknowledgement", limits, async t => {

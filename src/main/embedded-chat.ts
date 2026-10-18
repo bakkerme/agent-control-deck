@@ -41,6 +41,10 @@ export class EmbeddedChats {
     this.storageFailures.set(id, { id: "storage-failure", kind: "error", at: stamp(), text: "Agent storage failed. This turn stopped; durable history may be incomplete. Do not replay uncertain tool effects. Restart after repairing storage." });
     try { this.changed(); } catch { /* Polling can still read the volatile failure. */ }
   }
+  private shutdownFailed(id: string): void {
+    this.storageFailures.set(id, { id: "process-cleanup", kind: "error", at: stamp(), text: "Agent process shutdown is not confirmed. Tools may still be running. This session remains locked; do not replay uncertain effects." });
+    try { this.changed(); } catch { /* Polling reports the degraded state. */ }
+  }
   constructor(private store: Store, private root: string, private changed: () => void,
     private enabled = process.env.ACD_EMBEDDED_CHAT === "1", private runner: AgentRunner = runClaude,
     private config: EmbeddedConfig = embeddedConfig()) {
@@ -278,11 +282,10 @@ export class EmbeddedChats {
       if (run.query?.waitForExit) {
         const watchdog = setTimeout(() => {
           if (!this.disposed) {
-            this.storageFailures.set(id, { id: "process-cleanup", kind: "error", at: stamp(), text: "Agent process shutdown is not confirmed. Tools may still be running. This session remains locked; do not replay uncertain effects." });
-            try { this.changed(); } catch { /* Polling reports the degraded state. */ }
+            this.shutdownFailed(id);
           }
         }, 10000);
-        try { await run.query.waitForExit(); } catch { if (!this.disposed) this.storageFailed(id); }
+        try { await run.query.waitForExit(); } catch { if (!this.disposed) this.shutdownFailed(id); }
         finally { clearTimeout(watchdog); }
       }
       if (this.runs.get(id) !== run) return;

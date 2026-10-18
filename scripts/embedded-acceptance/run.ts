@@ -10,7 +10,7 @@ import { localPlanDay } from "../../src/shared/planning";
 import { acceptanceGateway, ACCEPTANCE_MODEL } from "./gateway";
 
 const live = process.argv.includes('--live'), wire = process.argv.includes('--synthetic-wire'), crash = process.argv.includes('--crash-repro');
-if (live) throw new Error('Live acceptance is blocked: active-tool backend SIGKILL leaves an SDK process alive. Resolve and review process containment before paid dispatch.');
+if (live) throw new Error('Live acceptance is held pending separate budget-owner admission after native containment review.');
 if (!live && !wire) { console.log('Prepared only. Use --synthetic-wire, or separately authorized --live.'); process.exit(0); }
 const root = mkdtempSync(join(tmpdir(), 'acd-app-acceptance-')); mkdirSync(join(root, 'work'));
 const working = join(root, 'work');
@@ -50,14 +50,14 @@ const gate = await acceptanceGateway({ priorUsageUsd: prior.usage, ceilingUsd: p
 let app: ElectronApplication | undefined, page: Page;
 const summary: any = { mode: live ? 'live-sdk-openrouter-native-app' : 'actual-sdk-synthetic-wire-native-app', model: ACCEPTANCE_MODEL, cases: [], accountingBefore: live ? prior : undefined, oldReservationReconciliation: live ? 'Requires coordinator reconciliation of historical reservations with current accounting and terminated processes before dispatch.' : 'Not applicable: synthetic upstream, no monetary dispatch.' };
 const fixture = join(working, 'effect-sink.cjs');
-writeFileSync(fixture, `const fs=require('fs'),{spawn}=require('child_process'),p=require('path');const dir=__dirname,mode=process.argv[2];const child=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'});if(mode==='post')fs.appendFileSync(p.join(dir,'effects.txt'),'post\\n',{flush:true});fs.writeFileSync(p.join(dir,'ready-'+mode),JSON.stringify({pid:process.pid,child:child.pid}));const file=p.join(dir,'release-'+mode);const w=fs.watch(dir,()=>{if(fs.existsSync(file)){w.close();if(mode==='pre')fs.appendFileSync(p.join(dir,'effects.txt'),'pre\\n',{flush:true});child.kill();process.exit(0)}});`);
+writeFileSync(fixture, `const fs=require('fs'),{spawn}=require('child_process'),p=require('path');const dir=__dirname,mode=process.argv[2];const child=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'});if(mode==='post')fs.appendFileSync(p.join(dir,'effects.txt'),'post\\n',{flush:true});fs.writeFileSync(p.join(dir,'ready-'+mode+'.tmp'),JSON.stringify({pid:process.pid,child:child.pid}));fs.renameSync(p.join(dir,'ready-'+mode+'.tmp'),p.join(dir,'ready-'+mode));const file=p.join(dir,'release-'+mode);const w=fs.watch(dir,()=>{if(fs.existsSync(file)){w.close();if(mode==='pre')fs.appendFileSync(p.join(dir,'effects.txt'),'pre\\n',{flush:true});child.kill();process.exit(0)}});`);
 writeFileSync(join(working, 'allowed.txt'), 'Synthetic file marker: ORCHARD_READ\n');
 function state(pid: number) { try { return readFileSync(`/proc/${pid}/stat`, 'utf8').split(') ')[1].split(' ')[0]; } catch { return undefined; } }
 const tracked = new Map<number, string>();
 function identity(pid: number) { try { return readFileSync(`/proc/${pid}/stat`, 'utf8').split(') ')[1].split(' ')[19]; } catch { return undefined; } }
-function track(pid: number) { const key = identity(pid); if (key) tracked.set(pid, key); }
+function track(pid: number, expected?: string) { const key = identity(pid); if (key && (!expected || expected === key)) tracked.set(pid, key); }
 function trackTree(parent: number) {
-  track(parent);
+  if (tracked.get(parent) !== identity(parent)) return;
   const parents = new Map<number, number>();
   for (const name of readdirSync('/proc')) if (/^\d+$/.test(name)) try { parents.set(Number(name), Number(readFileSync(`/proc/${name}/stat`, 'utf8').split(') ')[1].split(' ')[1])); } catch {}
   const visit = (id: number) => { for (const [pid, ppid] of parents) if (ppid === id) { track(pid); visit(pid); } }; visit(parent);
@@ -95,8 +95,9 @@ async function send(chatId: string, text: string, tool?: string, effect?: 'pre'|
     const p = JSON.parse(readFileSync(join(working, 'ready-'+effect), 'utf8')); track(p.pid); track(p.child);
     gate.retireQuery(await app!.evaluate(() => (globalThis as any).acdLiveAcceptance.latestQueryId));
     if (effect === 'post') {
-      const sdkPids = await app!.evaluate(() => (globalThis as any).acdLiveAcceptance.pids.map((p: any) => p.pid));
-      sdkPids.forEach(track); trackTree(app!.process().pid!);
+      const sdkRecords = await app!.evaluate(() => (globalThis as any).acdLiveAcceptance.pids);
+      const sdkPids: number[] = sdkRecords.map((p: any) => p.pid);
+      sdkRecords.filter((p: any) => p.startTime).forEach((p: any) => track(p.pid, p.startTime)); trackTree(app!.process().pid!);
       app!.process().kill('SIGKILL'); await new Promise<void>(resolve => app!.process().once('exit', () => resolve())); app = undefined;
       try { await expect.poll(() => [...sdkPids, p.pid, p.child].every(pid => [undefined, 'Z'].includes(state(pid))), { timeout: 15000 }).toBe(true); }
       catch (error) { summary.crashObservation = { sdkStates: sdkPids.map(state), toolState: state(p.pid), descendantState: state(p.child), effectCount: existsSync(join(working,'effects.txt')) ? readFileSync(join(working,'effects.txt'),'utf8').split('\n').filter(Boolean).length : 0, uncertainty: 'Backend is gone; no automatic replay or verified tool-result acknowledgement' }; throw error; }
@@ -156,7 +157,7 @@ try {
   summary.outcome = 'failed'; summary.failure = error instanceof Error ? error.message.replaceAll(root, '[fixture]').slice(0,1000) : 'Acceptance assertion failed';
   process.exitCode = 1;
 } finally {
-  if (app) { trackTree(app.process().pid!); try { const record = await app.evaluate(() => (globalThis as any).acdLiveAcceptance); record.pids.forEach((p: any) => track(p.pid)); } catch {}
+  if (app) { trackTree(app.process().pid!); try { const record = await app.evaluate(() => (globalThis as any).acdLiveAcceptance); record.pids.filter((p: any) => p.startTime).forEach((p: any) => track(p.pid, p.startTime)); } catch {}
     await Promise.race([app.close().catch(() => {}), new Promise<void>(resolve => { const timer = setTimeout(resolve, 3000); timer.unref(); })]); }
   terminateTracked();
   try { await expect.poll(allTrackedExited, { timeout: 5000 }).toBe(true); summary.cleanup = 'All tracked processes exited or zombie awaiting PID1 reaping; no tracked live processes'; } catch { summary.cleanup = 'FAILED: tracked process still live'; process.exitCode = 1; }

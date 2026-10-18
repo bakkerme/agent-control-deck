@@ -117,7 +117,16 @@ test("official SDK subprocess initializes from the desktop distribution without 
       const parked = new Promise<void>(resolve => { release = resolve; });
       async function* input() { await parked; }
       const abortController = new AbortController();
-      const run = query({ prompt: input(), options: { cwd: app.getPath("userData"), env: { HOME: process.env.HOME, PATH: process.env.PATH, SYSTEMROOT: process.env.SYSTEMROOT }, settingSources: [], strictMcpConfig: true, mcpServers: {}, tools: [], permissionMode: "default", abortController } });
+      const ownedSpawn = process.platform === "linux" ? (options: any) => {
+        const helper = join(app.getAppPath().replace(/app\.asar$/, "app.asar.unpacked"), "out/sdk-supervisor");
+        const fs = process.getBuiltinModule("node:fs"), crypto = process.getBuiltinModule("node:crypto");
+        const manifest = JSON.parse(fs.readFileSync(helper + ".json", "utf8"));
+        if (manifest.protocol !== 1 || manifest.appVersion !== app.getVersion() || crypto.createHash("sha256").update(fs.readFileSync(helper)).digest("hex") !== manifest.sha256 || !(fs.statSync(helper).mode & 0o111)) throw new Error("Packaged supervisor artifact mismatch");
+        const child = process.getBuiltinModule("node:child_process").spawn(helper, [String(process.pid), options.command, ...options.args], { cwd: options.cwd, env: options.env, signal: options.signal, stdio: ["pipe","pipe","pipe","pipe","pipe"] });
+        child.stdio[3]!.on("error", () => {}); child.stdio[4]!.on("error", () => {}); child.stdio[4]!.on("data", () => {}); child.stderr!.resume();
+        return child;
+      } : undefined;
+      const run = query({ prompt: input(), options: { spawnClaudeCodeProcess: ownedSpawn, cwd: app.getPath("userData"), env: { HOME: process.env.HOME, PATH: process.env.PATH, SYSTEMROOT: process.env.SYSTEMROOT }, settingSources: [], strictMcpConfig: true, mcpServers: {}, tools: [], permissionMode: "default", abortController } });
       const timer = setTimeout(() => { abortController.abort(); run.close(); }, 20000);
       try { await run.accountInfo(); return true; }
       finally { clearTimeout(timer); release(); run.close(); }

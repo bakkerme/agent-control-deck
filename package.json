@@ -9,11 +9,11 @@
     "guard:install": "node scripts/install-commit-guard.mjs",
     "guard:review": "node scripts/commit-guard.mjs",
     "test:commit-guard": "node --test scripts/commit-guard.test.mjs",
-    "dev": "node scripts/build-local-matching.mjs && electron-vite dev",
+    "dev": "node scripts/build-local-matching.mjs && node scripts/build-sdk-supervisor.cjs && electron-vite dev",
     "start": "electron-vite preview",
     "demo": "electron-vite preview -- --demo",
     "typecheck": "tsc --noEmit",
-    "build": "npm run typecheck && node scripts/build-local-matching.mjs && electron-vite build",
+    "build": "npm run typecheck && node scripts/build-local-matching.mjs && electron-vite build && node scripts/build-sdk-supervisor.cjs",
     "postinstall": "install-electron --no && electron-builder install-app-deps",
     "test": "node scripts/test.cjs",
     "test:embedded:faults": "node scripts/test.cjs embedded-faults",
@@ -76,7 +76,9 @@
     ],
     "asarUnpack": [
       "**/*.node",
-      "node_modules/@anthropic-ai/claude-agent-sdk*/**/*"
+      "node_modules/@anthropic-ai/claude-agent-sdk*/**/*",
+      "out/sdk-supervisor",
+      "out/sdk-supervisor.json"
     ],
     "mac": {
       "target": [
