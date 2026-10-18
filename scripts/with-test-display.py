@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Isolated Linux synthetic GUI tests; installed Xorg/dummy only, no system edits."""
+"""Isolated Linux GUI tests; backend-env requires explicit live authorization."""
 import os
 import pathlib
 import secrets
@@ -21,9 +21,10 @@ if not arguments:
 with tempfile.TemporaryDirectory(prefix='acd-gui-') as directory:
     root = pathlib.Path(directory)
     os.chmod(root, 0o700)
-    for name in ['runtime', 'data', 'config', 'cache']:
+    for name in ['runtime', 'data', 'config', 'cache', 'home']:
         (root / name).mkdir(mode=0o700)
     env = {'PATH': os.environ.get('PATH', '/usr/bin:/bin'), 'LANG': 'C.UTF-8',
+           'HOME': str(root/'home'), 'USERPROFILE': str(root/'home'),
            'TMPDIR': directory, 'XDG_RUNTIME_DIR': str(root/'runtime'),
            'XDG_DATA_HOME': str(root/'data'), 'XDG_CONFIG_HOME': str(root/'config'),
            'XDG_CACHE_HOME': str(root/'cache'), 'npm_config_cache': '/tmp/acd-npm-cache'}

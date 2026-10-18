@@ -5,11 +5,12 @@ const { mkdtempSync, readFileSync, writeFileSync, rmSync, existsSync, mkdirSync 
 const { tmpdir } = require('node:os');
 const { resolve, join } = require('node:path');
 const { createHash } = require('node:crypto');
+const live=process.argv.includes('--live');
 const summaryFile=resolve('test-results/outer-acceptance-summary.json');
 mkdirSync(resolve('test-results'),{recursive:true});
-writeFileSync(summaryFile,JSON.stringify({outcome:'not-completed',externalGuardianCleanup:false,paidCalls:0}));
+writeFileSync(summaryFile,JSON.stringify({outcome:'not-completed',externalGuardianCleanup:false,paidCalls:live?'unknown; retain durable reservation':0}));
 if (process.platform !== 'linux') throw new Error('External acceptance guardian requires Linux');
-if (process.argv.includes('--live')) throw new Error('Paid acceptance still requires separate budget-owner admission');
+if (live && !process.argv.includes('--small-batch')) throw new Error('Live requires bounded small-batch admission');
 const args = process.argv.slice(2);
 if (!args.length) throw new Error('Pass the prepared coordinator and synthetic test arguments');
 const helper = resolve('out/sdk-supervisor'), manifest = JSON.parse(readFileSync(helper+'.json','utf8'));
@@ -43,6 +44,6 @@ function state(pid){try{return readFileSync(`/proc/${pid}/stat`,'utf8').split(')
       if(!cleaned || ledger!==1 || evidence.effectCount!==1) process.exitCode=1;
       // Only remove the temporary fixture directory created by the coordinator.
       if(resolve(evidence.root).startsWith(join(tmpdir(),'acd-app-acceptance-'))) rmSync(evidence.root,{recursive:true,force:true});
-    } else writeFileSync(summaryFile,JSON.stringify({outcome:code===0?'passed':'failed',externalGuardianCleanup:true,paidCalls:0}));
+    } else writeFileSync(summaryFile,JSON.stringify({outcome:code===0?'passed':'failed',externalGuardianCleanup:true,paidCalls:live?'See durable reservation and live summary':0}));
   } finally {clearTimeout(timeout);if(cleanupConfirmed)rmSync(root,{recursive:true,force:true});}
-})().catch(()=>{writeFileSync(resolve('test-results/outer-acceptance-summary.json'),JSON.stringify({outcome:'failed',externalGuardianCleanup:cleanupConfirmed,paidCalls:0}));console.error('External guardian acceptance failed; retain budget reservations. '+(cleanupConfirmed?'Owned processes cleaned.':'Unconfirmed cleanup retains its private recovery report at '+root));process.exitCode=1;guardian.kill('SIGTERM');});
+})().catch(()=>{writeFileSync(resolve('test-results/outer-acceptance-summary.json'),JSON.stringify({outcome:'failed',externalGuardianCleanup:cleanupConfirmed,paidCalls:live?'unknown; retain durable reservation':0}));console.error('External guardian acceptance failed; retain budget reservations. '+(cleanupConfirmed?'Owned processes cleaned.':'Unconfirmed cleanup retains its private recovery report at '+root));process.exitCode=1;guardian.kill('SIGTERM');});

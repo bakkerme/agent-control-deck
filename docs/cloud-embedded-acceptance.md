@@ -1,6 +1,8 @@
 # Cloud embedded-agent acceptance
 
-**Readiness: Linux backend-death containment now passes the original active-tool reproduction; general product crash containment remains unverified.** A per-run Linux subreaper/pidfd supervisor fixes the observed SDK/Bash/child survival after backend SIGKILL. Supervisor SIGKILL remains an explicit tested limit: the SDK root dies, but an already adopted tool can survive. macOS/Windows/WSL containment is not implemented or established here. No paid inference was dispatched; the coordinator still requires separate budget-owner admission.
+**Guarded live follow-up:** [the two-query native acceptance pass](embedded-live-small-batch.md) now passes under durable conservative admission. The earlier preparation/hold below describes the prior phase; broader live cases remain unadmitted. Historical live results are not relabeled as this new pass.
+
+**Readiness: Linux backend-death containment now passes the original active-tool reproduction; general product crash containment remains unverified.** A per-run Linux subreaper/pidfd supervisor fixes the observed SDK/Bash/child survival after backend SIGKILL. Supervisor SIGKILL remains an explicit tested limit: the SDK root dies, but an already adopted tool can survive. macOS/Windows/WSL containment is not implemented or established here. During the original synthetic preparation no paid inference was dispatched; the later narrow native pass has its own documented admission and retained reservation.
 
 This supplements the prioritized [edge-case matrix](embedded-edge-cases.md). It does not establish Windows/WSL/macOS behavior, universal provider compatibility, exactly-once effects or bounded SDK memory.
 
@@ -36,7 +38,7 @@ No cancellation test promises rollback of an already approved in-flight external
 
 ## Bounded live foundation — held for separate budget admission
 
-`run.ts` refuses `--live` **before** accounting, SDK startup or provider dispatch. Removing that block requires final containment review and separate budget-owner admission. The tested Linux backend-death failure is fixed; this does not authorize paid calls. There is no scheduled task, automatic retry or CI paid test.
+`run.ts` now admits only the explicitly authorized `--live --small-batch` mode behind the independent guardian, fresh financial preflight and an exclusive durable whole-batch reservation. [The admission report](embedded-live-small-batch.md) records the completed two-forward pass and retained historical reserves. Broader live modes fail closed. There is no scheduled task, automatic retry or CI paid test.
 
 The prepared backend-only coordinator and [gateway](../scripts/embedded-acceptance/gateway.ts) provide:
 
@@ -69,13 +71,13 @@ Environment: Linux x64, Node 24.19, Electron 44.5.1, SDK 0.3.302. Experimental b
 | Real SDK + synthetic wire | 2 passed: intended text request and pre-effect Bash cancellation with child exit and zero effects. 2 synthetic forwards; no paid upstream. |
 | Real SDK active-tool crash repro | Before fix: SDK/tool/descendant remained `S` after 15 seconds. After fix: text + same post-effect backend-SIGKILL/restart oracle passed; SDK/tool/child exited, exactly 1 committed effect retained and old send deduplicated. 2 synthetic forwards; no paid upstream. |
 | Independent review | Read-only review identified retry admission/body-disconnect hardening and missing SDK cleanup tracking; addressed and rereviewed. Native-supervisor review also caught SIGPIPE, owner-identity and process-name parsing races; each was fixed with focused coverage. Supervisor death and other platforms remain documented limits. |
-| Paid acceptance | **Not run; US$0 new inference spend.** Coordinator rejects `--live` before dispatch. No current provider accounting is claimed from synthetic counters. |
+| Paid acceptance at this earlier phase | Not run in the initial containment phase. The separate [guarded native follow-up](embedded-live-small-batch.md) records two actual forwards and retains the full US$1.60 reservation despite lagging provider accounting. |
 
 The coordinator writes sanitized runtime summaries under ignored `test-results/wire-acceptance-summary.json` and `test-results/wire-crash-summary.json`; they contain no session IDs, raw provider events, actual PIDs or credentials. Reproduction commands regenerate them. Linux PID observations establish the bounded observation period, not an assertion that every possible descendant is controlled.
 
 ## Supervisor-death follow-up
 
-See [the bounded failure-model investigation and cloud admission decision](embedded-supervisor-boundary.md). It fixes the real SDK force-kill escalation path and adds an independent outer test guardian. Controlled two-failure cleanup passes without labeling product containment successful. Live remains held for the explicit budget-owner admission described there.
+See [the bounded failure-model investigation and cloud admission decision](embedded-supervisor-boundary.md). It fixes the real SDK force-kill escalation path and adds an independent outer test guardian. Controlled two-failure cleanup passes without labeling product containment successful. The narrow live admission is documented separately; larger live batches remain held.
 
 ## Linux supervisor boundary
 

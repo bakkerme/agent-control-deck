@@ -44,7 +44,7 @@ A further trusted unprivileged subreaper could cover one additional chosen guard
 
 **Process-safety decision:** selected controlled Linux acceptance cases can run behind the tested outer guardian while explicitly excluding outer-owner/host failure and hostile tools. The raw product-supervisor limitation alone no longer justifies a blanket hold on such an isolated test. The SDK escalation defect had to be fixed first; it now is.
 
-**Paid execution is still held, not silently enabled.** Both the coordinator and outer runner reject `--live`. The single budget owner must complete and record this admission before enabling selected calls:
+**Follow-up:** the single budget coordinator completed [a narrow two-forward admission and native live pass](embedded-live-small-batch.md), retaining all earlier reserves. Both coordinator and outer runner require `--live --small-batch`; larger/fault live modes remain disabled. The prerequisites used were:
 
 1. Choose the exact controlled cases and acknowledge the failure model above. Do not admit arbitrary commands or cross-platform crash claims.
 2. Obtain fresh backend-only cumulative accounting and remaining key budget; reconcile all earlier shared-budget reservations. Prior historical usage or synthetic counters are not a current balance. No credential inspection/copying/provisioning is required.
@@ -52,7 +52,7 @@ A further trusted unprivileged subreaper could cover one additional chosen guard
 4. Reserve the **whole batch maximum before launch** in the budget owner's durable record, retaining it after any process failure. The prepared maximum is 16 actual forwards × US$0.80 + US$2 uncertainty headroom = US$14.80, which must fit within the remaining shared US$20 cap after prior work. A smaller selected batch should reserve its explicit maximum. Do not release reservations from SDK estimates or lagging accounting.
 5. Retain the existing gate's route/query/request/output/body/deadline bounds, fail-closed transport/retry behavior, zero automatic replay, and outer-guardian cleanup evidence. Stop the batch on unexpected tools, process uncertainty or admission failure.
 
-This task made no paid calls, changed no credentials and did not claim those financial preflights have just passed. The remaining action is a concrete budget-owner admission for a narrow guarded batch, not permission for global/kernel/security changes or a claim of general product readiness.
+The original supervisor investigation made no paid calls or credential changes. The later linked pass establishes only its two guarded native text queries, with fresh accounting/pricing and a retained durable reservation. No global/kernel/security changes or general product-readiness claim follows from it.
 
 ## Recorded follow-up results
 
