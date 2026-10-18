@@ -38,7 +38,7 @@ The existing Linux subreaper + pidfd setup works without privileges, persistent 
 
 Stronger host-enforced containment is unavailable to this task: the cgroup v2 mount is read-only and not writable/delegated; the user systemd manager reports offline; an unprivileged user/PID namespace probe fails because `/proc/self/uid_map` is read-only. No attempt was made to change mount flags, sysctls, capabilities, helper permissions, services or distro state.
 
-If acceptance must include independent test-guardian death, the concrete platform setup needed is a disposable host-managed container/VM or delegated per-test cgroup/PID namespace with an **outside** owner that can kill and observe the entire test workload. That requires platform provisioning/delegation, not merely another in-process timeout. Production macOS/Windows/WSL containment also needs its own native design and acceptance; this PR does not redesign those platforms.
+A further trusted unprivileged subreaper could cover one additional chosen guardian failure; that moves the assumed surviving-owner boundary and does not provide independence from workload-wide/correlated owner loss. If acceptance must include loss of all owners inside the workload, the stronger setup is a disposable host-managed container/VM or delegated per-test cgroup/PID namespace with an **outside** owner that can kill and observe the workload. That setup requires platform provisioning/delegation here. It is not required for the narrow controlled tests above. Production macOS/Windows/WSL containment also needs its own native design and acceptance; this PR does not redesign those platforms.
 
 ## Paid admission decision
 
