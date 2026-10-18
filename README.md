@@ -87,6 +87,11 @@ Claude CLI; choose Codex with `npm run guard:install -- --reviewer codex`). It b
 or enterprise configuration, and blocks when review is uncertain or unavailable.
 See [commit confidentiality review](docs/commit-confidentiality.md) for setup and limits.
 
+For owner-approved personal/cloud checkouts, `npm run guard:install -- --reviewer off`
+keeps deterministic artifact checks while explicitly skipping model review. These
+tasks may commit, push and open PRs. Review stays enabled by default; no CI or
+cloud environment is detected automatically.
+
 For the standalone, synthetic chat-to-task AI experiment, run `npm run test:matching`
 and `npm run eval:matching`. See [matching evaluation](docs/chat-task-matching-eval.md)
 for adding an OpenRouter key and explicitly enabling live requests.

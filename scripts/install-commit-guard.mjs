@@ -9,8 +9,8 @@ function git(args) {
 }
 const directory = git(['rev-parse', '--git-path', 'hooks']);
 const args = process.argv.slice(2);
-if (args.length && (args.length !== 2 || args[0] !== '--reviewer' || !['desktop', 'claude', 'codex'].includes(args[1]))) {
-  throw new Error('Usage: npm run guard:install -- [--reviewer desktop|claude|codex]');
+if (args.length && (args.length !== 2 || args[0] !== '--reviewer' || !['desktop', 'claude', 'codex', 'off'].includes(args[1]))) {
+  throw new Error('Usage: npm run guard:install -- [--reviewer desktop|claude|codex|off]');
 }
 const target = join(directory, 'commit-msg');
 const hook = readFileSync('.githooks/commit-msg', 'utf8');
@@ -39,4 +39,6 @@ if (reviewer === 'desktop' || existsSync('.claude/settings.local.json')) {
 writeFileSync(target, hook, { mode: 0o755 });
 chmodSync(target, 0o755);
 git(['config', '--local', 'commitGuard.reviewer', reviewer]);
-console.log(`Commit confidentiality review enabled (${reviewer}). Desktop mode needs Node 24+ and Claude Code Desktop, with no standalone Claude CLI. Restart the Code session and review/trust the local hooks.`);
+console.log(reviewer === 'off'
+  ? 'Model confidentiality review explicitly off for this repository; deterministic artifact checks remain enabled. No model review will run. Linked worktrees share this local setting.'
+  : `Commit confidentiality review enabled (${reviewer}). Desktop mode needs Node 24+ and Claude Code Desktop, with no standalone Claude CLI. Restart the Code session and review/trust the local hooks.`);
