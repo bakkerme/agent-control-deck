@@ -1,5 +1,5 @@
 // Backend only. Linux SDK and all orphaned descendants belong to one subreaper.
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, type ChildProcess, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { version } from "../../package.json";
@@ -18,6 +18,7 @@ export function spawnOwnedSdkProcess(options: SpawnOptions): OwnedSdkProcess {
     cwd: options.cwd, env: options.env, signal: options.signal, stdio: ["pipe", "pipe", "pipe", "pipe", "pipe"], windowsHide: true,
   }) as OwnedSdkProcess;
   child.ownedSupervisor = true;
+  protectSupervisorKill(child);
   // fd 3 has a single backend-owned writer. A pidfd also watches the exact backend process, so inherited pipe writers
   // in Electron helpers cannot mask backend death. Neither depends on
   // JS cleanup, renderer liveness, SDK EOF or pipe backpressure.
@@ -38,4 +39,11 @@ export function spawnOwnedSdkProcess(options: SpawnOptions): OwnedSdkProcess {
 export function verifySdkSupervisor(helper: string, sourceHash: string | undefined): void {
   const manifest = JSON.parse(readFileSync(helper + ".json", "utf8"));
   if (manifest.protocol !== 1 || manifest.appVersion !== version || !sourceHash || manifest.sourceSha256 !== sourceHash || createHash("sha256").update(readFileSync(helper)).digest("hex") !== manifest.sha256) throw new Error("SDK supervisor integrity/version mismatch; rebuild or reinstall the app");
+}
+
+// The SDK's force-exit timeout must not destroy the owner before it reaps
+// tools. OS/admin SIGKILL still bypasses this interface and remains a limit.
+export function protectSupervisorKill(child: ChildProcess): void {
+  const kill = child.kill.bind(child);
+  child.kill = signal => kill(signal === "SIGKILL" || signal === 9 ? "SIGTERM" : signal);
 }
