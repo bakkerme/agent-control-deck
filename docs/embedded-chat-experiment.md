@@ -43,6 +43,9 @@ A `PreToolUse` hook asks for each tool call before the SDK's normal allow rules.
 
 ## Verification
 
+See the [prioritized edge-case matrix and deterministic reproduction commands](embedded-edge-cases.md)
+for failure schedules, actual regression evidence, coverage gaps and separate live/native gates.
+
 Run `npm run check:all` for type checking, backend/native tests, headless renderer tests and native Electron/IPC checks. Run `npm run package` and `npm run test:packaged` for the packaged app. New lifecycle tests cover task linkage/unlinking, separate same-folder sessions, exact resume, send deduplication across restart, partial/final block reconciliation, errors, questions, denial, cancellation and stale events. Browser tests use a clearly synthetic SDK transport fixture and cover task selection, history on reload, attention routing, pending request recovery, questions, errors, cancellation and restart.
 
 `npm run smoke:embedded` initializes the real official SDK subprocess with a parked input stream. It sends **no prompt** and cannot establish inference access. `ACD_EMBEDDED_LIVE=1 npm run smoke:embedded -- --inference` deliberately performs two tools-disabled, harmless turns with session resume using the selected auth mode; it may consume subscription/API usage. It omits account details and model text from terminal evidence. Initialization success must not be reported as live inference success.

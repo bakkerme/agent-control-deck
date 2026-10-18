@@ -5,9 +5,11 @@ const { join, basename } = require("node:path");
 mkdirSync("out-tests", { recursive: true });
 const entries = readdirSync("tests")
   .filter((f) => f.endsWith(".test.ts"))
+  .filter((f) => !process.argv[2] || process.argv.slice(2).includes(basename(f, ".test.ts")))
   .map((f) => join("tests", f));
+if (!entries.length) throw new Error("No matching backend tests");
 buildSync({
-  entryPoints: entries,
+  entryPoints: [...entries, "tests/embedded-crash-worker.ts"],
   outdir: "out-tests",
   bundle: true,
   platform: "node",

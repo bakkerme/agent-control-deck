@@ -16,6 +16,7 @@
     "build": "npm run typecheck && node scripts/build-local-matching.mjs && electron-vite build",
     "postinstall": "install-electron --no && electron-builder install-app-deps",
     "test": "node scripts/test.cjs",
+    "test:embedded:faults": "node scripts/test.cjs embedded-faults",
     "test:matching": "node --test scripts/chat-task-eval/matching.test.mjs",
     "test:matching:local": "node --test scripts/chat-task-eval/local.test.mjs scripts/chat-task-eval/benchmark.test.mjs scripts/chat-task-eval/jev.test.mjs scripts/chat-task-eval/evaluation.test.mjs",
     "bundle:matching:local": "node scripts/chat-task-eval/build-local-bundle.mjs",
