@@ -13,7 +13,7 @@ buildSync({
   platform: "node",
   format: "cjs",
   outExtension: { ".js": ".cjs" },
-  external: ["better-sqlite3"],
+  external: ["better-sqlite3", "@anthropic-ai/claude-agent-sdk"],
 });
 const result = spawnSync(
   require("electron"),

@@ -5,5 +5,5 @@ buildSync({
   bundle: true,
   platform: "node",
   format: "cjs",
-  external: ["better-sqlite3"],
+  external: ["better-sqlite3", "@anthropic-ai/claude-agent-sdk"],
 });

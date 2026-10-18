@@ -1,3 +1,4 @@
+import EmbeddedConversation from "./EmbeddedChat";
 import {
   forwardRef,
   useCallback,
@@ -1371,7 +1372,7 @@ const Planning = forwardRef<
     detail = chat ? (
       <>
         <h2>{displayName(chat)}</h2>
-        <LatestRound chat={chat} fullHistory={() => openChat(chat.id)} />
+        {chat.embedded ? <EmbeddedConversation key={chat.id} chatId={chat.id} /> : <LatestRound chat={chat} fullHistory={() => openChat(chat.id)} />}
       </>
     ) : (
       <div className="empty">
@@ -1553,6 +1554,7 @@ const Planning = forwardRef<
           drafts={planning.drafts}
           onDraft={draft}
         />
+        <EmbeddedConversation key={`embedded:${current.id}`} taskId={current.id} />
         <section className="plan-detail-section" aria-label="Linked chats">
           <div className="section-heading">
             <h3>Linked chats</h3>

@@ -1,3 +1,4 @@
+import type { EmbeddedCommand, EmbeddedReply } from "./embedded-chat";
 import type {
   PlanningSnapshot,
   PlanCategory,
@@ -44,6 +45,7 @@ export interface Source {
   responsesEnabled?: boolean;
 }
 export interface Chat {
+  embedded?: boolean;
   id: string;
   projectId: string | null;
   // Detected repository origin; projectId alone controls current membership.
@@ -249,6 +251,7 @@ export type Command =
   | { type: "setDemo"; enabled: boolean }
   | { type: "advanceDemo" };
 export interface DeckApi {
+  embedded(command: EmbeddedCommand): Promise<EmbeddedReply>;
   installLocalMatching(): Promise<void>;
   matchingAnalytics(days: 1 | 7 | 30): Promise<MatchingAnalyticsSummary>;
   exportMatchingAnalytics(days: 1 | 7 | 30): Promise<string>;

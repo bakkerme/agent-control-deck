@@ -182,9 +182,9 @@ test("analytics distinguish remove and Undo; clearing preserves links and the ma
 
 test("v12 analytics migration preserves links, dismissals and cache and makes a backup",async t=>{
   const f=fixture(t);await f.enable();await f.matcher.tick();
-  f.store.db.exec("DROP TABLE matching_measurements; DROP TABLE matching_feedback; ALTER TABLE chat_rounds DROP COLUMN firstPrompt; PRAGMA user_version=12;");
+  f.store.db.exec("DROP TABLE embedded_sends; DROP TABLE embedded_events; DROP TABLE embedded_sessions; DROP TABLE matching_measurements; DROP TABLE matching_feedback; ALTER TABLE chat_rounds DROP COLUMN firstPrompt; PRAGMA user_version=12;");
   f.reopen();
-  assert.equal(f.store.db.pragma("user_version",{simple:true}),14);
+  assert.equal(f.store.db.pragma("user_version",{simple:true}),15);
   assert.deepEqual(f.plans.items().find(i=>i.id===f.itemId)!.automaticChatIds,[f.chatId]);
   assert.ok(f.store.db.prepare("SELECT * FROM ai_match_attempts WHERE chatId=?").get(f.chatId));
   assert.ok(readdirSync(f.dir).some(name=>name.startsWith("workspace.sqlite.bak-")));
@@ -452,7 +452,7 @@ test("only today's observed chats and tasks are eligible", async t => {
 test("v11 migration keeps manual associations and makes one recoverable backup", t => {
   const f = fixture(t);
   f.store.command({ type: "setPlanChats", id: f.itemId, chatIds: [f.chatId] });
-  f.store.db.exec("DROP TABLE matching_measurements; DROP TABLE matching_feedback; DROP TABLE ai_link_dismissals; DROP TABLE ai_match_attempts; ALTER TABLE plan_chats DROP COLUMN origin; ALTER TABLE chat_rounds DROP COLUMN firstPrompt; PRAGMA user_version=11;");
+  f.store.db.exec("DROP TABLE embedded_sends; DROP TABLE embedded_events; DROP TABLE embedded_sessions; DROP TABLE matching_measurements; DROP TABLE matching_feedback; DROP TABLE ai_link_dismissals; DROP TABLE ai_match_attempts; ALTER TABLE plan_chats DROP COLUMN origin; ALTER TABLE chat_rounds DROP COLUMN firstPrompt; PRAGMA user_version=11;");
   f.reopen();
   const item = f.plans.items().find(item => item.id === f.itemId)!;
   assert.deepEqual(item.chatIds, [f.chatId]); assert.deepEqual(item.automaticChatIds, []);

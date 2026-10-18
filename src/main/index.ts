@@ -142,6 +142,7 @@ function handle(
   });
 }
 function registerIpc(): void {
+  handle("deck:embedded", input => workspace.embedded.command(input));
   handle("deck:save-matching", input => workspace.saveMatching(input));
   handle("deck:remove-matching-key", input => workspace.removeMatchingKey(input));
   handle("deck:test-matching-connection", input => workspace.testMatchingConnection(input));

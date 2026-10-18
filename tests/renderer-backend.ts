@@ -1,3 +1,4 @@
+import { fixtureAgent } from "./embedded-fixture";
 import { z } from "zod";
 import { WorkspaceRuntime } from "../src/main/workspace-runtime";
 import { idSchema, ticketUrl } from "../src/shared/validation";
@@ -7,6 +8,8 @@ const runtime = new WorkspaceRuntime(
   process.argv[2],
   () => process.send?.({ changed: true }),
   process.argv[3] === "demo",
+  undefined,
+  process.env.ACD_TEST_EMBEDDED === "1" ? fixtureAgent : undefined,
 );
 const openedUrls: string[] = [];
 const stop = () => {
@@ -25,6 +28,7 @@ process.on(
     try {
       let value: unknown;
       switch (method) {
+        case "embedded": value = await runtime.embedded.command(input); break;
         case "installLocalMatching": value = await runtime.installLocalMatching(input); break;
         case "matchingAnalytics": value = runtime.matchingAnalytics(input); break;
         case "exportMatchingAnalytics": value = runtime.exportMatchingAnalytics(input); break;

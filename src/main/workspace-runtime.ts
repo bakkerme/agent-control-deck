@@ -1,3 +1,5 @@
+import type { AgentRunner } from "./embedded-sdk";
+import { EmbeddedChats } from "./embedded-chat";
 import { join } from "node:path";
 import type { Snapshot } from "../shared/types";
 import { commandSchema, idSchema, ticketUrl } from "../shared/validation";
@@ -29,6 +31,7 @@ const unavailableEncryption: SecretEncryption = {
 // Electron alone owns IPC trust, clipboard, external links and OS decoration.
 export class WorkspaceRuntime {
   store!: Store;
+  embedded!: EmbeddedChats;
   private inbox!: Inbox;
   private connection!: HookConnection;
   private readonly receiver: HookReceiver;
@@ -42,6 +45,7 @@ export class WorkspaceRuntime {
     private readonly changed: () => void,
     private demo = false,
     private readonly encryption: SecretEncryption = unavailableEncryption,
+    private readonly embeddedRunner?: AgentRunner,
   ) {
     this.interactions = new InteractionQueue(changed);
     this.receiver = new HookReceiver(() => ({
@@ -73,6 +77,7 @@ export class WorkspaceRuntime {
   }
 
   close(): void {
+    this.embedded?.close();
     this.interactions.clear();
     this.matcher?.dispose();
     if (this.timer) clearInterval(this.timer);
@@ -84,6 +89,7 @@ export class WorkspaceRuntime {
   private openStore(): void {
     this.store = new Store(join(this.root(), "workspace.sqlite"));
     if (this.demo) seedDemo(this.store);
+    this.embedded = new EmbeddedChats(this.store, this.root(), this.changed, !this.demo && process.env.ACD_EMBEDDED_CHAT === "1", this.embeddedRunner);
     for (const source of this.store.sources()) {
       try {
         writeHookSetup(this.root(), source, this.connection);
@@ -116,6 +122,7 @@ export class WorkspaceRuntime {
   snapshot(): Snapshot {
     const sources = this.store.sources();
     const plans = new PlanningStore(this.store);
+    const embeddedIds = new Set((this.store.db.prepare("SELECT chatId FROM embedded_sessions").all() as { chatId: string }[]).map(r => r.chatId));
     return {
       matching: this.matcher.status(),
       requests: this.interactions.snapshot().map(request => {
@@ -135,7 +142,7 @@ export class WorkspaceRuntime {
       settings: this.store.settings(),
       links: this.store.links(),
       projects: this.store.projects(),
-      chats: this.store.chats(),
+      chats: this.store.chats().map(chat => ({ ...chat, embedded: embeddedIds.has(chat.id) })),
       sources,
       workspaces: this.store.workspaces(),
       demo: this.demo,
@@ -243,6 +250,7 @@ export class WorkspaceRuntime {
     const command = commandSchema.parse(input);
     if (command.type === "setDemo") {
       if (command.enabled !== this.demo) {
+        this.embedded?.close();
         this.interactions.clear();
         const previous = this.demo;
         this.matcher.dispose();

@@ -27,9 +27,11 @@
     "dist": "npm run build && electron-builder",
     "test:packaged": "node scripts/test-packaged.cjs",
     "test:electron": "npm run build && playwright test --config playwright.electron.config.ts",
-    "check:all": "npm run check && npm run test:electron"
+    "check:all": "npm run check && npm run test:electron",
+    "smoke:embedded": "node scripts/smoke-embedded-sdk.mjs"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.3.302",
     "better-sqlite3": "13.0.3",
     "react": "19.3.0",
     "react-dom": "19.3.0",
@@ -61,9 +63,15 @@
       "out/**/*",
       "package.json"
     ],
-    "extraResources": [{ "from": "out/local-matching", "to": "local-matching" }],
+    "extraResources": [
+      {
+        "from": "out/local-matching",
+        "to": "local-matching"
+      }
+    ],
     "asarUnpack": [
-      "**/*.node"
+      "**/*.node",
+      "node_modules/@anthropic-ai/claude-agent-sdk*/**/*"
     ],
     "mac": {
       "target": [

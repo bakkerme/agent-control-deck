@@ -127,3 +127,7 @@ The packaging tool's `@electron/get` dependency is overridden to v5 to avoid its
 The reference bridge still runs with `make bridge-install && make bridge-serve`. `make check` checks both desktop and bridge; `npm run check` checks only the desktop.
 
 Hardware source is preserved at tag `hardware-final-2026-10-04`. Firmware, simulator, and BLE dependencies are retired. The separate LilyGo checkout is untouched.
+
+## Embedded conversation experiment
+
+An opt-in task-associated Claude Agent SDK foundation is available on the experimental branch. See [setup, architecture, authentication, tests and next steps](docs/embedded-chat-experiment.md). Existing hook/tmux monitoring remains available.

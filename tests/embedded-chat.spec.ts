@@ -1,0 +1,70 @@
+import { test, expect } from "./renderer-fixture";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { localPlanDay } from "../src/shared/planning";
+test("embedded task conversations: selection, stream, tool activity, reload, permissions, error and cancel", async ({ launchRenderer }) => {
+  const dir = mkdtempSync(join(tmpdir(), "acd-embedded-ui-"));
+  let app = await launchRenderer({ dataDirectory: dir, embeddedFixture: true });
+  try {
+    let page = await app.firstWindow();
+    const errors: string[] = [];
+    page.on("pageerror", e => errors.push(e.message));
+    await page.evaluate(day => window.deck.command({ type: "createPlanItem", day, category: "Other", name: "Synthetic embedded research" }), localPlanDay());
+    const openTask = async () => page.getByRole("button", { name: "Select task Synthetic embedded research", exact: true }).click();
+    await openTask();
+    const panel = () => page.getByRole("region", { name: "Embedded conversation" });
+    const create = async (name: string) => {
+      await panel().getByRole("button", { name: "New embedded chat", exact: true }).click();
+      await panel().getByLabel("Chat name").fill(name);
+      await panel().getByLabel("Working directory").fill(dir);
+      await panel().getByRole("button", { name: "Create embedded chat", exact: true }).click();
+    };
+    await create("Synthetic first chat");
+    const send = async (text: string) => { await panel().getByLabel("Message to Claude Agent").fill(text); await panel().getByRole("button", { name: "Send message", exact: true }).click(); };
+    await send("Synthetic prompt");
+    await expect(panel().getByRole("log")).toContainText("Synthetic fixture response");
+    await expect(panel().getByRole("log")).toContainText("Tool result");
+    await expect(panel().getByRole("button", { name: "Send message", exact: true })).toBeDisabled(); // empty composer
+    await create("Synthetic second chat");
+    await panel().getByRole("combobox", { name: "Embedded chat", exact: true }).selectOption({ label: "Synthetic first chat · idle" });
+    await expect(panel().getByRole("log")).toContainText("Synthetic fixture response");
+    await page.reload(); await openTask();
+    await expect(panel().getByRole("log")).toContainText("Synthetic fixture response");
+    await send("fixture-permission");
+    await expect(panel().getByRole("region", { name: "Request Write", exact: true })).toBeVisible();
+    await page.screenshot({ path: "test-results/embedded-permission.png", fullPage: true });
+    await page.reload(); await openTask();
+    await expect(panel().getByRole("region", { name: "Request Write", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: /^Needs attention/ }).click();
+    await expect(panel().getByRole("region", { name: "Request Write", exact: true })).toBeVisible();
+    await page.screenshot({ path: "test-results/embedded-attention.png", fullPage: true });
+    await panel().getByRole("button", { name: "Deny", exact: true }).click();
+    await page.getByRole("button", { name: "This day", exact: true }).click();
+    await openTask();
+    await expect(panel().getByRole("log")).toContainText("Synthetic Write request deny");
+    await send("fixture-question");
+    await panel().getByLabel("Which synthetic option?", { exact: true }).fill("B");
+    await panel().getByRole("button", { name: "Send answers", exact: true }).click();
+    await expect(panel().getByRole("log")).toContainText("Synthetic AskUserQuestion request allow");
+    await send("fixture-error");
+    await expect(panel().getByRole("log")).toContainText("Agent connection failed");
+    await send("fixture-permission");
+    await expect(panel().getByRole("region", { name: "Request Write", exact: true })).toBeVisible();
+    await panel().getByRole("button", { name: "Cancel turn", exact: true }).click();
+    await expect(panel().getByRole("log")).toContainText("Turn cancelled");
+    await expect(panel().getByRole("region", { name: "Request Write", exact: true })).toHaveCount(0);
+    await page.screenshot({ path: "test-results/embedded-conversation.png", fullPage: true });
+    const snapshot = await page.evaluate(() => window.deck.load());
+    expect(snapshot.planning.items[0].chatIds).toHaveLength(2);
+    expect(snapshot.chats.filter(c => c.embedded)).toHaveLength(2);
+    // Removing the selected chat picks the remaining conversation.
+    await page.evaluate(({ taskId, chatId }) => window.deck.command({ type: "setPlanChats", id: taskId, chatIds: [chatId] }), { taskId: snapshot.planning.items[0].id, chatId: snapshot.chats.find(c => c.name === "Synthetic second chat")!.id });
+    await expect(panel().getByRole("combobox", { name: "Embedded chat", exact: true })).toContainText("Synthetic second chat");
+    await expect(panel().getByRole("log")).toContainText("Start a conversation");
+    await app.close();
+    app = await launchRenderer({ dataDirectory: dir, embeddedFixture: true }); page = await app.firstWindow(); await openTask();
+    await expect(panel().getByRole("combobox", { name: "Embedded chat", exact: true })).toContainText("Synthetic second chat");
+    expect(errors).toEqual([]);
+  } finally { await app.close(); rmSync(dir, { recursive: true, force: true }); }
+});

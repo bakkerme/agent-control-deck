@@ -11,6 +11,7 @@ import { resolve } from "node:path";
 type LaunchOptions = {
   dataDirectory: string;
   demo?: boolean;
+  embeddedFixture?: boolean;
   // Exercise notifications arriving before a slower command reply, as on CI.
   commandReplyDelayMs?: number;
 };
@@ -37,6 +38,10 @@ async function launch(
         ELECTRON_RUN_AS_NODE: "1",
         ACD_HTTP_HOST: "127.0.0.1",
         ACD_HTTP_PORT: "0",
+        ACD_EMBEDDED_CHAT: options.embeddedFixture ? "1" : "0",
+        ACD_EMBEDDED_AUTH: "api-key",
+        ACD_TEST_EMBEDDED: options.embeddedFixture ? "1" : "0",
+        ANTHROPIC_API_KEY: options.embeddedFixture ? "synthetic-test-key" : "",
       },
       stdio: ["ignore", "pipe", "pipe", "ipc"],
     },
@@ -154,6 +159,7 @@ async function launch(
         }
       ).deckTestInvoke;
       window.deck = {
+        embedded: input => invoke("embedded", input),
         installLocalMatching: () => invoke("installLocalMatching"),
         matchingAnalytics: days => invoke("matchingAnalytics", days),
         exportMatchingAnalytics: days => invoke("exportMatchingAnalytics", days),

@@ -958,3 +958,16 @@ summary {
 .today-workspace .plan-detail-section { padding-top: 15px; margin-top: 17px; }
 .card-back .task-note-display { display: block; width: 100%; text-align: left; border: 0; background: transparent; }
 .import-ticket { display: block; margin: 5px 0; }
+
+.embedded-conversation { display: grid; gap: 12px; }
+.embedded-conversation form, .embedded-request { display: grid; gap: 10px; }
+.embedded-conversation label { display: grid; gap: 5px; }
+.embedded-conversation textarea { min-height: 90px; }
+.embedded-transcript { max-height: 420px; overflow: auto; border: 1px solid var(--line, #dce1e8); border-radius: 8px; padding: 12px; background: #fafbfc; }
+.embedded-event { margin-bottom: 14px; padding: 10px; border-radius: 6px; background: white; }
+.embedded-event p, .embedded-event pre, .embedded-request pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 6px 0; font-size: 13px; }
+.embedded-user { border-left: 3px solid #5482ba; }
+.embedded-error { border-left: 3px solid #c94848; }
+.embedded-notice { color: #627085; font-size: 12px; }
+.embedded-request { padding: 12px; background: #fff7e4; border: 1px solid #e3ba6a; border-radius: 6px; }
+.embedded-request pre { max-height: 250px; overflow: auto; }
