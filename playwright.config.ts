@@ -3,7 +3,7 @@ export default defineConfig({
   testDir: "./tests",
   outputDir: "test-results/playwright",
   testMatch: "**/*.spec.ts",
-  testIgnore: ["**/titlebar.spec.ts", "**/native-lamps.spec.ts", "**/electron-smoke.spec.ts", "**/chat-matching.spec.ts"],
+  testIgnore: ["**/titlebar.spec.ts", "**/native-lamps.spec.ts", "**/electron-smoke.spec.ts", "**/chat-matching.spec.ts", "**/embedded-native.spec.ts"],
   timeout: 60000,
   workers: 1,
   reporter: "list",

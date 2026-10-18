@@ -19,6 +19,94 @@ function ask(options: Options, tool = "Write", input: Record<string, unknown> = 
   return options.canUseTool!(tool, input, { signal: new AbortController().signal, toolUseID: "same-tool", requestId: "same-sdk-request" });
 }
 
+test("cancel retains exact-session ownership until tracked process exit", limits, async t => {
+  const stopping = deferred(), exited = deferred(), q = new ControlledQuery();
+  const f = faultFixture(t, async (_text, options) => { assert.equal(options.title, "Synthetic fault chat"); return ({ close: () => q.close(), waitForExit: () => { stopping.resolve(); return exited.promise; }, [Symbol.asyncIterator]: () => q[Symbol.asyncIterator]() }); });
+  const chat = await f.create(); await f.send(chat.chatId); await q.parked();
+  await f.service.command({ type: "cancel", chatId: chat.chatId });
+  await new Promise<void>(resolve => setImmediate(resolve));
+  try {
+    assert.equal((await f.read(chat.chatId)).active, true, "cancel must not expose the same session to a second writer before process exit");
+    await assert.rejects(f.send(chat.chatId, "Unsafe overlap"), /current turn/);
+  } finally { exited.resolve(); }
+  await stopping.promise; await f.wait(chat.chatId, c => !c.active);
+});
+
+test("decision status failure cannot authorize an effect before durable acknowledgement", limits, async t => {
+  const f = faultFixture(t, async (_text, options) => ({ close() {}, async *[Symbol.asyncIterator]() {
+    const result = await ask(options); if (result?.behavior === "allow") f.commitEffect("forbidden"); yield success();
+  } }));
+  const chat = await f.create(); await f.send(chat.chatId);
+  const request = (await f.wait(chat.chatId, c => c.requests.length === 1)).requests[0];
+  f.store.db.exec("CREATE TEMP TRIGGER fail_decision_state BEFORE UPDATE ON chats WHEN OLD.state='waiting' AND NEW.state='running' BEGIN SELECT RAISE(ABORT, 'synthetic decision state failure'); END");
+  try {
+    await assert.rejects(f.service.command({ type: "decide", chatId: chat.chatId, requestId: request.id, allow: true }), /synthetic decision state failure/);
+    await new Promise<void>(resolve => setImmediate(resolve));
+    assert.deepEqual(f.effects(), []);
+    assert.deepEqual((await f.read(chat.chatId)).requests.map(r => r.id), [request.id]);
+    assert.ok(!(await f.read(chat.chatId)).events.some(e => e.text.startsWith("Allowed once")));
+  } finally { f.store.db.exec("DROP TRIGGER fail_decision_state"); }
+  await f.service.command({ type: "decide", chatId: chat.chatId, requestId: request.id, allow: false });
+  await f.wait(chat.chatId, c => !c.active); assert.deepEqual(f.effects(), []);
+});
+
+test("failed terminal persistence cannot claim successful idle completion", limits, async t => {
+  const q = new ControlledQuery(), f = faultFixture(t, async () => q), chat = await f.create();
+  await f.send(chat.chatId); await q.parked();
+  f.store.db.exec("CREATE TEMP TRIGGER fail_terminal BEFORE INSERT ON embedded_events WHEN NEW.text='Turn complete' BEGIN SELECT RAISE(ABORT, 'synthetic terminal failure'); END");
+  try {
+    q.emit(success()); const result = await f.wait(chat.chatId, c => !c.active);
+    assert.equal(result.state, "error"); assert.ok(!result.events.some(e => e.text === "Turn complete"));
+    assert.ok(result.events.some(e => e.kind === "error"));
+  } finally { f.store.db.exec("DROP TRIGGER fail_terminal"); }
+});
+
+test("persistent disk failures during cancellation settle every waiter and release ownership", limits, async t => {
+  const decisions: (PermissionResult | null)[] = []; let closes = 0;
+  const f = faultFixture(t, async (_text, options) => ({ close() { closes++; }, async *[Symbol.asyncIterator]() {
+    await Promise.all(["first", "second"].map(async file_path => {
+      const result = await ask(options, "Write", { file_path }); decisions.push(result);
+      if (result?.behavior === "allow") f.commitEffect(file_path);
+    })); yield success();
+  } }));
+  const chat = await f.create(); await f.send(chat.chatId); await f.wait(chat.chatId, c => c.requests.length === 2);
+  f.store.db.exec("CREATE TEMP TRIGGER fail_every_event BEFORE INSERT ON embedded_events BEGIN SELECT RAISE(ABORT, 'synthetic disk unavailable'); END; CREATE TEMP TRIGGER fail_every_state BEFORE UPDATE ON chats BEGIN SELECT RAISE(ABORT, 'synthetic disk unavailable'); END");
+  try {
+    await f.service.command({ type: "cancel", chatId: chat.chatId });
+    const result = await f.wait(chat.chatId, c => !c.active);
+    assert.equal(result.state, "error"); assert.deepEqual(result.requests, []);
+    assert.equal(decisions.length, 2); assert.ok(decisions.every(d => d?.behavior === "deny"));
+    assert.ok(closes > 0); assert.deepEqual(f.effects(), []);
+    assert.ok(result.events.some(e => e.id === "storage-failure"));
+    await assert.rejects(f.send(chat.chatId, "Do not replay"), /reported storage/);
+  } finally { f.store.db.exec("DROP TRIGGER fail_every_event; DROP TRIGGER fail_every_state"); }
+  await f.reopen(); assert.equal((await f.read(chat.chatId)).state, "idle");
+  assert.ok((await f.read(chat.chatId)).events.some(e => /interrupted/.test(e.text)));
+});
+
+test("failed permission publication denies safely and does not leave a hidden waiter", limits, async t => {
+  const begin = deferred(); let decision: PermissionResult | null = null;
+  const f = faultFixture(t, async (_text, options) => ({ close() {}, async *[Symbol.asyncIterator]() {
+    await begin.promise; decision = await ask(options); if (decision?.behavior === "allow") f.commitEffect("forbidden"); yield success();
+  } }));
+  const chat = await f.create(); await f.send(chat.chatId);
+  f.store.db.exec("CREATE TEMP TRIGGER fail_waiting BEFORE UPDATE ON chats WHEN NEW.state='waiting' BEGIN SELECT RAISE(ABORT, 'synthetic publication failure'); END");
+  try { begin.resolve(); const result = await f.wait(chat.chatId, c => !c.active); assert.equal(result.state, "error"); assert.deepEqual(result.requests, []); assert.equal((decision as PermissionResult | null)?.behavior, "deny"); assert.deepEqual(f.effects(), []); }
+  finally { f.store.db.exec("DROP TRIGGER fail_waiting"); }
+});
+
+test("approval then cancellation before a controlled effect boundary commits nothing", limits, async t => {
+  const started = deferred(), release = deferred();
+  const f = faultFixture(t, async (_text, options) => ({ close() {}, async *[Symbol.asyncIterator]() {
+    const result = await ask(options); started.resolve(); await release.promise;
+    if (result?.behavior === "allow" && !options.abortController!.signal.aborted) f.commitEffect("forbidden"); yield success();
+  } }));
+  const chat = await f.create(); await f.send(chat.chatId); const request = (await f.wait(chat.chatId, c => c.requests.length === 1)).requests[0];
+  await f.service.command({ type: "decide", chatId: chat.chatId, requestId: request.id, allow: true }); await started.promise;
+  await f.service.command({ type: "cancel", chatId: chat.chatId }); await f.wait(chat.chatId, c => !c.active);
+  release.resolve(); await new Promise<void>(resolve => setImmediate(resolve)); assert.deepEqual(f.effects(), []);
+});
+
 test("startup cancellation releases ownership and closes a late query without mutating replacement", limits, async t => {
   const startup = deferred<AgentQuery>(), entered = deferred(), late = new ControlledQuery(), current = new ControlledQuery();
   let calls = 0;

@@ -14,7 +14,7 @@ test("native input lamps clear on archive, provider resume and demo changes", as
   ) as Record<string, string>;
   const app = await electron.launch({
     executablePath: process.env.ACD_PACKAGED_EXECUTABLE,
-    args: [
+    args: [...(process.env.ACD_TEST_NO_SANDBOX === "1" ? ["--no-sandbox"] : []),
       ...(process.env.ACD_PACKAGED_EXECUTABLE ? [] : [resolve(".")]),
       `--data-dir=${dir}`,
     ],

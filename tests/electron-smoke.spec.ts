@@ -13,7 +13,7 @@ test("Electron startup, preload isolation, trusted IPC and restart persistence",
   const launch = () =>
     electron.launch({
       executablePath: process.env.ACD_PACKAGED_EXECUTABLE,
-      args: [
+      args: [...(process.env.ACD_TEST_NO_SANDBOX === "1" ? ["--no-sandbox"] : []),
         ...(process.env.ACD_PACKAGED_EXECUTABLE ? [] : [resolve(".")]),
         `--data-dir=${dir}`,
       ],
@@ -106,7 +106,7 @@ test("Electron startup, preload isolation, trusted IPC and restart persistence",
 test("official SDK subprocess initializes from the desktop distribution without submitting a prompt", async () => {
   const dir = mkdtempSync(join(tmpdir(), "acd-sdk-desktop-"));
   const env = Object.fromEntries(Object.entries(process.env).filter(([key, value]) => key !== "ELECTRON_RUN_AS_NODE" && value !== undefined)) as Record<string, string>;
-  const app = await electron.launch({ executablePath: process.env.ACD_PACKAGED_EXECUTABLE, args: [...(process.env.ACD_PACKAGED_EXECUTABLE ? [] : [resolve(".")]), `--data-dir=${dir}`], env: { ...env, ACD_HTTP_PORT: "0" } });
+  const app = await electron.launch({ executablePath: process.env.ACD_PACKAGED_EXECUTABLE, args: [...(process.env.ACD_TEST_NO_SANDBOX === "1" ? ["--no-sandbox"] : []),...(process.env.ACD_PACKAGED_EXECUTABLE ? [] : [resolve(".")]), `--data-dir=${dir}`], env: { ...env, ACD_HTTP_PORT: "0" } });
   try {
     expect(await app.evaluate(async ({ app }) => {
       const { join } = process.getBuiltinModule("node:path");
