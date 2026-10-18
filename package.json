@@ -32,8 +32,9 @@
     "check:all": "npm run check && npm run test:electron",
     "smoke:embedded": "node scripts/smoke-embedded-sdk.mjs",
     "test:acceptance:prepare": "npm run build && node scripts/build-native-acceptance.cjs --bounded-sdk && esbuild scripts/embedded-acceptance/run.ts --bundle --packages=external --platform=node --format=esm --outfile=out-tests/app-acceptance.mjs",
-    "test:acceptance:wire": "npm run test:acceptance:prepare && python3 scripts/with-test-display.py node out-tests/app-acceptance.mjs --synthetic-wire",
-    "repro:embedded:backend-death": "npm run test:acceptance:prepare && python3 scripts/with-test-display.py node out-tests/app-acceptance.mjs --synthetic-wire --crash-repro"
+    "test:acceptance:wire": "npm run test:acceptance:prepare && python3 scripts/with-test-display.py node scripts/embedded-acceptance/guard.cjs out-tests/app-acceptance.mjs --synthetic-wire",
+    "repro:embedded:backend-death": "npm run test:acceptance:prepare && python3 scripts/with-test-display.py node scripts/embedded-acceptance/guard.cjs out-tests/app-acceptance.mjs --synthetic-wire --crash-repro",
+    "test:acceptance:supervisor-boundary": "npm run test:acceptance:prepare && python3 scripts/with-test-display.py node scripts/embedded-acceptance/guard.cjs out-tests/app-acceptance.mjs --synthetic-wire --supervisor-failure-repro"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.302",

@@ -73,6 +73,10 @@ Environment: Linux x64, Node 24.19, Electron 44.5.1, SDK 0.3.302. Experimental b
 
 The coordinator writes sanitized runtime summaries under ignored `test-results/wire-acceptance-summary.json` and `test-results/wire-crash-summary.json`; they contain no session IDs, raw provider events, actual PIDs or credentials. Reproduction commands regenerate them. Linux PID observations establish the bounded observation period, not an assertion that every possible descendant is controlled.
 
+## Supervisor-death follow-up
+
+See [the bounded failure-model investigation and cloud admission decision](embedded-supervisor-boundary.md). It fixes the real SDK force-kill escalation path and adds an independent outer test guardian. Controlled two-failure cleanup passes without labeling product containment successful. Live remains held for the explicit budget-owner admission described there.
+
 ## Linux supervisor boundary
 
 The packaged helper is compiled from `src/main/sdk-supervisor.c`. Before forking the SDK it validates the backend identity, opens a pidfd for that exact PID, rechecks the parent and sets itself as a subreaper. SDK protocol descriptors remain direct; backend lifetime and numeric startup reporting use separate descriptors, closed before SDK exec. EOF, backend pidfd readiness, SIGTERM/INT/HUP and SDK-root exit converge on killing/reaping only direct children owned by this supervisor. Orphaned descendants are adopted even after setsid/double-fork; cleanup repeats until `waitpid` reports no children. There are no system-wide settings, privileged operations or process-name kills. A per-SDK parent-death signal terminates the SDK root if its supervisor dies.

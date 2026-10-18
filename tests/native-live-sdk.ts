@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { runClaude as productionRun, spawnOwnedSdkProcess, type AgentRunner } from "../src/main/embedded-sdk";
-const control = { calls: 0, latestQueryId: "", models: [] as string[], pids: [] as { pid: number; startTime?: string; exited: boolean }[] };
+const control = { calls: 0, latestQueryId: "", latestSupervisorPid: 0, models: [] as string[], pids: [] as { pid: number; startTime?: string; exited: boolean }[] };
 (globalThis as any).acdLiveAcceptance = control;
 export const runClaude: AgentRunner = async (prompt, options) => {
   const url = process.env.ACD_ACCEPTANCE_GATE_URL, token = process.env.ACD_ACCEPTANCE_GATE_TOKEN;
@@ -14,6 +14,7 @@ export const runClaude: AgentRunner = async (prompt, options) => {
       const p = spawnOwnedSdkProcess(s);
       p.stderr.on("data", () => {});
       let startTime: string | undefined; try { startTime = readFileSync(`/proc/${p.pid}/stat`, "utf8").split(") ")[1].split(" ")[19]; } catch {}
+      control.latestSupervisorPid = p.pid!;
       const record = { pid: p.pid!, startTime, exited: false }; control.pids.push(record); p.once("exit", () => { record.exited = true; });
       void p.sdkPid?.then(pid => {
         let startTime: string | undefined; try { startTime = readFileSync(`/proc/${pid}/stat`, "utf8").split(") ")[1].split(" ")[19]; } catch {}

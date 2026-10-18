@@ -1,3 +1,4 @@
+import { protectSupervisorKill } from "../src/main/embedded-process";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn, fork, type ChildProcess } from "node:child_process";
@@ -15,7 +16,7 @@ async function ready(file: string) {
     if (existsSync(file)) { clearTimeout(timer); watcher.close(); resolve(); }
   });
 }
-for (const boundary of ["lifetime EOF", "SIGTERM", "SDK root exit", "closed startup channel", "blocked protocol output", "supervisor SIGKILL"]) test(`Linux subreaper contains detached adopted descendant after ${boundary}`, { skip: process.platform !== "linux", timeout: 8000 }, async t => {
+for (const boundary of ["lifetime EOF", "SIGTERM", "SDK root exit", "closed startup channel", "blocked protocol output", "supervisor SIGKILL", "SDK escalation during held cleanup"]) test(`Linux subreaper contains detached adopted descendant after ${boundary}`, { skip: process.platform !== "linux", timeout: 8000 }, async t => {
   const dir = mkdtempSync(join(tmpdir(), "acd-supervisor-"));
   const marker = join(dir, "ready"), effect = join(dir, "effect"), release = join(dir, "release");
   // The intermediate parent exits before the gate, so ancestry polling cannot
@@ -43,7 +44,17 @@ for (const boundary of ["lifetime EOF", "SIGTERM", "SDK root exit", "closed star
   while (Number(readFileSync(`/proc/${descendant}/stat`,"utf8").split(") ")[1].split(" ")[1]) !== helper.pid) {
     assert.ok(Date.now()<deadline,"Detached child was not adopted by this helper"); await new Promise<void>(resolve=>setImmediate(resolve));
   }
-  if (boundary === "supervisor SIGKILL") helper.kill("SIGKILL");
+  if (boundary === "SDK escalation during held cleanup") {
+    protectSupervisorKill(helper);
+    process.kill(helper.pid!, "SIGSTOP");
+    const stoppedDeadline=Date.now()+2000;
+    while(state(helper.pid!)!=="T"){assert.ok(Date.now()<stoppedDeadline);await new Promise<void>(resolve=>setImmediate(resolve));}
+    helper.kill("SIGTERM"); helper.kill("SIGKILL");
+    // Both SDK-facing requests must preserve the stopped containment owner.
+    assert.equal(state(helper.pid!),"T");
+    process.kill(helper.pid!,"SIGCONT");
+  }
+  else if (boundary === "supervisor SIGKILL") helper.kill("SIGKILL");
   else if (boundary === "SIGTERM") helper.kill("SIGTERM");
   else if (boundary === "SDK root exit") helper.stdin!.write("exit");
   else {

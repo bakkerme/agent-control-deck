@@ -9,7 +9,8 @@ import { embeddedConfig } from "../../src/main/embedded-config";
 import { localPlanDay } from "../../src/shared/planning";
 import { acceptanceGateway, ACCEPTANCE_MODEL } from "./gateway";
 
-const live = process.argv.includes('--live'), wire = process.argv.includes('--synthetic-wire'), crash = process.argv.includes('--crash-repro');
+const live = process.argv.includes('--live'), wire = process.argv.includes('--synthetic-wire'), crash = process.argv.includes('--crash-repro'), supervisorFailure = process.argv.includes('--supervisor-failure-repro');
+if (supervisorFailure && !process.env.ACD_ACCEPTANCE_OUTER_REPORT) throw new Error('Supervisor-failure repro requires the external test guardian');
 if (live) throw new Error('Live acceptance is held pending separate budget-owner admission after native containment review.');
 if (!live && !wire) { console.log('Prepared only. Use --synthetic-wire, or separately authorized --live.'); process.exit(0); }
 const root = mkdtempSync(join(tmpdir(), 'acd-app-acceptance-')); mkdirSync(join(root, 'work'));
@@ -47,7 +48,7 @@ function syntheticResponse(body: string) {
 }
 const gate = await acceptanceGateway({ priorUsageUsd: prior.usage, ceilingUsd: prior.limit, headroomUsd: 2, reservationUsd: 0.8, maxRequests: 16, maxQueries: 9, maxOutputTokens: 2048, maxBodyBytes: 262144, deadlineMs: 600000 },
   live ? (body, signal) => fetch('https://openrouter.ai/api/v1/messages', { method: 'POST', headers: { Authorization: `Bearer ${config.env.ANTHROPIC_AUTH_TOKEN}`, 'content-type': 'application/json', 'anthropic-version': '2023-06-01' }, body, signal }) : async body => syntheticResponse(body));
-let app: ElectronApplication | undefined, page: Page;
+let app: ElectronApplication | undefined, page: Page; let outerCleanup = false;
 const summary: any = { mode: live ? 'live-sdk-openrouter-native-app' : 'actual-sdk-synthetic-wire-native-app', model: ACCEPTANCE_MODEL, cases: [], accountingBefore: live ? prior : undefined, oldReservationReconciliation: live ? 'Requires coordinator reconciliation of historical reservations with current accounting and terminated processes before dispatch.' : 'Not applicable: synthetic upstream, no monetary dispatch.' };
 const fixture = join(working, 'effect-sink.cjs');
 writeFileSync(fixture, `const fs=require('fs'),{spawn}=require('child_process'),p=require('path');const dir=__dirname,mode=process.argv[2];const child=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'});if(mode==='post')fs.appendFileSync(p.join(dir,'effects.txt'),'post\\n',{flush:true});fs.writeFileSync(p.join(dir,'ready-'+mode+'.tmp'),JSON.stringify({pid:process.pid,child:child.pid}));fs.renameSync(p.join(dir,'ready-'+mode+'.tmp'),p.join(dir,'ready-'+mode));const file=p.join(dir,'release-'+mode);const w=fs.watch(dir,()=>{if(fs.existsSync(file)){w.close();if(mode==='pre')fs.appendFileSync(p.join(dir,'effects.txt'),'pre\\n',{flush:true});child.kill();process.exit(0)}});`);
@@ -98,6 +99,19 @@ async function send(chatId: string, text: string, tool?: string, effect?: 'pre'|
       const sdkRecords = await app!.evaluate(() => (globalThis as any).acdLiveAcceptance.pids);
       const sdkPids: number[] = sdkRecords.map((p: any) => p.pid);
       sdkRecords.filter((p: any) => p.startTime).forEach((p: any) => track(p.pid, p.startTime)); trackTree(app!.process().pid!);
+      if (supervisorFailure) {
+        const supervisorPid = await app!.evaluate(() => (globalThis as any).acdLiveAcceptance.latestSupervisorPid);
+        process.kill(supervisorPid,'SIGKILL');
+        await expect.poll(async () => (await read(chatId)).active, {timeout:5000}).toBe(false);
+        assert.equal((await read(chatId)).state,'error');
+        assert.ok(![undefined,'Z'].includes(state(p.pid)), 'Tool must still be alive to establish this unsupported product boundary');
+        await assert.rejects(page.evaluate(c => window.deck.embedded(c), {type:'send' as const, chatId,sendId:randomUUID(),text:'Synthetic unsafe retry'}),/process shutdown/);
+        const gone = new Promise<void>(resolve => app!.process().once('exit', () => resolve())); app!.process().kill('SIGKILL'); await gone; app=undefined;
+        outerCleanup=true;
+        writeFileSync(process.env.ACD_ACCEPTANCE_OUTER_REPORT!,JSON.stringify({root, processes:[...tracked].map(([pid,startTime])=>({pid,startTime})), effectCount:readFileSync(join(working,'effects.txt'),'utf8').split('\n').filter(Boolean).length}));
+        summary.cases.push({tool:'Bash',effect:'post',termination:'supervisor-and-backend-SIGKILL',result:'documented-unsupported-product-boundary',toolAliveBeforeOuterCleanup:true,unsafeRetryRejected:true,effectCount:1});
+        return;
+      }
       app!.process().kill('SIGKILL'); await new Promise<void>(resolve => app!.process().once('exit', () => resolve())); app = undefined;
       try { await expect.poll(() => [...sdkPids, p.pid, p.child].every(pid => [undefined, 'Z'].includes(state(pid))), { timeout: 15000 }).toBe(true); }
       catch (error) { summary.crashObservation = { sdkStates: sdkPids.map(state), toolState: state(p.pid), descendantState: state(p.child), effectCount: existsSync(join(working,'effects.txt')) ? readFileSync(join(working,'effects.txt'),'utf8').split('\n').filter(Boolean).length : 0, uncertainty: 'Backend is gone; no automatic replay or verified tool-result acknowledgement' }; throw error; }
@@ -148,7 +162,7 @@ try {
     await send(ids.a, `Request Write once to ${join(working,'denied.txt')} with content synthetic. If denied stop; no alternate tool.`, 'Write'); assert.ok(!existsSync(join(working,'denied.txt')));
     await send(ids.a, 'Use AskUserQuestion once to ask which synthetic option A or B to choose, then acknowledge the answer. No other tools.', 'AskUserQuestion');
   } else await send(ids.a, 'Reply READY. No tools.');
-  for (const effect of (crash ? ['post'] : ['pre']) as ('pre'|'post')[]) {
+  for (const effect of (crash || supervisorFailure ? ['post'] : ['pre']) as ('pre'|'post')[]) {
     wireCommand = `node ${fixture} ${effect}`;
     await send(ids.a, `Run this exact controlled-effect Bash command once and no other tool: ${wireCommand}. It intentionally waits for the acceptance coordinator.`, 'Bash', effect);
   }
@@ -159,11 +173,12 @@ try {
 } finally {
   if (app) { trackTree(app.process().pid!); try { const record = await app.evaluate(() => (globalThis as any).acdLiveAcceptance); record.pids.filter((p: any) => p.startTime).forEach((p: any) => track(p.pid, p.startTime)); } catch {}
     await Promise.race([app.close().catch(() => {}), new Promise<void>(resolve => { const timer = setTimeout(resolve, 3000); timer.unref(); })]); }
-  terminateTracked();
-  try { await expect.poll(allTrackedExited, { timeout: 5000 }).toBe(true); summary.cleanup = 'All tracked processes exited or zombie awaiting PID1 reaping; no tracked live processes'; } catch { summary.cleanup = 'FAILED: tracked process still live'; process.exitCode = 1; }
+  if (!outerCleanup) terminateTracked();
+  if (outerCleanup) summary.cleanup = "Delegated to external test guardian; not product containment success";
+  else try { await expect.poll(allTrackedExited, { timeout: 5000 }).toBe(true); summary.cleanup = 'All tracked processes exited or zombie awaiting PID1 reaping; no tracked live processes'; } catch { summary.cleanup = 'FAILED: tracked process still live'; process.exitCode = 1; }
   clearTimeout(watchdog);
   await gate.close(); summary.gate = gate.ledger;
   if (live) try { summary.accountingAfter = await accounting(); } catch { summary.accountingAfter = 'unavailable; reservations retained'; }
   const destination = resolve('test-results', live ? 'live-acceptance-summary.json' : crash ? 'wire-crash-summary.json' : 'wire-acceptance-summary.json'); mkdirSync(resolve('test-results'), { recursive: true });
-  writeFileSync(destination, JSON.stringify(summary,null,2)); console.log(JSON.stringify(summary)); rmSync(root,{recursive:true,force:true});
+  writeFileSync(destination, JSON.stringify(summary,null,2)); console.log(JSON.stringify(summary)); if (!outerCleanup) rmSync(root,{recursive:true,force:true});
 }
