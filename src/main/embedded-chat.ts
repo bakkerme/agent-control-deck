@@ -35,7 +35,16 @@ const stamp = () => new Date().toISOString();
 const cap = (value: unknown) => (typeof value === "string" ? value : JSON.stringify(value) ?? "").slice(0, 30000);
 export class EmbeddedChats {
   private runs = new Map<string, Running>();
+  private storageFailures = new Map<string, EmbeddedEvent>();
   private disposed = false;
+  private storageFailed(id: string): void {
+    this.storageFailures.set(id, { id: "storage-failure", kind: "error", at: stamp(), text: "Agent storage failed. This turn stopped; durable history may be incomplete. Do not replay uncertain tool effects. Restart after repairing storage." });
+    try { this.changed(); } catch { /* Polling can still read the volatile failure. */ }
+  }
+  private shutdownFailed(id: string): void {
+    this.storageFailures.set(id, { id: "process-cleanup", kind: "error", at: stamp(), text: "Agent process shutdown is not confirmed. Tools may still be running. This session remains locked; do not replay uncertain effects." });
+    try { this.changed(); } catch { /* Polling reports the degraded state. */ }
+  }
   constructor(private store: Store, private root: string, private changed: () => void,
     private enabled = process.env.ACD_EMBEDDED_CHAT === "1", private runner: AgentRunner = runClaude,
     private config: EmbeddedConfig = embeddedConfig()) {
@@ -75,7 +84,8 @@ export class EmbeddedChats {
   private read(id: string): EmbeddedChat {
     const { configIdentity: _identity, ...session } = this.require(id), chat = this.store.chat(id), run = this.runs.get(id);
     const events = this.store.db.prepare("SELECT id,kind,text,at FROM embedded_events WHERE chatId=? ORDER BY sequence").all(id) as EmbeddedEvent[];
-    return { chatId: id, name: chat.name, ...session, state: chat.state, events, requests: [...(run?.pending.values() ?? [])].map(p => p.request), active: !!run };
+    const failure = this.storageFailures.get(id);
+    return { chatId: id, name: chat.name, ...session, state: failure ? "error" : chat.state, events: failure ? [...events, failure] : events, requests: [...(run?.pending.values() ?? [])].map(p => p.request), active: !!run };
   }
   async command(raw: unknown): Promise<EmbeddedReply> {
     const c = embeddedCommandSchema.parse(raw);
@@ -109,6 +119,7 @@ export class EmbeddedChats {
         return { ...this.status(), chat: this.read(c.chatId) };
       }
       if (this.config.diagnostic) throw new Error(this.config.diagnostic);
+      if (this.storageFailures.has(c.chatId)) throw new Error("Resolve the reported storage or process shutdown failure and restart before sending another turn. Previous tool outcomes may be uncertain.");
       const session = this.require(c.chatId);
       if (session.configIdentity !== this.config.identity) throw new Error("Provider/model configuration changed or this is a legacy session. Create a new embedded chat for the task; previous history is retained.");
       if (this.runs.has(c.chatId)) throw new Error("Wait for the current turn or cancel it");
@@ -121,7 +132,7 @@ export class EmbeddedChats {
           this.event(c.chatId, `send:${c.sendId}`, "user", c.text);
           this.state(c.chatId, "running");
         })();
-        run.done = this.execute(c.chatId, c.text, run);
+        run.done = this.execute(c.chatId, c.text, run).catch(() => this.storageFailed(c.chatId));
       } catch (error) { this.runs.delete(c.chatId); throw error; }
     }
     if (c.type === "cancel") this.cancel(c.chatId);
@@ -137,9 +148,12 @@ export class EmbeddedChats {
       } else if (c.answers) throw new Error("This request does not accept answers");
       // Persist before consuming the waiter: a failed write must leave the
       // request available for retry/denial, without authorizing an effect.
-      this.event(c.chatId, randomUUID(), "notice", `${c.allow ? "Allowed once" : "Denied"}: ${pending.request.tool}`);
+      this.store.db.transaction(() => {
+        this.event(c.chatId, randomUUID(), "notice", `${c.allow ? "Allowed once" : "Denied"}: ${pending.request.tool}`);
+        this.state(c.chatId, run.pending.size > 1 ? "waiting" : "running");
+      })();
       pending.resolve(c.allow ? { behavior: "allow", updatedInput: input } : { behavior: "deny", message: "User denied this request" });
-      this.state(c.chatId, run.pending.size ? "waiting" : "running");
+      this.changed();
     }
     return { ...this.status(), chat: this.read(c.chatId) };
   }
@@ -155,18 +169,27 @@ export class EmbeddedChats {
       request.questions = parsed.data;
     }
     return new Promise(resolve => {
+      let settled = false;
       const finish = (value: PermissionResult) => {
+        if (settled) return;
+        settled = true;
         signal.removeEventListener("abort", aborted);
         run.abort.signal.removeEventListener("abort", aborted);
         run.pending.delete(request.id);
         resolve(value);
-        if (!this.disposed && this.runs.get(id) === run) this.state(id, run.pending.size ? "waiting" : "running");
       };
-      const aborted = () => finish({ behavior: "deny", message: "Request cancelled" });
+      const aborted = () => {
+        finish({ behavior: "deny", message: "Request cancelled" });
+        if (!this.disposed && !run.abort.signal.aborted && this.runs.get(id) === run) {
+          try { this.state(id, run.pending.size ? "waiting" : "running"); }
+          catch { this.storageFailed(id); this.cancel(id); }
+        }
+      };
       run.pending.set(request.id, { request, input, resolve: finish });
       signal.addEventListener("abort", aborted, { once: true });
       run.abort.signal.addEventListener("abort", aborted, { once: true });
-      this.state(id, "waiting");
+      try { this.state(id, "waiting"); }
+      catch { finish({ behavior: "deny", message: "Storage unavailable" }); this.storageFailed(id); this.cancel(id); }
     });
   }
   private async execute(id: string, text: string, run: Running): Promise<void> {
@@ -189,7 +212,7 @@ export class EmbeddedChats {
       const env = { ...this.config.env };
       if (this.config.authMode !== "claude-code") env.CLAUDE_CONFIG_DIR = config;
       const options: Options = {
-        cwd: session.cwd, env, model: this.config.model, settingSources: [], strictMcpConfig: true, mcpServers: {}, permissionMode: "default", persistSession: true,
+        cwd: session.cwd, env, title: this.store.chat(id).name, model: this.config.model, settingSources: [], strictMcpConfig: true, mcpServers: {}, permissionMode: "default", persistSession: true,
         includePartialMessages: true, resume: session.sessionId ?? undefined, abortController: run.abort,
         tools: ["Read", "Glob", "Grep", "Bash", "Write", "Edit", "AskUserQuestion"],
         hooks: { PreToolUse: [{ hooks: [async () => ({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: "Embedded experiment requires approval for every tool call" } })] }] },
@@ -239,8 +262,8 @@ export class EmbeddedChats {
         }
         if (message.type === "result") {
           finished = true;
+          this.event(id, randomUUID(), !message.is_error ? "notice" : "error", !message.is_error ? "Turn complete" : connectionDiagnostic("errors" in message ? message.errors.join(" ") : ""));
           success = !message.is_error;
-          this.event(id, randomUUID(), success ? "notice" : "error", success ? "Turn complete" : connectionDiagnostic("errors" in message ? message.errors.join(" ") : ""));
           break;
         }
       }
@@ -248,16 +271,30 @@ export class EmbeddedChats {
     } catch (error) {
       if (!run.abort.signal.aborted && !this.disposed) {
         // Subprocess error strings can contain credentials or environment values.
-        this.event(id, randomUUID(), "error", connectionDiagnostic(error));
+        const storage = typeof error === "object" && error !== null && "code" in error && String(error.code).startsWith("SQLITE_");
+        if (storage) this.storageFailed(id);
+        try { this.event(id, randomUUID(), "error", storage ? "Agent storage failed; turn outcome may be incomplete. Do not automatically replay tool effects." : connectionDiagnostic(error)); }
+        catch { this.storageFailed(id); }
       }
     } finally {
       for (const pending of [...run.pending.values()]) pending.resolve({ behavior: "deny", message: "Turn ended" });
       try { run.query?.close(); } catch { /* Abort already requested; still release Deck lifecycle. */ }
+      if (run.query?.waitForExit) {
+        const watchdog = setTimeout(() => {
+          if (!this.disposed) {
+            this.shutdownFailed(id);
+          }
+        }, 10000);
+        try { await run.query.waitForExit(); } catch { if (!this.disposed) this.shutdownFailed(id); }
+        finally { clearTimeout(watchdog); }
+      }
       if (this.runs.get(id) !== run) return;
       this.runs.delete(id);
       if (!this.disposed) {
-        if (run.abort.signal.aborted) this.event(id, randomUUID(), "notice", "Turn cancelled. Tool side effects already completed are retained.");
-        this.state(id, success || run.abort.signal.aborted ? "idle" : "error");
+        try {
+          if (run.abort.signal.aborted) this.event(id, randomUUID(), "notice", "Turn cancelled. Tool side effects already completed are retained.");
+          this.state(id, this.storageFailures.has(id) ? "error" : success || run.abort.signal.aborted ? "idle" : "error");
+        } catch { this.storageFailed(id); }
       }
     }
   }

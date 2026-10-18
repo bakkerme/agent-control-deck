@@ -9,14 +9,15 @@
     "guard:install": "node scripts/install-commit-guard.mjs",
     "guard:review": "node scripts/commit-guard.mjs",
     "test:commit-guard": "node --test scripts/commit-guard.test.mjs",
-    "dev": "node scripts/build-local-matching.mjs && electron-vite dev",
+    "dev": "node scripts/build-local-matching.mjs && node scripts/build-sdk-supervisor.cjs && electron-vite dev",
     "start": "electron-vite preview",
     "demo": "electron-vite preview -- --demo",
     "typecheck": "tsc --noEmit",
-    "build": "npm run typecheck && node scripts/build-local-matching.mjs && electron-vite build",
+    "build": "npm run typecheck && node scripts/build-local-matching.mjs && electron-vite build && node scripts/build-sdk-supervisor.cjs",
     "postinstall": "install-electron --no && electron-builder install-app-deps",
     "test": "node scripts/test.cjs",
     "test:embedded:faults": "node scripts/test.cjs embedded-faults",
+    "test:sdk:process": "node scripts/test-sdk-process.cjs",
     "test:matching": "node --test scripts/chat-task-eval/matching.test.mjs",
     "test:matching:local": "node --test scripts/chat-task-eval/local.test.mjs scripts/chat-task-eval/benchmark.test.mjs scripts/chat-task-eval/jev.test.mjs scripts/chat-task-eval/evaluation.test.mjs",
     "bundle:matching:local": "node scripts/chat-task-eval/build-local-bundle.mjs",
@@ -27,9 +28,12 @@
     "package": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder",
     "test:packaged": "node scripts/test-packaged.cjs",
-    "test:electron": "npm run build && playwright test --config playwright.electron.config.ts",
+    "test:electron": "npm run build && node scripts/build-native-acceptance.cjs && playwright test --config playwright.electron.config.ts",
     "check:all": "npm run check && npm run test:electron",
-    "smoke:embedded": "node scripts/smoke-embedded-sdk.mjs"
+    "smoke:embedded": "node scripts/smoke-embedded-sdk.mjs",
+    "test:acceptance:prepare": "npm run build && node scripts/build-native-acceptance.cjs --bounded-sdk && esbuild scripts/embedded-acceptance/run.ts --bundle --packages=external --platform=node --format=esm --outfile=out-tests/app-acceptance.mjs",
+    "test:acceptance:wire": "npm run test:acceptance:prepare && python3 scripts/with-test-display.py node out-tests/app-acceptance.mjs --synthetic-wire",
+    "repro:embedded:backend-death": "npm run test:acceptance:prepare && python3 scripts/with-test-display.py node out-tests/app-acceptance.mjs --synthetic-wire --crash-repro"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.302",
@@ -72,7 +76,9 @@
     ],
     "asarUnpack": [
       "**/*.node",
-      "node_modules/@anthropic-ai/claude-agent-sdk*/**/*"
+      "node_modules/@anthropic-ai/claude-agent-sdk*/**/*",
+      "out/sdk-supervisor",
+      "out/sdk-supervisor.json"
     ],
     "mac": {
       "target": [

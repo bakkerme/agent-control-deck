@@ -88,7 +88,7 @@ export default function EmbeddedConversation({ taskId, chatId }: { taskId?: stri
         <label>Message<textarea aria-label="Message to Claude Agent" value={text} maxLength={30000} onChange={e => setText(e.target.value)} disabled={busy || chat.active} /></label>
         <div className="plan-actions"><button disabled={busy || chat.active || !status.configured || !text.trim()}>Send message</button>{chat.active && <button type="button" disabled={busy} onClick={() => void call({ type: "cancel", chatId: chat.chatId })}>Cancel turn</button>}</div>
       </form>
-      <small>Latest 500 entries shown; each entry is capped at 30,000 characters. Cancelling cannot undo tool side effects.</small>
+      <small>Latest 500 entries shown; each entry is capped at 30,000 characters. Cancelling cannot undo tool side effects. Tools may survive app or host failures; verify uncertain effects before sending again.</small>
     </>}
     {error && <p className="error" role="alert">{error}</p>}
   </section>;

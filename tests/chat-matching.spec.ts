@@ -9,7 +9,7 @@ test("Settings securely saves a write-only key, automatic links show a sparkle a
   const dir = mkdtempSync(join(tmpdir(), "acd-matching-ui-")), env = { ...process.env };
   delete env.ELECTRON_RUN_AS_NODE;
   const launch = () => electron.launch({ executablePath: process.env.ACD_PACKAGED_EXECUTABLE,
-    args: [...(process.env.ACD_PACKAGED_EXECUTABLE ? [] : [resolve(".")]), `--data-dir=${dir}`], env: { ...env, ACD_HTTP_PORT: "0" } });
+    args: [...(process.env.ACD_TEST_NO_SANDBOX === "1" ? ["--no-sandbox"] : []),...(process.env.ACD_PACKAGED_EXECUTABLE ? [] : [resolve(".")]), `--data-dir=${dir}`], env: { ...env, ACD_HTTP_PORT: "0" } });
   let app = await launch();
   try {
     let page = await app.firstWindow();

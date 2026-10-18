@@ -3,6 +3,8 @@ const { readdirSync, mkdirSync } = require("node:fs");
 const { spawnSync } = require("node:child_process");
 const { join, basename } = require("node:path");
 mkdirSync("out-tests", { recursive: true });
+const supervisor = spawnSync(process.execPath, ["scripts/build-sdk-supervisor.cjs", "--test"], { stdio: "inherit" });
+if (supervisor.status !== 0) process.exit(supervisor.status ?? 1);
 const entries = readdirSync("tests")
   .filter((f) => f.endsWith(".test.ts"))
   .filter((f) => !process.argv[2] || process.argv.slice(2).includes(basename(f, ".test.ts")))
