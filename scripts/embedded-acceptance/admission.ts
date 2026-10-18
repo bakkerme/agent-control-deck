@@ -14,6 +14,7 @@ export function pricingBound(model: any) {
   const { overrides = [], ...basePricing } = model.pricing ?? {};
   const rows = [basePricing, ...overrides.map((row: any) => ({ ...basePricing, ...row }))];
   let inputRate = 0, outputRate = 0, fixed = 0;
+  const components: Record<string,number> = {};
   for (const row of rows) {
     let inputSum = 0, outputSum = 0;
     assert.ok(row && typeof row === 'object', 'Missing pricing');
@@ -23,14 +24,14 @@ export function pricingBound(model: any) {
       if (key === 'discount') { assert.ok(typeof value === 'number' && value >= 0 && value <= 1, 'Invalid discount'); continue; } // Never subtract discounts.
       assert.ok(typeof value === 'string' && value.trim() !== '' && Number.isFinite(Number(value)) && Number(value) >= 0, 'Invalid price');
       const price = Number(value);
-      if (['prompt','input_cache_read','input_cache_write'].includes(key)) inputSum += price;
-      else if (['completion','internal_reasoning'].includes(key)) outputSum += price;
+      if (['prompt','input_cache_read','input_cache_write','completion','internal_reasoning'].includes(key)) components[key] = Math.max(components[key] ?? 0,price);
       else if (key === 'request') fixed = Math.max(fixed, price);
       else assert.equal(price, 0, 'Unsupported nonzero charge component: '+key);
     }
     assert.ok(typeof row.prompt === 'string' && typeof row.completion === 'string', 'Missing token pricing');
-    inputRate = Math.max(inputRate, inputSum); outputRate = Math.max(outputRate, outputSum);
   }
+  inputRate = ['prompt','input_cache_read','input_cache_write'].reduce((sum,key)=>sum+(components[key]??0),0);
+  outputRate = ['completion','internal_reasoning'].reduce((sum,key)=>sum+(components[key]??0),0);
   const bound = context * inputRate + output * outputRate + fixed;
   assert.ok(Number.isFinite(bound) && bound <= RESERVE_USD, 'Full context/output reservation insufficient');
   return { bound, context, output, inputRate, outputRate, fixed, pricing: rows };
