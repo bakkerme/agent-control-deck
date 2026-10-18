@@ -151,13 +151,15 @@ export function selectedReviewer(cwd) {
   const setting = spawnSync('git', ['config', '--get', 'commitGuard.reviewer'], { cwd, encoding: 'utf8' });
   if (setting.error || ![0, 1].includes(setting.status)) throw new Error('Cannot read reviewer configuration; commit blocked.');
   const name = process.env.COMMIT_GUARD_REVIEWER ?? (setting.status === 0 ? setting.stdout.trim() : 'desktop');
-  if (!['desktop', 'claude', 'codex'].includes(name)) throw new Error('Reviewer must be desktop, claude or codex; commit blocked.');
+  if (!['desktop', 'claude', 'codex', 'off'].includes(name)) throw new Error('Reviewer must be desktop, claude, codex or off; commit blocked.');
   return name;
 }
 
 export function reviewWithAgent(bundle, cwd = process.cwd()) {
-  if (selectedReviewer(cwd) === 'desktop') throw new Error('Desktop review requires an approval from the native Claude hook.');
-  return selectedReviewer(cwd) === 'claude' ? reviewWithClaude(bundle) : reviewWithCodex(bundle);
+  const reviewer = selectedReviewer(cwd);
+  if (reviewer === 'desktop') throw new Error('Desktop review requires an approval from the native Claude hook.');
+  if (reviewer === 'off') throw new Error('Model confidentiality review is explicitly off.');
+  return reviewer === 'claude' ? reviewWithClaude(bundle) : reviewWithCodex(bundle);
 }
 
 function receiptPath(cwd) {
@@ -217,6 +219,9 @@ function cliCommand(name) {
 
 export function runGuard(cwd, message, reviewer) {
   const staged = snapshot(cwd, message);
+  // Explicit owner-approved personal/cloud policy: retain deterministic artifact
+  // checks above, but do not invoke a model or consume a Desktop approval.
+  if (selectedReviewer(cwd) === 'off') return { reviewed: false };
   const result = reviewer ? reviewer(staged.bundle)
     : selectedReviewer(cwd) === 'desktop' ? consumeDesktopApproval(cwd, staged.tree, message)
       : reviewWithAgent(staged.bundle, cwd);
@@ -233,6 +238,7 @@ export function runGuard(cwd, message, reviewer) {
     const details = result.findings.map(finding => JSON.stringify(finding)).join('\n');
     throw new Error(`Confidentiality review: ${result.verdict}; commit blocked.\n${details}\nReplace sensitive material with synthetic data, stage the fixes, and retry.`);
   }
+  return { reviewed: true };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
@@ -249,11 +255,14 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       process.exit(0);
     }
     const message = process.argv[2] ? text(readFileSync(process.argv[2]), 'commit message') : '';
-    console.error(`Reviewing staged changes for work-related disclosures with ${selectedReviewer(process.cwd())}…`);
-    runGuard(process.cwd(), message);
+    const reviewer = selectedReviewer(process.cwd());
+    console.error(reviewer === 'off' ? 'Checking staged artifacts; model confidentiality review explicitly off…'
+      : `Reviewing staged changes for work-related disclosures with ${reviewer}…`);
+    const result = runGuard(process.cwd(), message);
     if (process.argv[2] && text(readFileSync(process.argv[2]), 'commit message') !== message) {
       throw new Error('Commit message changed during review; retry the commit.');
     }
-    console.error('Confidentiality review passed.');
+    console.error(result.reviewed ? 'Confidentiality review passed.'
+      : 'Model confidentiality review skipped (explicit off); deterministic artifact checks passed.');
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }

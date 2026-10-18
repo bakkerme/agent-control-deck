@@ -24,7 +24,7 @@ Use Node 24+ and npm; commit `package-lock.json`. `npm ci` installs Electron and
 - Scope external IDs and workspace paths to a source. Support Windows/WSL aliases without merging by folder basename.
 - Keep demo storage isolated. Never reset a failed/newer database; preserve migration backups.
 - Keep `node_modules/`, output, release artifacts, databases, virtual environments, secrets, and credentials out of Git.
-- Review changes for employer/customer information before staging: replace real examples, transcripts, internal identifiers and organization-specific configuration with synthetic equivalents. Keep the local commit confidentiality hook enabled (`npm run guard:install`); fix blocked findings rather than bypassing the hook.
+- Review changes for employer/customer information before staging: replace real examples, transcripts, internal identifiers and organization-specific configuration with synthetic equivalents. On work machines, keep the model commit confidentiality review enabled (`npm run guard:install`); fix blocked findings rather than bypassing it. The owner explicitly permits personal/cloud tasks to commit, push and open PRs without model confidentiality review: select `npm run guard:install -- --reviewer off` locally or `COMMIT_GUARD_REVIEWER=off` for the task. Review remains enabled by default; never infer the exception from CI or silently fall back on reviewer errors. Keep deterministic artifact checks and ordinary verification enabled, and report skipped review as skipped, not passed. See docs/commit-confidentiality.md for scope and setup.
 
 ## Verification
 

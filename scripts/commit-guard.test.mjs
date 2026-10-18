@@ -116,16 +116,76 @@ test('missing Codex fails closed', () => {
   finally { process.env.PATH = previous; }
 });
 
+test('explicit off skips model review but still rejects risky and unsupported artifacts', t => {
+  for (const [name, content] of [['sample.txt', 'synthetic'], ['.env.local', 'synthetic'],
+    ['worker.log', 'synthetic'], ['binary.txt', Buffer.from([0, 1])]]) {
+    const { cwd, stage, git } = repository(t);
+    git('config', '--local', 'commitGuard.reviewer', 'off');
+    stage(name, content);
+    const run = () => runGuard(cwd, 'Synthetic change', () => assert.fail('off must not invoke a reviewer'));
+    if (name === 'sample.txt') assert.deepEqual(run(), { reviewed: false });
+    else assert.throws(run, /runtime data|cannot be reviewed/);
+  }
+});
+
+test('off installer preserves unrelated hooks and commits with an explicit skipped message', t => {
+  const { cwd, stage, git } = repository(t);
+  mkdirSync(join(cwd, 'scripts'));
+  mkdirSync(join(cwd, '.githooks'));
+  for (const name of ['commit-guard.mjs', 'install-commit-guard.mjs', 'commit-guard.desktop.json'])
+    copyFileSync(resolve('scripts', name), join(cwd, 'scripts', name));
+  copyFileSync(resolve('.githooks/commit-msg'), join(cwd, '.githooks/commit-msg'));
+  mkdirSync(join(cwd, '.claude'));
+  const unrelated = { type: 'command', command: 'synthetic-other-hook' };
+  writeFileSync(join(cwd, '.claude/settings.local.json'), JSON.stringify({ permissions: { deny: ['synthetic'] },
+    hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [unrelated] }] } }));
+  const install = reviewer => spawnSync(process.execPath, ['scripts/install-commit-guard.mjs', '--reviewer', reviewer], { cwd, encoding: 'utf8' });
+  assert.equal(install('desktop').status, 0);
+  const enabled = readFileSync(join(cwd, '.git/hooks/commit-msg'), 'utf8');
+  writeFileSync(join(cwd, '.git/hooks/pre-push'), 'synthetic other hook');
+  const off = install('off');
+  assert.equal(off.status, 0, off.stderr);
+  assert.match(off.stdout, /explicitly off/);
+  assert.equal(git('config', '--local', '--get', 'commitGuard.reviewer'), 'off');
+  assert.equal(readFileSync(join(cwd, '.git/hooks/commit-msg'), 'utf8'), enabled);
+  assert.equal(readFileSync(join(cwd, '.git/hooks/pre-push'), 'utf8'), 'synthetic other hook');
+  const settings = JSON.parse(readFileSync(join(cwd, '.claude/settings.local.json'), 'utf8'));
+  assert.deepEqual(settings.permissions, { deny: ['synthetic'] });
+  assert.deepEqual(settings.hooks.PreToolUse, [{ matcher: 'Bash', hooks: [unrelated] }]);
+  stage('sample.txt', 'synthetic');
+  const commit = spawnSync('git', ['commit', '-qm', 'Synthetic cloud change'], { cwd, encoding: 'utf8' });
+  assert.equal(commit.status, 0, commit.stderr);
+  assert.match(commit.stderr, /review skipped.*deterministic artifact checks passed/);
+  assert.ok(!commit.stderr.includes('Confidentiality review passed'));
+  stage('.env.local', 'synthetic');
+  assert.notEqual(spawnSync('git', ['commit', '-qm', 'Reject artifact'], { cwd }).status, 0);
+  assert.notEqual(install('typo').status, 0);
+  assert.equal(git('config', '--local', '--get', 'commitGuard.reviewer'), 'off');
+  assert.equal(install('codex').status, 0);
+  assert.equal(git('config', '--local', '--get', 'commitGuard.reviewer'), 'codex');
+});
+
 test('reviewer selection defaults to Desktop, is local, and never silently falls back', t => {
   const { cwd, git } = repository(t);
   const previous = process.env.COMMIT_GUARD_REVIEWER;
   delete process.env.COMMIT_GUARD_REVIEWER;
   try {
     assert.equal(selectedReviewer(cwd), 'desktop');
+    const ci = spawnSync(process.execPath, ['--input-type=module', '-e',
+      `import { selectedReviewer } from ${JSON.stringify(new URL('./commit-guard.mjs', import.meta.url).href)}; console.log(selectedReviewer(process.cwd()));`],
+      { cwd, encoding: 'utf8', env: { ...process.env, CI: 'true' } });
+    assert.equal(ci.status, 0, ci.stderr);
+    assert.equal(ci.stdout.trim(), 'desktop');
     git('config', 'commitGuard.reviewer', 'codex');
     assert.equal(selectedReviewer(cwd), 'codex');
     process.env.COMMIT_GUARD_REVIEWER = 'claude';
     assert.equal(selectedReviewer(cwd), 'claude');
+    process.env.COMMIT_GUARD_REVIEWER = 'off';
+    assert.equal(selectedReviewer(cwd), 'off');
+    git('config', 'commitGuard.reviewer', 'other');
+    assert.deepEqual(runGuard(cwd, 'Synthetic explicit override'), { reviewed: false });
+    delete process.env.COMMIT_GUARD_REVIEWER;
+    assert.throws(() => runGuard(cwd, 'Synthetic invalid setting'), /Reviewer must be/);
     process.env.COMMIT_GUARD_REVIEWER = 'other';
     assert.throws(() => selectedReviewer(cwd), /Reviewer must be/);
   } finally {

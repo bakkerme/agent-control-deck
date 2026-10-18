@@ -1,5 +1,50 @@
 # Commit confidentiality review
 
+Model review is required on work machines and enabled by default. The owner
+explicitly permits personal/cloud tasks to commit, push and open pull requests
+without model confidentiality review. This exception does not permit secrets,
+employer/customer data or runtime artifacts in the repository.
+
+## Explicit personal/cloud opt-out
+
+For an owner-approved personal/cloud checkout, install the same Git gate with
+model review explicitly off:
+
+```sh
+npm run guard:install -- --reviewer off
+```
+
+This writes only repository-local `commitGuard.reviewer=off`; it does not change
+global Git settings. Linked worktrees share that local setting, so use a separate
+clone or a task-scoped `COMMIT_GUARD_REVIEWER=off` environment override when other
+worktrees need review. The installer removes only this guard's native Desktop
+review hook, preserving unrelated hooks. Existing different Git commit hooks
+still require manual integration; they are never overwritten.
+
+The environment override affects the Git gate only. If the native Desktop
+review hook was installed previously, it still runs in that Desktop session;
+use the off installer and restart the Code session to remove that hook.
+
+The Git gate still checks staged artifacts, content encoding, supported file
+types and size limits. Known runtime/credential-file names remain rejected.
+These deterministic checks are not a secret scanner or a model confidentiality
+review: ordinary text can still contain secrets or private information. Output
+explicitly says model review was **skipped**, never passed. Ordinary build/tests
+remain required. No CLI, model account or Desktop approval is needed in off mode.
+
+New cloud clones must opt in during setup after `npm ci`, using the install
+command above (or install the gate and explicitly set the task environment
+override). A setup script that currently installs a reviewer should change that
+one command to `npm run guard:install -- --reviewer off` for approved cloud
+checkouts. There is no automatic detection of cloud or generic `CI` variables.
+
+Restore review using `npm run guard:install -- --reviewer desktop`, `codex` or
+`claude`, and remove any task environment override. Missing reviewers, auth,
+network access, invalid results and timeouts continue to block in enabled modes;
+they never trigger the exception. Unknown reviewer values also block.
+
+## Work-machine review
+
 For Claude Code in the Windows Claude Desktop app, install the native session
 review and Git gate:
 
@@ -86,7 +131,7 @@ commits. The installer removes its native Desktop hook when switching to a CLI
 reviewer, preserving unrelated hooks.
 
 The selection is local Git configuration (`commitGuard.reviewer`), overridden
-by `COMMIT_GUARD_REVIEWER=desktop|claude|codex`; there is no automatic provider
+by `COMMIT_GUARD_REVIEWER=desktop|claude|codex|off`; there is no automatic provider
 fallback. `COMMIT_GUARD_MODEL` selects a model for CLI modes only.
 `CODEX_COMMIT_GUARD_MODEL` also remains supported for Codex. To review the index
 without committing in CLI modes, use `npm run guard:review`. Desktop mode obtains
