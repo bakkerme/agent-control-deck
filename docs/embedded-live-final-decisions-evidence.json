@@ -1,0 +1,169 @@
+{
+  "mode": "live-sdk-openrouter-native-app",
+  "model": "deepseek/deepseek-v4.1-flash-1017",
+  "outcome": "passed",
+  "cases": [
+    {
+      "duplicateSuppressed": true,
+      "tool": "text",
+      "effect": null,
+      "termination": null,
+      "result": "passed",
+      "actualSdkProcessesExited": true
+    },
+    {
+      "duplicateSuppressed": false,
+      "tool": "text",
+      "effect": null,
+      "termination": null,
+      "result": "passed",
+      "actualSdkProcessesExited": true
+    },
+    {
+      "duplicateSuppressed": false,
+      "tool": "Bash",
+      "effect": "pre",
+      "termination": "cancel",
+      "result": "passed",
+      "actualSdkProcessesExited": true
+    }
+  ],
+  "batches": [
+    {
+      "scenario": "duplicate-reconnect",
+      "accountingProof": {
+        "usageBefore": 0.004026726,
+        "usageAfter": 0.004515726,
+        "matchedChargeUsd": 0.000489
+      },
+      "gate": {
+        "forwarded": 1,
+        "rejected": 0,
+        "denialReasons": {},
+        "queries": 1,
+        "reservedUsd": 0.8,
+        "inFlight": 0,
+        "inputTokens": 3136,
+        "outputTokens": 31,
+        "incompleteResponses": 0,
+        "receipts": [
+          {
+            "complete": false,
+            "inputTokens": 3136,
+            "outputTokens": 31,
+            "cacheTokens": 0,
+            "usageEvidence": {
+              "inputObserved": true,
+              "outputObserved": true,
+              "messageStopped": true,
+              "usageIssues": [
+                "counter-cache_read_input_tokens",
+                "counter-cache_creation_input_tokens"
+              ]
+            }
+          }
+        ]
+      },
+      "retainedLiabilityUsd": 0.01,
+      "committedUsd": 19.964026726,
+      "observedAccountingUsage": 0.004026726
+    },
+    {
+      "scenario": "restart-resume",
+      "accountingProof": {
+        "usageBefore": 0.004515726,
+        "usageAfter": 0.004588524,
+        "matchedChargeUsd": 7.2798e-05
+      },
+      "gate": {
+        "forwarded": 1,
+        "rejected": 0,
+        "denialReasons": {},
+        "queries": 1,
+        "reservedUsd": 0.8,
+        "inFlight": 0,
+        "inputTokens": 409,
+        "outputTokens": 5,
+        "incompleteResponses": 0,
+        "receipts": [
+          {
+            "complete": false,
+            "inputTokens": 409,
+            "outputTokens": 5,
+            "cacheTokens": 2816,
+            "usageEvidence": {
+              "inputObserved": true,
+              "outputObserved": true,
+              "messageStopped": true,
+              "usageIssues": [
+                "counter-cache_read_input_tokens",
+                "counter-cache_creation_input_tokens"
+              ]
+            }
+          }
+        ]
+      },
+      "retainedLiabilityUsd": 0.01,
+      "committedUsd": 19.974515726000003,
+      "observedAccountingUsage": 0.004515726
+    },
+    {
+      "scenario": "cancel-before-effect",
+      "gate": {
+        "forwarded": 1,
+        "rejected": 0,
+        "denialReasons": {},
+        "queries": 1,
+        "reservedUsd": 0.8,
+        "inFlight": 0,
+        "inputTokens": 501,
+        "outputTokens": 280,
+        "incompleteResponses": 0,
+        "receipts": [
+          {
+            "complete": false,
+            "inputTokens": 501,
+            "outputTokens": 280,
+            "cacheTokens": 2816,
+            "usageEvidence": {
+              "inputObserved": true,
+              "outputObserved": true,
+              "messageStopped": true,
+              "usageIssues": [
+                "counter-cache_read_input_tokens",
+                "counter-cache_creation_input_tokens"
+              ]
+            }
+          }
+        ]
+      },
+      "retainedLiabilityUsd": 1.6,
+      "committedUsd": 19.984588524,
+      "observedAccountingUsage": 0.004588524
+    }
+  ],
+  "cleanup": "All tracked processes exited or zombie awaiting PID1 reaping; no tracked live processes",
+  "accountingAfter": {
+    "usage": 0.004588524,
+    "remaining": 19.995411476,
+    "limit": 20,
+    "acceptedUsageWatermark": 0.004588524
+  },
+  "outerGuardian": {
+    "outcome": "passed",
+    "externalGuardianCleanup": true,
+    "paidCalls": "See durable reservation and live summary"
+  },
+  "budget": {
+    "capUsd": 20,
+    "historicalReserveUsd": 16.25,
+    "completedPriorLiabilityUsd": 0.11,
+    "headroomUsd": 2,
+    "perForwardReserveUsd": 0.8,
+    "perCaseReserveUsd": 1.6,
+    "maximumAdmissionCommitmentUsd": 19.984588524,
+    "cancelLiabilityUsd": 1.6,
+    "completedFinalLiabilityUsd": 0.13,
+    "note": "Observed usage is lagging; final cancellation charge is not reconciled. Reserves are liabilities, not measured spend."
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "mode": "live-sdk-openrouter-native-app",
+  "model": "deepseek/deepseek-v4.1-flash-1017",
+  "outcome": "failed",
+  "failure": "SDK turn failed; no automatic retry\n\n'error' !== 'idle'\n",
+  "cases": [],
+  "batches": [],
+  "gate": {
+    "forwarded": 1,
+    "rejected": 1,
+    "queries": 1,
+    "reservedUsd": 0.8,
+    "inFlight": 0,
+    "inputTokens": 3159,
+    "outputTokens": 79,
+    "incompleteResponses": 0,
+    "receipts": [
+      {
+        "complete": false,
+        "inputTokens": 3159,
+        "outputTokens": 79,
+        "cacheTokens": 0
+      }
+    ]
+  },
+  "cleanup": "All tracked processes exited or zombie awaiting PID1 reaping; no tracked live processes",
+  "accountingAfter": {
+    "usage": 0.001513032,
+    "remaining": 19.998486968,
+    "limit": 20
+  },
+  "laterAccounting": {
+    "checkedAt": "2026-10-18T23:32:21.986Z",
+    "usage": 0.002034282,
+    "remaining": 19.997965718,
+    "limit": 20
+  },
+  "admissionUsage": 0.001513032,
+  "observedCumulativeUsageIncreaseUsd": 0.00052125,
+  "finding": "Actual SDK appends system message after tool result; gate rejected continuation. Synthetic actual-SDK reproduction fixed without paid calls."
+}
