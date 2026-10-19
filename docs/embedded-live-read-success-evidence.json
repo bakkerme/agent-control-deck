@@ -1,0 +1,55 @@
+{
+  "mode": "live-sdk-openrouter-native-app",
+  "model": "deepseek/deepseek-v4.1-flash-1017",
+  "outcome": "failed",
+  "failure": "Incomplete provider usage; retain full batch reservation",
+  "cases": [
+    {
+      "duplicateSuppressed": false,
+      "tool": "Read",
+      "effect": null,
+      "termination": null,
+      "result": "passed",
+      "actualSdkProcessesExited": true
+    }
+  ],
+  "gate": {
+    "forwarded": 2,
+    "rejected": 0,
+    "denialReasons": {},
+    "queries": 1,
+    "reservedUsd": 1.6,
+    "inFlight": 0,
+    "inputTokens": 3654,
+    "outputTokens": 102,
+    "incompleteResponses": 0,
+    "receipts": [
+      {
+        "complete": false,
+        "inputTokens": 3161,
+        "outputTokens": 87,
+        "cacheTokens": 0
+      },
+      {
+        "complete": false,
+        "inputTokens": 493,
+        "outputTokens": 15,
+        "cacheTokens": 2816
+      }
+    ]
+  },
+  "cleanup": "All tracked processes exited or zombie awaiting PID1 reaping; no tracked live processes",
+  "accountingAfter": {
+    "usage": 0.002034282,
+    "remaining": 19.997965718,
+    "limit": 20
+  },
+  "laterAccounting": {
+    "checkedAt": "2026-10-18T23:37:09.714Z",
+    "usage": 0.00265203,
+    "remaining": 19.99734797,
+    "limit": 20
+  },
+  "admissionUsage": 0.002034282,
+  "observedCumulativeUsageIncreaseUsd": 0.000617748
+}

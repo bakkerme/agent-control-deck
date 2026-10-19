@@ -10,7 +10,7 @@ const summaryFile=resolve('test-results/outer-acceptance-summary.json');
 mkdirSync(resolve('test-results'),{recursive:true});
 writeFileSync(summaryFile,JSON.stringify({outcome:'not-completed',externalGuardianCleanup:false,paidCalls:live?'unknown; retain durable reservation':0}));
 if (process.platform !== 'linux') throw new Error('External acceptance guardian requires Linux');
-if (live && !process.argv.includes('--small-batch')) throw new Error('Live requires bounded small-batch admission');
+if (live && !process.argv.includes('--small-batch') && !process.argv.includes('--decisions')) throw new Error('Live requires bounded small-batch admission');
 const args = process.argv.slice(2);
 if (!args.length) throw new Error('Pass the prepared coordinator and synthetic test arguments');
 const helper = resolve('out/sdk-supervisor'), manifest = JSON.parse(readFileSync(helper+'.json','utf8'));
