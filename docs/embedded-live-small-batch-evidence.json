@@ -1,0 +1,65 @@
+{
+  "mode": "live-sdk-openrouter-native-app",
+  "model": "deepseek/deepseek-v4.1-flash-1017",
+  "outcome": "passed",
+  "cases": [
+    {
+      "tool": "text",
+      "effect": null,
+      "termination": null,
+      "result": "passed",
+      "actualSdkProcessesExited": true
+    },
+    {
+      "tool": "text",
+      "effect": null,
+      "termination": null,
+      "result": "passed",
+      "actualSdkProcessesExited": true
+    },
+    {
+      "scenario": "isolated-task-sessions",
+      "distinctSessionIds": true,
+      "result": "passed"
+    }
+  ],
+  "gate": {
+    "forwarded": 2,
+    "rejected": 0,
+    "queries": 2,
+    "reservedUsd": 1.6,
+    "inFlight": 0,
+    "inputTokens": 872,
+    "outputTokens": 56,
+    "incompleteResponses": 0
+  },
+  "cleanup": "All tracked processes exited or zombie awaiting PID1 reaping; no tracked live processes",
+  "accountingAfter": {
+    "usage": 0.001348632,
+    "remaining": 19.998651368,
+    "limit": 20
+  },
+  "admission": {
+    "checkedAt": "2026-10-18T22:53:45.479Z",
+    "usage": 0.001348632,
+    "remaining": 19.998651368,
+    "limit": 20,
+    "historicalReserveUsd": 16.25,
+    "batchUsd": 1.6,
+    "headroomUsd": 2,
+    "committedUsd": 19.851348632,
+    "allEndpointClampedMaximumUsd": 0.528457728
+  },
+  "catalogFullBoundUsd": 0.7927234559999999,
+  "selectedEndpointFullBoundUsd": 0.7927234559999999,
+  "outerGuardianCleanupObserved": true,
+  "providerRouting": "DeepSeek-only requested; provider identity not independently observed. Budget bounds all listed endpoints.",
+  "costConclusion": "Accounting may lag; retain full $1.60 reservation. No additional inference admitted.",
+  "laterAccounting": {
+    "checkedAt": "2026-10-18T22:56:43.581Z",
+    "usage": 0.001513032,
+    "remaining": 19.998486968,
+    "limit": 20
+  },
+  "observedCumulativeUsageIncreaseUsd": 0.0001644
+}

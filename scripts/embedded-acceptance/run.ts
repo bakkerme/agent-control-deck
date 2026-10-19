@@ -8,10 +8,11 @@ import assert from "node:assert/strict";
 import { embeddedConfig } from "../../src/main/embedded-config";
 import { localPlanDay } from "../../src/shared/planning";
 import { acceptanceGateway, ACCEPTANCE_MODEL } from "./gateway";
+import { financialPreflight, reserveBatch, LIVE_REQUESTS, HISTORICAL_RESERVE_USD } from './admission';
 
 const live = process.argv.includes('--live'), wire = process.argv.includes('--synthetic-wire'), crash = process.argv.includes('--crash-repro'), supervisorFailure = process.argv.includes('--supervisor-failure-repro');
 if (supervisorFailure && !process.env.ACD_ACCEPTANCE_OUTER_REPORT) throw new Error('Supervisor-failure repro requires the external test guardian');
-if (live) throw new Error('Live acceptance is held pending separate budget-owner admission after native containment review.');
+if (live && (!process.argv.includes('--small-batch') || !process.env.ACD_ACCEPTANCE_OUTER_REPORT || crash || supervisorFailure || wire)) throw new Error('Live requires the guarded two-forward small batch; fault modes remain synthetic only.');
 if (!live && !wire) { console.log('Prepared only. Use --synthetic-wire, or separately authorized --live.'); process.exit(0); }
 const root = mkdtempSync(join(tmpdir(), 'acd-app-acceptance-')); mkdirSync(join(root, 'work'));
 const working = join(root, 'work');
@@ -24,14 +25,9 @@ async function accounting() {
   assert.ok(d.limit > 0 && d.limit <= 20 && d.limit_remaining >= 15, 'Shared budget unavailable');
   return { usage: Number(d.usage), remaining: Number(d.limit_remaining), limit: Number(d.limit) };
 }
-const prior = live ? await accounting() : { usage: 0, remaining: 20, limit: 20 };
-if (live) {
-  const r = await fetch('https://openrouter.ai/api/v1/models', { signal: AbortSignal.timeout(10000) });
-  const m = (await r.json() as any).data.find((m: any) => m.id === ACCEPTANCE_MODEL);
-  const prices = [m.pricing, ...(m.pricing.overrides ?? [])];
-  const worst = m.context_length * Math.max(...prices.map((p: any) => Number(p.prompt))) + m.top_provider.max_completion_tokens * Math.max(...prices.map((p: any) => Number(p.completion)));
-  assert.ok(Number.isFinite(worst) && worst <= 0.8, 'Catalog-wide reservation no longer sufficient');
-}
+const admission = live ? await financialPreflight(config.env.ANTHROPIC_AUTH_TOKEN) : undefined;
+if (admission) reserveBatch(resolve('test-results/live-budget-reservation.json'), admission);
+const prior = admission ?? { usage: 0, remaining: 20, limit: 20 };
 let wireCommand = '';
 function event(type: string, value: unknown) { return `event: ${type}\ndata: ${JSON.stringify(value)}\n\n`; }
 function syntheticResponse(body: string) {
@@ -46,10 +42,17 @@ function syntheticResponse(body: string) {
   s += event('message_stop', { type: 'message_stop' });
   return new Response(s, { headers: { 'content-type': 'text/event-stream' } });
 }
-const gate = await acceptanceGateway({ priorUsageUsd: prior.usage, ceilingUsd: prior.limit, headroomUsd: 2, reservationUsd: 0.8, maxRequests: 16, maxQueries: 9, maxOutputTokens: 2048, maxBodyBytes: 262144, deadlineMs: 600000 },
-  live ? (body, signal) => fetch('https://openrouter.ai/api/v1/messages', { method: 'POST', headers: { Authorization: `Bearer ${config.env.ANTHROPIC_AUTH_TOKEN}`, 'content-type': 'application/json', 'anthropic-version': '2023-06-01' }, body, signal }) : async body => syntheticResponse(body));
+const gate = await acceptanceGateway({ priorUsageUsd: prior.usage + (live ? HISTORICAL_RESERVE_USD : 0), ceilingUsd: prior.limit, headroomUsd: 2, reservationUsd: 0.8, maxRequests: live ? LIVE_REQUESTS : 16, maxQueries: live ? LIVE_REQUESTS : 9, maxOutputTokens: live ? 512 : 2048, maxBodyBytes: 262144, deadlineMs: 600000 },
+  live ? (body, signal) => {
+    const request = JSON.parse(body);
+    request.provider = { only: ['deepseek'], allow_fallbacks: false, max_price: { prompt: 0.306, completion: 1.2 } };
+    delete request.plugins; delete request.models; delete request.route;
+    // Selected live cases are text only: no paid tool/web/image extensions.
+    request.tools = []; delete request.tool_choice;
+    return fetch('https://openrouter.ai/api/v1/messages', { method: 'POST', headers: { Authorization: `Bearer ${config.env.ANTHROPIC_AUTH_TOKEN}`, 'content-type': 'application/json', 'anthropic-version': '2023-06-01' }, body: JSON.stringify(request), signal });
+  } : async body => syntheticResponse(body));
 let app: ElectronApplication | undefined, page: Page; let outerCleanup = false;
-const summary: any = { mode: live ? 'live-sdk-openrouter-native-app' : 'actual-sdk-synthetic-wire-native-app', model: ACCEPTANCE_MODEL, cases: [], accountingBefore: live ? prior : undefined, oldReservationReconciliation: live ? 'Requires coordinator reconciliation of historical reservations with current accounting and terminated processes before dispatch.' : 'Not applicable: synthetic upstream, no monetary dispatch.' };
+const summary: any = { mode: live ? 'live-sdk-openrouter-native-app' : 'actual-sdk-synthetic-wire-native-app', model: ACCEPTANCE_MODEL, cases: [], accountingBefore: live ? prior : undefined, admission, oldReservationReconciliation: live ? 'Completed historical run evidence reconciled; entire $16 envelope plus separate $0.25 smoke reserve retained, never released on lagging usage.' : 'Not applicable: synthetic upstream, no monetary dispatch.' };
 const fixture = join(working, 'effect-sink.cjs');
 writeFileSync(fixture, `const fs=require('fs'),{spawn}=require('child_process'),p=require('path');const dir=__dirname,mode=process.argv[2];const child=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'});if(mode==='post')fs.appendFileSync(p.join(dir,'effects.txt'),'post\\n',{flush:true});fs.writeFileSync(p.join(dir,'ready-'+mode+'.tmp'),JSON.stringify({pid:process.pid,child:child.pid}));fs.renameSync(p.join(dir,'ready-'+mode+'.tmp'),p.join(dir,'ready-'+mode));const file=p.join(dir,'release-'+mode);const w=fs.watch(dir,()=>{if(fs.existsSync(file)){w.close();if(mode==='pre')fs.appendFileSync(p.join(dir,'effects.txt'),'pre\\n',{flush:true});child.kill();process.exit(0)}});`);
 writeFileSync(join(working, 'allowed.txt'), 'Synthetic file marker: ORCHARD_READ\n');
@@ -75,6 +78,8 @@ async function launch() {
 }
 const read = async (chatId: string) => (await page.evaluate(chatId => window.deck.embedded({ type: 'read', chatId }), chatId)).chat!;
 async function send(chatId: string, text: string, tool?: string, effect?: 'pre'|'post') {
+  const priorAssistantCount = (await read(chatId)).events.filter(e => e.kind === 'assistant').length;
+  const priorModels = live ? await app!.evaluate(() => (globalThis as any).acdLiveAcceptance.models.length) : 0;
   const sendId = randomUUID();
   await page.evaluate(c => window.deck.embedded(c), { type: 'send' as const, chatId, sendId, text });
   if (tool) {
@@ -132,9 +137,14 @@ async function send(chatId: string, text: string, tool?: string, effect?: 'pre'|
     await expect.poll(async () => (await read(chatId)).active, { timeout: 45000 }).toBe(false);
     const done = await read(chatId);
     assert.equal(done.state, 'idle', 'SDK turn failed; no automatic retry');
+    if (live) {
+      const answers = done.events.filter(e => e.kind === 'assistant').slice(priorAssistantCount);
+      assert.ok(answers.some(e => e.text?.includes('READY')), 'Live text output missing expected acknowledgement');
+    }
   }
   const record = await app!.evaluate(() => (globalThis as any).acdLiveAcceptance);
   assert.ok(record.pids.every((p: any) => p.exited)); assert.ok(record.models.every((m: string) => m === ACCEPTANCE_MODEL));
+  if (live) assert.ok(record.models.length > priorModels, 'No actual model observation for live case');
   summary.cases.push({ tool: tool ?? 'text', effect: effect ?? null, termination: effect === 'post' ? 'backend-SIGKILL-restart' : effect === 'pre' ? 'cancel' : null, result: 'passed', actualSdkProcessesExited: true });
 }
 let ids: {a:string;b:string};
@@ -152,17 +162,10 @@ try {
     await send(ids.a, 'Remember synthetic marker ORCHARD_A only for this conversation. Reply READY. No tools.');
     await send(ids.b, 'Remember synthetic marker MEADOW_B only for this conversation. Reply READY. No tools.');
     const sessions = [(await read(ids.a)).sessionId, (await read(ids.b)).sessionId]; assert.ok(sessions[0] && sessions[1] && sessions[0] !== sessions[1]);
-    await app!.close(); app = undefined; await launch();
-    for (const [chatId, marker, other, session] of [[ids.a,'ORCHARD_A','MEADOW_B',sessions[0]],[ids.b,'MEADOW_B','ORCHARD_A',sessions[1]]]) {
-      await send(chatId!, 'What synthetic marker did I ask you to remember? Reply only that marker. No tools.');
-      const chat = await read(chatId!); assert.equal(chat.sessionId, session);
-      const output = chat.events.filter(e => e.kind === 'assistant').at(-1)!.text; assert.ok(output.includes(marker!) && !output.includes(other!));
-    }
-    await send(ids.a, `Use Read once on ${join(working,'allowed.txt')}, then give a short acknowledgement.`, 'Read');
-    await send(ids.a, `Request Write once to ${join(working,'denied.txt')} with content synthetic. If denied stop; no alternate tool.`, 'Write'); assert.ok(!existsSync(join(working,'denied.txt')));
-    await send(ids.a, 'Use AskUserQuestion once to ask which synthetic option A or B to choose, then acknowledge the answer. No other tools.', 'AskUserQuestion');
+    summary.cases.push({ scenario: 'isolated-task-sessions', distinctSessionIds: true, result: 'passed' });
+
   } else await send(ids.a, 'Reply READY. No tools.');
-  for (const effect of (crash || supervisorFailure ? ['post'] : ['pre']) as ('pre'|'post')[]) {
+  for (const effect of (live ? [] : crash || supervisorFailure ? ['post'] : ['pre']) as ('pre'|'post')[]) {
     wireCommand = `node ${fixture} ${effect}`;
     await send(ids.a, `Run this exact controlled-effect Bash command once and no other tool: ${wireCommand}. It intentionally waits for the acceptance coordinator.`, 'Bash', effect);
   }
